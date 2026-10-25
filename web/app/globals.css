@@ -155,3 +155,207 @@
     @apply font-sans;
   }
 }
+/* Agent avatars (components/kairo/agent-avatar.tsx). Each agent acts out its personality in a loop.
+   The default (no animation) is a calm still pose, which is also what reduced-motion users get. */
+.kairo-avatar * {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Trend Follower: a wave flowing forward */
+@keyframes kairo-wave {
+  from {
+    transform: translateX(-32px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+.kairo-wave {
+  animation: kairo-wave 2.4s linear infinite;
+}
+
+/* Contrarian: a crowd drifting one way, one bright dot the other way */
+@keyframes kairo-drift-right {
+  0% {
+    transform: translateX(-26px);
+    opacity: 0;
+  }
+  20%,
+  80% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateX(26px);
+    opacity: 0;
+  }
+}
+@keyframes kairo-drift-left {
+  0% {
+    transform: translateX(26px);
+    opacity: 0;
+  }
+  15%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-26px);
+    opacity: 0;
+  }
+}
+.kairo-drift-right {
+  animation: kairo-drift-right 3.2s linear infinite;
+}
+.kairo-drift-left {
+  animation: kairo-drift-left 3.2s linear infinite;
+}
+
+/* Streak Hunter: three bars rise one after another, then a crosshair locks onto the third */
+@keyframes kairo-bar-1 {
+  0%,
+  4% {
+    transform: scaleY(0.05);
+  }
+  16%,
+  90% {
+    transform: scaleY(1);
+  }
+  98%,
+  100% {
+    transform: scaleY(0.05);
+  }
+}
+@keyframes kairo-bar-2 {
+  0%,
+  18% {
+    transform: scaleY(0.05);
+  }
+  30%,
+  90% {
+    transform: scaleY(1);
+  }
+  98%,
+  100% {
+    transform: scaleY(0.05);
+  }
+}
+@keyframes kairo-bar-3 {
+  0%,
+  32% {
+    transform: scaleY(0.05);
+  }
+  44%,
+  90% {
+    transform: scaleY(1);
+  }
+  98%,
+  100% {
+    transform: scaleY(0.05);
+  }
+}
+@keyframes kairo-lock {
+  0%,
+  46% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+  62% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  90% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  98%,
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+.kairo-bar-1,
+.kairo-bar-2,
+.kairo-bar-3 {
+  transform-origin: bottom !important;
+}
+.kairo-bar-1 {
+  animation: kairo-bar-1 4.4s ease-in-out infinite;
+}
+.kairo-bar-2 {
+  animation: kairo-bar-2 4.4s ease-in-out infinite;
+}
+.kairo-bar-3 {
+  animation: kairo-bar-3 4.4s ease-in-out infinite;
+}
+.kairo-lock {
+  animation: kairo-lock 4.4s ease-out infinite;
+}
+
+/* Coin Flipper: a coin flipping in 3D (squashing to an edge and back, with a little hop) */
+@keyframes kairo-flip {
+  0% {
+    transform: translateY(0) scaleX(1);
+  }
+  25% {
+    transform: translateY(-5px) scaleX(0.04);
+  }
+  50% {
+    transform: translateY(-8px) scaleX(-1);
+  }
+  75% {
+    transform: translateY(-5px) scaleX(0.04);
+  }
+  100% {
+    transform: translateY(0) scaleX(1);
+  }
+}
+.kairo-flip {
+  animation: kairo-flip 2.2s ease-in-out infinite;
+}
+
+/* The ring around an avatar once the agent has made its call */
+@keyframes kairo-ring {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.kairo-ring-on {
+  animation: kairo-ring 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kairo-wave,
+  .kairo-drift-right,
+  .kairo-drift-left,
+  .kairo-bar-1,
+  .kairo-bar-2,
+  .kairo-bar-3,
+  .kairo-lock,
+  .kairo-flip,
+  .kairo-ring-on {
+    animation: none;
+  }
+}
+
+/* The chart panel slides up from the bottom of the phone screen (components/kairo/chart-sheet.tsx). */
+@keyframes kairo-sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.kairo-sheet {
+  animation: kairo-sheet-up 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .kairo-sheet {
+    animation: none;
+  }
+}

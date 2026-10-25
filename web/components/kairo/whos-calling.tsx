@@ -2,13 +2,106 @@
 
 import * as React from "react";
 
-import { AGENTS, type AgentKey } from "@/lib/agents";
+import { AGENTS, type Agent, type AgentKey, type AgentLive } from "@/lib/agents";
+import { formatUsd } from "@/lib/markets";
 import { cn } from "@/lib/utils";
 
-import { AgentBadge } from "./agent-badge";
+import { AgentAvatar } from "./agent-avatar";
+import { CallPill } from "./call-pill";
 import { NotLive, Tile } from "./tile";
 
 type Tab = "agent" | "own";
+
+const DOT = {
+  won: { colour: "oklch(0.8 0.16 155)", label: "won" },
+  lost: { colour: "oklch(0.66 0.2 22)", label: "lost" },
+  refunded: { colour: "transparent", label: "refunded" },
+} as const;
+
+function Stat({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="mt-0.5 font-mono text-[14px] font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function AgentCard({ agent, live, on, onToggle }: { agent: Agent; live?: AgentLive; on: boolean; onToggle: () => void }) {
+  const call = live?.call ?? null;
+  const last5 = live?.last5;
+  return (
+    <div
+      className={cn("rounded-3xl border bg-card p-4 transition-colors", on ? "bg-muted/50" : "border-border")}
+      style={on ? { borderColor: agent.colour } : undefined}
+    >
+      <div className="flex items-center gap-4">
+        <AgentAvatar agent={agent} call={call} size={76} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[12px] text-muted-foreground">Agent {agent.number}</p>
+          <h3 className="truncate text-[17px] font-semibold leading-tight tracking-[-0.01em]">{agent.name}</h3>
+          <p className="mt-0.5 text-[13px] font-medium" style={{ color: agent.colour }}>
+            {agent.tagline}
+          </p>
+        </div>
+      </div>
+
+      {/* the current call */}
+      <div className="mt-4">
+        <CallPill call={call} />
+        <p className="mt-2 text-[13px] italic leading-snug text-muted-foreground">
+          {live?.reason ? <>&ldquo;{live.reason}&rdquo;</> : <span className="not-italic">{agent.how}</span>}
+        </p>
+      </div>
+
+      {/* numbers */}
+      <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border pt-3">
+        <Stat label="Win rate" value={live?.winRate === undefined ? <NotLive className="justify-start text-[12px] font-normal" /> : `${Math.round(live.winRate * 100)}%`} />
+        <Stat
+          label="Profit"
+          value={
+            live?.profit === undefined ? (
+              <NotLive className="justify-start text-[12px] font-normal" />
+            ) : (
+              `${live.profit >= 0 ? "+" : "-"}${formatUsd(Math.abs(live.profit))} USDC`
+            )
+          }
+        />
+        <div className="col-span-2">
+          <p className="text-[11px] text-muted-foreground">Last 5 calls</p>
+          {last5 ? (
+            <ul className="mt-1.5 flex gap-2" aria-label="Last five results, newest first">
+              {last5.map((r, i) => (
+                <li
+                  key={i}
+                  title={DOT[r].label}
+                  aria-label={DOT[r].label}
+                  className="size-3.5 rounded-full border-2"
+                  style={{ background: DOT[r].colour, borderColor: r === "refunded" ? "var(--color-muted-foreground)" : DOT[r].colour }}
+                />
+              ))}
+            </ul>
+          ) : (
+            <NotLive className="mt-1 justify-start text-[12px]" />
+          )}
+        </div>
+      </div>
+
+      <button
+        type="button"
+        aria-pressed={on}
+        onClick={onToggle}
+        className={cn(
+          "mt-4 h-12 w-full rounded-2xl border-2 text-[15px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          on ? "text-background" : "hover:bg-muted/60",
+        )}
+        style={on ? { background: agent.colour, borderColor: agent.colour } : { borderColor: agent.colour, color: agent.colour }}
+      >
+        {on ? "Backing this agent" : "Back this agent"}
+      </button>
+    </div>
+  );
+}
 
 /**
  * "Who's calling?": back one of the four house agents, or make your own call.
@@ -18,19 +111,31 @@ type Tab = "agent" | "own";
 export function WhosCalling({
   backing,
   onBack,
+  live = {},
   index,
   className,
 }: {
   backing: AgentKey | null;
   onBack: (key: AgentKey | null) => void;
+  /** What the contract says about each agent; empty until it is live */
+  live?: Partial<Record<AgentKey, AgentLive>>;
   index: number;
   className?: string;
 }) {
   const [tab, setTab] = React.useState<Tab>("agent");
 
   return (
-    <Tile title="Who's calling?" index={index} className={cn("p-4 sm:p-5", className)}>
-      <div role="tablist" aria-label="Who is calling" className="grid grid-cols-2 gap-1 rounded-full border border-border bg-muted/40 p-1 text-[13px]">
+    <Tile
+      title={
+        <>
+          <span className="lg:hidden">Agent leaderboard</span>
+          <span className="hidden lg:inline">Who&apos;s calling?</span>
+        </>
+      }
+      index={index}
+      className={cn("p-4 sm:p-5", className)}
+    >
+      <div role="tablist" aria-label="Who is calling" className="hidden grid-cols-2 gap-1 lg:grid rounded-full border border-border bg-muted/40 p-1 text-[13px]">
         {(
           [
             ["agent", "Back an agent"],
@@ -56,55 +161,18 @@ export function WhosCalling({
         ))}
       </div>
 
-      {tab === "agent" ? (
-        <ul className="mt-3 flex flex-col gap-2">
-          {AGENTS.map((agent) => {
-            const on = backing === agent.key;
-            return (
-              <li key={agent.key}>
-                <button
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() => onBack(on ? null : agent.key)}
-                  className={cn(
-                    "flex w-full items-start gap-3 rounded-2xl border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    on ? "bg-muted/60" : "border-border hover:border-foreground/25",
-                  )}
-                  style={on ? { borderColor: agent.colour } : undefined}
-                >
-                  <AgentBadge agent={agent} />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[14px] font-semibold">
-                        Agent {agent.number} · {agent.name}
-                      </span>
-                      <span
-                        className={cn("shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-medium", on ? "text-foreground" : "border-border text-muted-foreground")}
-                        style={on ? { borderColor: agent.colour } : undefined}
-                      >
-                        {on ? "Backing" : "Back"}
-                      </span>
-                    </span>
-                    <span className="mt-1 block text-[12px] leading-snug text-muted-foreground">{agent.how}</span>
-                    <span className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-                      <span className="flex items-center gap-1.5">
-                        Current call: <NotLive className="text-[11px]" />
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        Win rate: <NotLive className="text-[11px]" />
-                      </span>
-                    </span>
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p className="mt-3 rounded-2xl border border-dashed border-border p-4 text-[13px] leading-relaxed text-muted-foreground">
+      <ul className={cn("flex flex-col gap-3 lg:mt-3", tab === "own" && "lg:hidden")}>
+        {AGENTS.map((agent) => (
+          <li key={agent.key}>
+            <AgentCard agent={agent} live={live[agent.key]} on={backing === agent.key} onToggle={() => onBack(backing === agent.key ? null : agent.key)} />
+          </li>
+        ))}
+      </ul>
+      {tab === "own" ? (
+        <p className="mt-3 hidden rounded-2xl lg:block border border-dashed border-border p-4 text-[13px] leading-relaxed text-muted-foreground">
           You pick UP or DOWN yourself in the <span className="font-medium text-foreground">Your call</span> panel.
         </p>
-      )}
+      ) : null}
     </Tile>
   );
 }

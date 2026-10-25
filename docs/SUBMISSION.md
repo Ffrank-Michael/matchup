@@ -145,4 +145,73 @@ Source list: https://reference-data-directory.vercel.app/feeds-arc-mainnet.json.
 
 The main proxies are on phase 1; the secondary proxies on phase 2. We do not know from the list alone what the secondary proxy is for.
 
-Honest limit: these feeds update only when the price moves past the deviation threshold, or after 24 hours. Recent gaps between updates: BTC 3 to 27 minutes, ETH 4 to 270 minutes, SOL 6 to 380 minutes. A 1-hour round settles only if the feed updates after lock and again before the end; otherwise it is refunded with no fee. Expect BTC to settle most hours and ETH and SOL to refund on quiet hours. Say so on the site and in the description.
+Honest limit: these feeds update only when the price moves past the deviation threshold, or after 24 hours. See "Time frames" below for the measured update history and what it means for round lengths. (An earlier note here, "BTC will settle most hours", came from only the last six updates and was wrong; the longer measurement below replaces it.)
+
+## Time frames (owner's request 2026-10-26; plan only, nothing deployed)
+
+The contract already allows any round length from 5 minutes (`MIN_ROUND_LENGTH`; the offset must be less than the round length). So a coin can have several markets, one per time frame; each market is its own `createMarket` call (name like "BTC/USD 1h"). Markets of the same coin share one price feed.
+
+### How often a round would refund on Chainlink (measured, read-only, Arc mainnet, 2026-10-26)
+A round settles with a result only if the feed updates **at least twice inside the round** (start price = first update at or after lock, end price = last update at or before the end; one update means start = end, none means no start price, and both refund with no fee). I took the real update times from the three main proxies and replayed every round on the clock grid. Data: BTC 1,500 updates over 23 days (2 Oct to 25 Oct), ETH 400 updates over 26 days, SOL 400 updates over 16 days. The measuring script was read-only and is not committed.
+
+| Round length | BTC refunds | ETH refunds | SOL refunds |
+|---|---|---|---|
+| 5 min | 96% | 100% | 100% |
+| 15 min | 84% | 98% | 97% |
+| 30 min | 71% | 95% | 92% |
+| 1 hour | 59% | 86% | 78% |
+| 2 hours | 48% | 68% | 52% |
+| 4 hours | 37% | 44% | 23% |
+| 12 hours | 11% | 12% | 3% |
+| 24 hours | 9% | 0% | 0% |
+
+Update rate: BTC about 64 updates a day (median gap 6 minutes, 90% of gaps under 38 minutes, longest 24 hours), ETH about 15 a day (median gap 43 minutes), SOL about 25 a day (median gap 30 minutes). It swings a lot with how much the market moves: the most recent 3 days of BTC alone gave 65% refunds at 15 minutes and 9% at 1 hour. Quiet weekends are worse. This is history, not a promise.
+
+### The mainnet set you asked for, with the real numbers
+| Market | Rounds a day | Would refund | Settled with a result a day |
+|---|---|---|---|
+| BTC 15 min | 96 | 84% | about 15 |
+| BTC 1 hour | 24 | 59% | about 10 |
+| ETH 1 hour | 24 | 86% | about 3 |
+| SOL 1 hour | 24 | 78% | about 5 |
+
+With Chainlink as the source, **most** 15-minute rounds and most ETH and SOL 1-hour rounds would refund, and BTC 1 hour would refund more than half the time. Refunds are safe (no fee, the money comes back), but a product where most calls are refunded is a weak demo. ETH and SOL need longer rounds, as you said; BTC does too, which is more than I told you earlier.
+
+### Recommended mainnet set (needs your decision, D8)
+- **Option A (recommended): BTC 1h, BTC 4h, ETH 4h, SOL 4h.** Refunds 59%, 37%, 44%, 23%. About 42 rounds a day, about 22 of them settle with a result. Honest copy on the site: "Refunded if the price feed does not update during a round."
+- Option B: your set (BTC 15m, BTC 1h, ETH 1h, SOL 1h). Same code, more refunds (see the table). Fine if you accept that.
+- Option C: 12-hour rounds (BTC 11%, ETH 12%, SOL 3% refunds) are reliable, but only 2 rounds a day per coin is too slow for a demo.
+- Option D (a bigger decision, not a default): for short rounds on mainnet, point the market at a price feed pushed by our runner (as on testnet) instead of Chainlink. Every round would settle, but it is not Chainlink and the owner would control the price, which changes the trust story and the "Chainlink on mainnet" requirement. I do not recommend it.
+
+### Daily settling cost on mainnet
+Gas price measured on the mainnet RPC today: 20.0 gwei (gas is paid in USDC). Settle gas is about 158,000 as measured on the mock feed (docs/RULES.md H3); the Chainlink version reads a few more rounds, so I also show 200,000 as the careful figure. Cost per settle: 0.0032 USDC (158k) to 0.0040 USDC (200k). Settling is needed only for rounds that had at least one call. Chainlink pays for its own price updates, so mainnet has no price-push cost.
+
+| Set | Settles a day (worst case: every round had calls) | USDC a day |
+|---|---|---|
+| Your set (15m, 1h, 1h, 1h) | 168 | 0.53 to 0.67 |
+| Option A (1h, 4h, 4h, 4h) | 42 | 0.13 to 0.17 |
+
+Users pay their own gas to call and to claim. Realistically the cost is much lower, because only rounds with a call are settled.
+
+### Testnet: 5, 10 and 30 minute markets for BTC, ETH and SOL (9 markets)
+The test feeds are ours, so every round gets a start and an end price and settles (the refunds above are a Chainlink effect, not a testnet one). Stagger the three coins inside each time frame so the runner is not busy all at once: 5m offsets BTC 0, ETH 100, SOL 200; 10m offsets 0, 180, 360 (as now); 30m offsets 0, 600, 1200. One `MockPriceFeed` per coin, shared by that coin's three markets. Price pushes are then needed twice per 5 minutes per coin (start price at lock + 90 s, end price at end - 30 s, which also serves the longer markets of the same coin): about 72 pushes an hour at about 0.0023 USDC each (25 gwei), so about 0.16 USDC an hour for the deployer. Settles add about 0.004 USDC each for rounds that have calls. Testnet USDC is free from the faucet; the 24.8 USDC deployer balance lasts about 4 days at this rate.
+
+### House agents on mainnet (suggestion)
+- Only the **BTC 1h** market (the most settled rounds of the set), all four agents, stake 0.10 to 0.25 USDC. Gas per agent a day: 24 bets at about 0.0025 plus up to 24 claims at about 0.0016, so about 0.10 USDC; four agents about 0.4 USDC a day, plus the stake floating in open rounds.
+- If gas or time is tight: only Trend Follower and Contrarian on BTC 1h (Contrarian needs a crowd to go against; the other agent and you provide it).
+- No agents on the 4h markets at first (6 rounds a day each is too little to see, with the same refund risk).
+- Mainnet agents need new mainnet Circle wallets. Registering the mainnet Circle entity secret and funding those wallets is done by you, not by me (Circle rule). If that does not fit the schedule it is on the cut list: the testnet agents keep running, and the mainnet demo is your own real call.
+- Testnet agents: keep them on the 10-minute markets for all three coins (as now), plus Trend Follower and Coin Flipper on BTC 5m, so the 9-market site shows activity without paying settle gas on all nine.
+
+### Deploy script plan (nothing deployed yet)
+1. **One market list.** A new `scripts/markets.mjs` holds the named sets (`testnet`: the 9 markets above; `mainnet`: the set chosen in D8) with name, coin, round length and offset. The deploy script, the runner tests and the site's time frame buttons all read from it (through the deployment file), so they cannot disagree.
+2. **Flag change.** `--rounds 10min|1h` is replaced by `--set testnet|mainnet`. Dry run stays the default; `--send` sends. Mainnet additionally requires `--network mainnet` and a typed confirmation, and prints the funds it will spend first.
+3. **Feeds.** Testnet: deploy 3 `MockPriceFeed`s (as now) and reuse each across that coin's markets. Mainnet: deploy no feeds and use the Chainlink proxies in the table above. Before `createMarket` the script reads each feed on chain and stops unless `description()` matches (for example "BTC / USD"), `decimals()` is 8, and `latestRoundData()` is recent (under 24 hours) and above zero.
+4. **Markets.** One `createMarket(name, feed, address(0), roundLength, offset, minStake)` per market, named like "BTC/USD 4h". After sending, read every market back and compare every field (round length, offset, min stake, not paused), as the script does now.
+5. **Deployment file.** Records each market: id, name, coin, round length, offset, feed address. The site builds the time frame buttons from it and shows only the time frames that exist for that coin.
+6. **Runner changes needed before the testnet rehearsal (D1):** read the market list from the chain (already done: it reads round length and offset per market); skip price pushes that would repeat on a shared feed at the same moment; make `lookback` depend on the round length so it covers the one-hour settle window (12 rounds for 5 minutes, 2 for 30 minutes); keep the mainnet runner free of price pushes (settle and agents only).
+7. **Bytecode (D4).** On mainnet the deployed bytecode is compared with the Arc Studio source before and after sending, the same check as for testnet.
+8. **Tests.** The contract is unchanged, so the 239 forge tests still apply. New tests for the market list and the feed check in the deploy script run on GitHub only. Nothing goes to Arc Studio for this.
+
+### Site plan
+A row of time frame buttons on each market card (for example 5m, 15m, 1h), built from the deployment file, showing only the ones that exist on the network the site points at. Selecting one switches the countdown and the call panel to that market. On mainnet the card also shows each market's measured refund history once the contract has any (never a made-up number). Not built yet; it waits on D8.

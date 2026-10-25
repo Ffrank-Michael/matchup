@@ -6,7 +6,7 @@ import type { Agent } from "@/lib/agents";
 import { formatCountdown, ROUND_SECONDS, type Market } from "@/lib/markets";
 import { cn } from "@/lib/utils";
 
-import { AgentBadge } from "./agent-badge";
+import { AgentAvatar } from "./agent-avatar";
 import { INK, NotLive, Tile } from "./tile";
 
 export type Side = "UP" | "DOWN";
@@ -95,7 +95,7 @@ export function YourCall({
 
       {backing ? (
         <div className="mt-4 flex items-center gap-2.5 rounded-2xl p-2 pr-3" style={{ background: "color-mix(in oklch, black 12%, transparent)" }}>
-          <AgentBadge agent={backing} size={32} />
+          <AgentAvatar agent={backing} size={40} />
           <p className="min-w-0 flex-1 text-[12px] leading-snug">
             <span className="font-semibold">
               Backing Agent {backing.number} · {backing.name}
@@ -126,7 +126,7 @@ export function YourCall({
               className="flex h-[88px] flex-col items-center justify-center gap-0.5 rounded-2xl border-2 text-[26px] font-bold tracking-[-0.02em] transition-[background-color,transform] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 motion-reduce:transition-none"
               style={
                 on
-                  ? { background: s === "UP" ? INK : colour, borderColor: s === "UP" ? INK : colour, color: s === "UP" ? "var(--color-up)" : INK }
+                  ? { background: INK, borderColor: INK, color: colour }
                   : { background: "color-mix(in oklch, white 28%, transparent)", borderColor: "color-mix(in oklch, black 20%, transparent)", color: INK }
               }
             >
