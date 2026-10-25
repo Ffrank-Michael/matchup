@@ -9,6 +9,7 @@ import { useNowSeconds } from "@/lib/use-now";
 import { MarketCard } from "./market-card";
 import { PriceChart } from "./price-chart";
 import { Tile } from "./tile";
+import { WalletButton } from "./wallet-button";
 
 // Step C2/C3: market cards on top (live price, last-hour line, countdown to the next lock),
 // the selected market in the middle, Agents and Live calls at the bottom.
@@ -34,14 +35,7 @@ export function KairoHome() {
           <span className="size-2.5 rounded-full bg-up" aria-hidden />
           <span className="text-[17px] font-semibold tracking-[-0.02em]">Kairo Markets</span>
         </div>
-        <button
-          type="button"
-          disabled
-          title="Not working yet"
-          className="cursor-not-allowed rounded-full bg-foreground px-3.5 py-1.5 font-mono text-[12px] font-semibold text-background opacity-60"
-        >
-          Connect wallet
-        </button>
+        <WalletButton />
       </header>
 
       <div className="flex flex-col gap-3">
