@@ -2,5 +2,39 @@
   "network": "ARC-TESTNET",
   "walletSetId": "bae7ef44-7cbc-5945-b33d-4093908375b0",
   "walletSetName": "Kairo house agents",
-  "createdAt": "2026-10-25T15:54:06Z"
+  "createdAt": "2026-10-25T15:54:06Z",
+  "agents": [
+    {
+      "key": "trend-follower",
+      "name": "Kairo Trend follower",
+      "walletId": "88e2ce46-4641-5695-8e3f-1f93f67f95ee",
+      "address": "0x82dbcac9a7cf0d65a74c38170a72331cde2d1ebd",
+      "blockchain": "ARC-TESTNET",
+      "accountType": "EOA"
+    },
+    {
+      "key": "contrarian",
+      "name": "Kairo Contrarian",
+      "walletId": "e8850de8-13df-56da-ad36-e947d07dcf30",
+      "address": "0xc91173462532e737fc76da40545361b243248e7a",
+      "blockchain": "ARC-TESTNET",
+      "accountType": "EOA"
+    },
+    {
+      "key": "streak-hunter",
+      "name": "Kairo Streak hunter",
+      "walletId": "dbf78fde-562a-5c05-84ae-101568e637f5",
+      "address": "0xe4c5d2cb10336c5512d78671ae34741475a047f9",
+      "blockchain": "ARC-TESTNET",
+      "accountType": "EOA"
+    },
+    {
+      "key": "coin-flipper",
+      "name": "Kairo Coin flipper",
+      "walletId": "aaa05f77-51b1-531b-a520-0159771a3935",
+      "address": "0x37c19b6249dc10d9a5581bb17a95cbccfb6334c4",
+      "blockchain": "ARC-TESTNET",
+      "accountType": "EOA"
+    }
+  ]
 }
