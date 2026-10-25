@@ -11,10 +11,15 @@ export const CFG = {
   contrarianCutoff: 30,  // ... and never in the last 30 seconds
 
   // --- when test prices are pushed (the feed owner is the deployer wallet) ---
-  startDelay: 3,         // first price this long after lock: it becomes the START price
+  // About 3 prices per round per market (the website shows the live price straight from the price API).
+  // Fairness: CoinGecko's prices are refreshed about once a minute and are 13 to 89 seconds old when asked
+  // (median 51 s, measured over 20 minutes). The START price must not be a price from before the lock, or
+  // someone watching a live exchange just before lock would know which way it is already leaning.
+  startDelay: 90,        // first try at the START price this long after lock (a new quote is usually ready by then) ...
+  startQuoteMargin: 30,  // ... and CoinGecko's own quote time must be at least this long AFTER the lock, or nothing is pushed (retried every 20 s)
+  midAt: 300,            // one price in the middle of the round
+  midCutoff: 60,         // no mid price in the last minute (plus endMargin) before the end
   endMargin: 30,         // last price this long before the end: it becomes the END price
-  midInterval: 60,       // a price in between every minute, so the feed looks alive
-  midCutoff: 60,         // no mid price in the last minute before the end
 
   // --- settling and claiming ---
   settleWindow: 3600,    // the contract only allows settling for 1 hour after a round ends

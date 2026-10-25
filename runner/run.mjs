@@ -51,8 +51,8 @@ async function tick() {
       const res = await execute(a);
       log(`${LIVE ? 'DONE' : 'WOULD'}: ${text}${res.note ? '\n         ' + res.note : ''}${res.tx ? '\n         tx ' + res.tx : ''}`);
     } catch (e) {
-      // do not hammer a failing action; a failed price push is retried sooner because a new price is due every minute
-      failedUntil.set(text, Date.now() + (a.type === 'pushPrice' ? 30_000 : 5 * 60_000));
+      // do not hammer a failing action; a failed price push is retried sooner (the start price waits for a fresh quote)
+      failedUntil.set(text, Date.now() + (a.type === 'pushPrice' ? 20_000 : 5 * 60_000));
       log(`FAILED: ${text}\n         ${String(e.shortMessage || e.message).slice(0, 300)}`);
     }
   }

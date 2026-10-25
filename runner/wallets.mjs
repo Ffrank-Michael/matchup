@@ -25,6 +25,7 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
   const agentWallets = Object.fromEntries(deployments.circle.agents.map((a) => [a.key, a.walletId]));
   prices ||= createRealPrices({ apiKey: env.COINGECKO_API_KEY || undefined });
   const usd = (p) => '$' + (Number(p) / 1e8).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const quoteText = (q) => (q.quotedAt ? `CoinGecko quote made ${Math.max(0, Math.round(Date.now() / 1000 - q.quotedAt))} s ago (at ${new Date(q.quotedAt * 1000).toISOString().slice(11, 19)} UTC)` : 'CoinGecko quote (no time given)');
   const feedFor = (marketId) => deployments.arena.feeds[['btc', 'eth', 'sol'][marketId]].address;
 
   let circle;
@@ -56,11 +57,15 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
   }
 
   return async function execute(a) {
-    if (!live) return a.type === 'pushPrice' ? { dryRun: true, note: `would push the real price ${usd(await prices.price(a.marketName))} (CoinGecko) to the TEST feed` } : { dryRun: true };
+    if (!live) {
+      if (a.type !== 'pushPrice') return { dryRun: true };
+      const q = await prices.quote(a.marketName, { quotedAfter: a.quotedAfter });
+      return { dryRun: true, note: `would push the real price ${usd(q.price)}, ${quoteText(q)}, to the TEST feed` };
+    }
     switch (a.type) {
       case 'pushPrice': {
-        const price = await prices.price(a.marketName); // throws if the API fails: then nothing is pushed
-        return { tx: await deployerCall(feedFor(a.market), feedAbi, 'setPrice', [price]), note: `real price ${usd(price)} (CoinGecko) pushed to the TEST feed` };
+        const q = await prices.quote(a.marketName, { quotedAfter: a.quotedAfter }); // throws if the API fails or is too old: then nothing is pushed
+        return { tx: await deployerCall(feedFor(a.market), feedAbi, 'setPrice', [q.price]), note: `real price ${usd(q.price)}, ${quoteText(q)}, pushed to the TEST feed` };
       }
       case 'settle': return { tx: await deployerCall(arena, arenaAbi, 'settle', [BigInt(a.market), BigInt(a.round), a.startId, a.endId]) };
       case 'approve': return { tx: await circleCall(a.agent, usdc, 'approve(address,uint256)', [arena, String(a.amount)]) };

@@ -35,10 +35,14 @@ const kinds = (r) => r.actions.map((a) => a.type);
 
 // ---------------------------------------------------------------- the settings fit 10-minute rounds
 
-test('settings: early bets 1 minute after a round opens, contrarian 2 minutes before lock, a price every minute', () => {
+test('settings: early bets 1 minute after a round opens, contrarian 2 minutes before lock, about 3 prices a round', () => {
   assert.equal(CFG.earlyDelay, 60);
   assert.equal(CFG.contrarianLead, 120);
-  assert.equal(CFG.midInterval, 60);
+  assert.equal(CFG.midAt, 300);
+  assert.equal(CFG.endMargin, 30);
+  assert.ok(CFG.startDelay >= 60, 'the start price must wait for the price API to catch up');
+  assert.ok(CFG.startDelay < CFG.midAt);
+  assert.ok(CFG.startQuoteMargin >= 30, 'the start price must come from a quote made well after the lock');
 });
 
 test('settings: the look-back covers the contract\'s whole 1-hour settle window', () => {
@@ -175,11 +179,14 @@ test('each market gets its early bets 1 minute after ITS round opens', () => {
   assert.deepEqual(who(run(6420, decided2)).filter((n) => n === 'SOL/USD'), ['SOL/USD']);       // SOL opened at 6360
 });
 
-test('prices are pushed for every market, each on its own schedule', () => {
-  // BTC round 10 locked at 6000; ETH round 10 locked at 5580+600=6180? (offset 180: lock(10) = 6180)
-  const r = planTick({ now: 6190, markets: three(6190), agents: agents() }, cfg());
-  const pushes = r.actions.filter((a) => a.type === 'pushPrice').map((a) => `${a.marketName}:${a.why}`);
-  assert.ok(pushes.includes('ETH/USD:start price'), pushes.join(', '));
+test('each market gets its start price ${CFG.startDelay} seconds after ITS lock', () => {
+  const startDue = (now, over) => planTick(snap(now, market(now, over)), cfg()).actions.filter((x) => x.type === 'pushPrice' && x.why === 'start price').length;
+  // BTC round 10 locks at 6000, ETH round 10 at 6180, SOL round 10 at 6360 (each has an older price only)
+  const eth = (now) => ({ id: 1, name: 'ETH/USD', startOffset: 180, nextRound: nextAt(now, 180), feed: { updates: [upd(1, 6120, 100)] } });
+  const sol = (now) => ({ id: 2, name: 'SOL/USD', startOffset: 360, nextRound: nextAt(now, 360), feed: { updates: [upd(1, 6300, 100)] } });
+  assert.equal(startDue(6089), 0);          assert.equal(startDue(6090), 1);
+  assert.equal(startDue(6269, eth(6269)), 0); assert.equal(startDue(6270, eth(6270)), 1);
+  assert.equal(startDue(6449, sol(6449)), 0); assert.equal(startDue(6450, sol(6450)), 1);
 });
 
 // ---------------------------------------------------------------- test prices
@@ -187,42 +194,57 @@ test('prices are pushed for every market, each on its own schedule', () => {
 
 const priceAt = (now, updates) => planTick(snap(now, market(now, { feed: { updates } })), cfg()).actions.filter((a) => a.type === 'pushPrice');
 
-test('start price: pushed 3 seconds after lock, once', () => {
-  assert.equal(priceAt(6002, FEED).length, 0);
-  const r = priceAt(6003, FEED);
+test('start price: pushed ' + CFG.startDelay + ' seconds after lock, once, and only from a quote made after the lock', () => {
+  const at = 6000 + CFG.startDelay;
+  assert.equal(priceAt(at - 1, FEED).length, 0);
+  const r = priceAt(at, FEED);
   assert.equal(r.length, 1);
   assert.equal(r[0].why, 'start price');
-  assert.equal(priceAt(6004, [...FEED, upd(5, 6003, 102)]).length, 0); // already pushed
+  assert.equal(r[0].quotedAfter, 6000 + CFG.startQuoteMargin); // the executor refuses a quote older than this
+  assert.equal(priceAt(at + 1, [...FEED, upd(5, at, 102)]).length, 0); // already pushed
 });
 
-test('mid-round price every minute, never in the last 90 seconds', () => {
-  const f = [...FEED, upd(5, 6003, 102)];
-  assert.equal(priceAt(6062, f).length, 0);
-  assert.equal(priceAt(6063, f)[0].why, 'mid-round price');
-  // a minute after the last push, the next one is due
-  const g = [...f, upd(6, 6063, 102.5)];
-  assert.equal(priceAt(6122, g).length, 0);
-  assert.equal(priceAt(6123, g)[0].why, 'mid-round price');
-  // the last mid-round price is allowed until 90 seconds before the end
+test('a start price that is late is still pushed (until the round ends), a price from before lock never counts as pushed', () => {
+  assert.equal(priceAt(6400, FEED)[0].why, 'start price');
+  assert.equal(priceAt(6590, FEED)[0].why, 'start price');
+  assert.equal(priceAt(6600, FEED).length, 0); // next round now; round 10 is over
+});
+
+test('only the start price asks for a fresh quote', () => {
+  const f = [...FEED, upd(5, 6090, 102)];
+  assert.equal(priceAt(6300, f)[0].quotedAfter, undefined);
+  assert.equal(priceAt(6570, f)[0].quotedAfter, undefined);
+});
+
+test('mid-round price: one, at the middle of the round (5 minutes after lock), never in the last 90 seconds', () => {
+  const f = [...FEED, upd(5, 6090, 102)];
+  assert.equal(priceAt(6299, f).length, 0);
+  assert.equal(priceAt(6300, f)[0].why, 'mid-round price');
+  // only one: after it has been pushed there is no second mid-round price
+  const g = [...f, upd(6, 6300, 102.5)];
+  assert.equal(priceAt(6360, g).length, 0);
+  assert.equal(priceAt(6500, g).length, 0);
+  // a late mid-round price (e.g. the price API failed for a while) is allowed until 90 seconds before the end
   assert.equal(priceAt(6509, f)[0].why, 'mid-round price');
   assert.equal(priceAt(6510, f).length, 0);
 });
 
 test('end price: pushed 30 seconds before the end, once', () => {
-  const f = [...FEED, upd(5, 6003, 102)];
+  const f = [...FEED, upd(5, 6090, 102)];
   assert.equal(priceAt(6569, f).length, 0);
   assert.equal(priceAt(6570, f)[0].why, 'end price');
+  assert.equal(priceAt(6570, [...f, upd(6, 6300, 102.5)])[0].why, 'end price');
   assert.equal(priceAt(6571, [...f, upd(6, 6570, 103)]).length, 0);
 });
 
-test('about ten prices go into one 10-minute round (start, mid-round ones, end)', () => {
+test('three prices go into one 10-minute round: start, middle, end', () => {
   let feed = [...FEED];
-  let pushed = 0;
+  const why = [];
   for (let now = 6000; now < 6600; now += 10) {
     const p = priceAt(now, feed);
-    if (p.length) { pushed++; feed = [...feed, upd(100 + pushed, now, 100 + pushed)]; }
+    if (p.length) { why.push(p[0].why); feed = [...feed, upd(100 + why.length, now, 100 + why.length)]; }
   }
-  assert.ok(pushed >= 9 && pushed <= 11, `pushed ${pushed}`);
+  assert.deepEqual(why, ['start price', 'mid-round price', 'end price']);
 });
 
 // ---------------------------------------------------------------- settling
@@ -359,11 +381,14 @@ test('simulation: 8 hours, 3 markets, 5 different seeds, no failed action', () =
   }
 });
 
-test('simulation: each market gets about one price a minute', () => {
+test('simulation: each market gets about 3 prices a round (start, middle, end)', () => {
   const { lines } = simulate({ hours: 2, seed: 4 });
   for (const m of ['BTC/USD', 'ETH/USD', 'SOL/USD']) {
-    const n = lines.filter((l) => l.includes(`Runner ${m} `) && /price:/.test(l)).length;
-    assert.ok(n >= 100 && n <= 130, `${m}: ${n} prices in 2 hours`);
+    const mine = lines.filter((l) => l.includes(`Runner ${m} `) && /price:/.test(l));
+    assert.ok(mine.length >= 33 && mine.length <= 38, `${m}: ${mine.length} prices in 2 hours (12 rounds)`);
+    for (const why of ['start price', 'mid-round price', 'end price']) {
+      assert.ok(mine.filter((l) => l.includes(why)).length >= 11, `${m}: too few ${why}`);
+    }
   }
 });
 

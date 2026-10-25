@@ -53,6 +53,17 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Gas used by each kind of transaction (10-minute round tests)
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '### Gas measurements (units of gas, without the 21,000 base cost of a transaction)'
+            echo '```'
+            grep -E "GASREPORT" test.log || true
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:

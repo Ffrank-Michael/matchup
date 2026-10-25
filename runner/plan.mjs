@@ -101,11 +101,16 @@ export function planTick(snap, cfg, decided = new Set()) {
       const r = k - 1;
       const lockR = lockTime(m, r);
       const endR = endTime(m, r);
+      // Start price: the first update at or after lock. It waits startDelay seconds (the price API can be a
+      // little behind the market) and the executor also checks the API's own quote time is after the lock.
       if (now >= lockR + cfg.startDelay && now < endR && (!latest || latest.updatedAt < lockR)) {
-        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, why: 'start price' });
+        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, why: 'start price', quotedAfter: lockR + cfg.startQuoteMargin });
       } else if (latest && now >= endR - cfg.endMargin && now < endR && latest.updatedAt >= lockR && latest.updatedAt < endR - cfg.endMargin) {
+        // End price: the last update at or before the end.
         actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, why: 'end price' });
-      } else if (latest && latest.updatedAt >= lockR && now >= latest.updatedAt + cfg.midInterval && now < endR - cfg.endMargin - cfg.midCutoff) {
+      } else if (latest && latest.updatedAt >= lockR && latest.updatedAt < lockR + cfg.midAt
+                 && now >= lockR + cfg.midAt && now < endR - cfg.endMargin - cfg.midCutoff) {
+        // One price in the middle of the round.
         actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, why: 'mid-round price' });
       }
     }
