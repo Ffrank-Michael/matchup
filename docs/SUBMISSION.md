@@ -177,7 +177,7 @@ Update rate: BTC about 64 updates a day (median gap 6 minutes, 90% of gaps under
 
 With Chainlink as the source, **most** 15-minute rounds and most ETH and SOL 1-hour rounds would refund, and BTC 1 hour would refund more than half the time. Refunds are safe (no fee, the money comes back), but a product where most calls are refunded is a weak demo. ETH and SOL need longer rounds, as you said; BTC does too, which is more than I told you earlier.
 
-### Recommended mainnet set (needs your decision, D8)
+### Recommended mainnet set (superseded on 2026-10-26 by "Mainnet plan v2" at the end of this file; kept for the record)
 - **Option A (recommended): BTC 1h, BTC 4h, ETH 4h, SOL 4h.** Refunds 59%, 37%, 44%, 23%. About 42 rounds a day, about 22 of them settle with a result. Honest copy on the site: "Refunded if the price feed does not update during a round."
 - Option B: your set (BTC 15m, BTC 1h, ETH 1h, SOL 1h). Same code, more refunds (see the table). Fine if you accept that.
 - Option C: 12-hour rounds (BTC 11%, ETH 12%, SOL 3% refunds) are reliable, but only 2 rounds a day per coin is too slow for a demo.
@@ -215,3 +215,91 @@ The test feeds are ours, so every round gets a start and an end price and settle
 
 ### Site plan
 A row of time frame buttons on each market card (for example 5m, 15m, 1h), built from the deployment file, showing only the ones that exist on the network the site points at. Selecting one switches the countdown and the call panel to that market. On mainnet the card also shows each market's measured refund history once the contract has any (never a made-up number). Not built yet; it waits on D8.
+
+## Mainnet plan v2: guarded relay, 15-minute rounds, pay only when people play (owner's choice 2026-10-26; plan only, nothing built or deployed)
+
+This replaces the "Recommended mainnet set (Option A)" above and settles D8. The owner wants BTC, ETH and SOL on mainnet with 15-minute rounds on a budget of about 10 USDC. Chainlink alone cannot do that (84% to 98% of 15-minute rounds would refund), so the price comes from our runner (Bitfinex last trade, as on testnet) through a relay contract that only accepts a price close to Chainlink's. That is "option D" from above, with a guard.
+
+### 1. The Chainlink-guarded relay feed
+- **New contract `GuardedRelayFeed`** (same `AggregatorV3Interface` as the testnet `MockPriceFeed`, so `PredictionArena` is unchanged). One per coin, shared by nothing else.
+- `setPrice(answer)` can only be called by the **pusher** (the runner's wallet). It reverts unless: the answer is above zero; Chainlink's proxy for that coin (the table above) has an answer above zero that is no more than 26 hours old; and the answer is within the band of Chainlink's latest answer. The timestamp is always `block.timestamp` (no way to backdate), round ids follow Chainlink's phase scheme starting at phase 1, as in the mock.
+- The guard address and the band are **fixed at deploy** (immutable), so even the owner cannot loosen the guard later. The owner can only replace the pusher (two-step ownership, renounce disabled), which is the key-rotation path if the runner key leaks.
+- `description()` says what it is: "Kairo relay BTC / USD: Bitfinex last trade, checked against Chainlink within 1.0%". The site must say the same.
+- **Band, from data.** I compared the Bitfinex price with the Chainlink answer in force for 10,000 minutes (6.9 days) per coin, worst point inside each minute:
+
+| Coin | Median gap | 99% of minutes within | Worst minute | Minutes over 0.5% | over 1% | over 1.5% |
+|---|---|---|---|---|---|---|
+| BTC | 0.15% | 0.34% | 0.80% | 0.09% | 0.00% | 0.00% |
+| ETH | 0.21% | 0.66% | 1.52% | 6.69% | 0.09% | 0.01% |
+| SOL | 0.21% | 0.65% | 1.41% | 6.62% | 0.06% | 0.00% |
+
+  Proposed bands: **BTC 1.0%, ETH 1.5%, SOL 1.5%**. A push outside the band reverts; that round then has no new update and refunds (safe, no fee). In the sample that would have blocked well under 0.1% of minutes. This is one week of history, not a promise: a very fast market could block pushes for a few minutes, and those rounds refund.
+- **What the guard does and does not do (say this on the site and in the description).** It stops a wrong or hacked price far from the real market. It does **not** make the price trustless: the pusher key can still choose any price inside the band, and a 1.0% to 1.5% band is wider than a typical 15-minute move (about 0.3%). So the mainnet trust statement is: "prices are pushed by Kairo from Bitfinex and must stay within 1.0% to 1.5% of Chainlink's on-chain price". That is a real change from rule "owner cannot touch prices"; docs/RULES.md must be updated when this is approved.
+- **Build path.** It is a new contract, so it goes through Arc Studio like the others: use the T5 reserve turn to have Arc Studio write it and run its tests. The extra tests (band edges, stale guard, pusher only, round ids, phase, arena settling against it) and the deliberate-break checks run on GitHub, not in Arc Studio. This uses one of the reserve turns and Arc Studio is still at 100% today, so it competes with T1 (the full test run); see the ledger.
+
+### 2. Pay only when people play: does the contract allow it? Yes. Checked in `PredictionArena.sol`
+- **Empty round:** nothing is stored and nothing needs to happen. `claim` on it reverts "nothing to claim". No cost.
+- **One-sided round that nobody settles:** `claim()` and `claimMany()` call `_claimOne`, which, for an unsettled round after `end + SETTLE_WINDOW` (1 hour), finalises it as a **Timeout refund** and pays back the full stake with **no fee** (`claim`, lines 1154-1163). `markRefunded()` does the same for anyone. `claimable()` already previews it as a refund. So no settle transaction is needed. Existing tests cover the timeout refund (`test_refund_timeout_viaAutoFinalise`, `test_markRefunded_worksAfterWindow`, `test_claimable_timeoutBoundary_exactlyAtDeadline`) and a settled one-sided refund (`test_refund_oneSided_*`), but **not** the exact combination "one-sided, never settled, claimed after the window". I will add that test (GitHub only) before mainnet.
+- **What the user feels:** a one-sided call is refunded no earlier than 1 hour after the round ends, so up to about 1 hour 15 minutes after it locked. The site must show "Refund available at hh:mm" and a Refund button. The first person to claim pays slightly more gas (they finalise the round).
+- **Two-sided round and the runner stops or dies:** if the start price was pushed but no end price, then "last update at or before the end" is the start update itself, so start equals end and the round refunds. If nothing is settled, it times out as a refund after 1 hour. Either way nobody loses money to a runner failure.
+- **Prices pushed only for two-sided rounds.** Bets close at lock, so the totals are final at lock. The runner reads the round once, and only if both sides have money does it push the start price (lock + 90 s, quote at least 30 s after lock, the existing fairness rule H2), push the end price (end - 30 s) and settle after the end. No mid-round push on mainnet. Rounds run back to back, so each played round costs exactly two pushes even when the next round is played too.
+
+### 3. House agents on mainnet
+- **Contrarian:** in each market, about 45 seconds before lock, if anyone other than itself has called, it bets the opposite side of the heavier side with stake = the opposing total, at least 0.10 and at most 0.25 USDC. That makes the round two-sided.
+- **Be clear about what that means for users.** Parimutuel payouts: a user who stakes 1.00 UP against a Contrarian 0.25 DOWN wins at most 0.245 (0.25 less the 2% fee) and loses 1.00 if wrong. That is a poor bet for the user at 50/50, and the pool shown on the site says so. A larger Contrarian stake is fairer to users but puts more of the house bankroll at risk, so the stake cap is a dial: 0.25 now. (The site shows the "estimated payout" before confirming, and the 1 USDC cap per call from D2 stays.)
+- **The house is a gambler, not only a cost.** With stake s on a round, the Contrarian wins or loses about s per round at roughly even chances (minus 2% of what it loses). Over 30 rounds a day with s = 0.25 the daily swing is about 1.4 USDC either way (0.25 x the square root of 30), with 2.5 USDC of bankroll. It can run dry in a bad stretch. With 0.10 stakes the swing is about 0.55 USDC. Rule: the Contrarian stops for the day if its balance falls under 0.5 USDC.
+- **Trend Follower, Streak Hunter, Coin Flipper:** a light schedule, 6 calls a day each (about one per 4 hours, rotating BTC, ETH, SOL, started at different minutes so they rarely meet), stake 0.10 USDC. Their only job is to keep the page alive. Each of their rounds then gets a Contrarian join, so it is played.
+- **Wallets.** Circle mainnet developer-controlled wallets need a mainnet Circle account, a mainnet entity secret and recovery file registered by you (Circle rule; I may not do it) and funding of four wallets. A cheaper option for four tiny wallets: a script generates four ordinary wallet keys straight into `.env` (never printed, never in chat) and you send each some USDC. Recommended for the deadline; the keys are hot keys on your PC holding a few dollars each.
+
+### 4. Safety: deployer floor of 2 USDC
+- Before every transaction the runner reads the deployer's USDC balance. If it is **below 2.00 USDC** the runner sends nothing more, writes "STOPPED: deployer balance X USDC is below the 2.00 floor", sends the alert and exits. All sending stops, including the agents', so no new round starts that cannot be finished. Rounds in flight end as refunds (section 2). Restart is manual after you top up.
+- **Alert channel (you choose):** ntfy.sh (a free phone push; the runner posts one plain line with the balance, no secrets, to a topic name you put in `.env`), a Telegram bot (needs a bot token you put in `.env`), or email. I recommend ntfy.sh. It sends a message to an outside service, so I will only enable it after you pick a topic.
+- Also stop and alert if: a push is rejected by the guard three times in a row, the Bitfinex quote is unavailable for more than 5 minutes, or the chain RPC fails for more than 5 minutes.
+- **Runner uptime:** the runner is a program on your PC. It must be running for pushes, settles and the Contrarian. A sleeping PC means no start or end prices, so those rounds refund (safe, but the demo looks idle). A small always-on host would fix it; not planned.
+
+### 5. Numbers (mainnet gas price measured today: 20.0 gwei; gas is paid in USDC)
+Gas per transaction is from the testnet runs (docs/RULES.md H3); the relay push is the mock's 90,000 plus about 15,000 for the guard's read of Chainlink; settle has a careful upper figure of 200,000.
+
+| Transaction | Gas | USDC |
+|---|---|---|
+| Price push (relay) | about 105,000 | 0.0021 |
+| Settle | 158,000 to 200,000 | 0.0032 to 0.0040 |
+| Bet (agent call) | 127,000 | 0.0025 |
+| Claim (agent) | 81,000 | 0.0016 |
+
+- **One-time deploy:** the dry run on the real script estimates PredictionArena at 2.58M gas and a feed at 0.57M (the relay adds a little, call it 0.65M each), plus three `createMarket` calls (the script guesses 400k each; real cost is probably nearer 200k). Total about 5.1M to 5.7M gas, so **about 0.10 to 0.12 USDC**, and 0.14 USDC if gas doubles to 25 gwei plus the guess (the script's own figure at 25 gwei is 0.137). Add about 0.01 for the later ownership transfer. **Say 0.15 USDC all in.**
+- **Cost per played round (house side): 0.0074 to 0.0082 USDC.** Two pushes (0.0042) plus one settle (0.0032 to 0.0040). Users pay their own bet and claim gas. Empty and one-sided rounds cost the house 0.
+- **Cost per agent call: 0.0025 USDC to bet, plus 0.0016 USDC to claim** when it wins or is refunded (the first claim after a timeout refund costs a bit more because it finalises the round).
+- **Daily estimate for 30 played rounds** (assume 12 started by real users and 18 by the three light agents; every one has a Contrarian join):
+
+| Item | Count | USDC a day |
+|---|---|---|
+| Price pushes (deployer) | 60 | 0.126 |
+| Settles (deployer) | 30 | 0.095 to 0.120 |
+| Contrarian bets | 30 | 0.076 |
+| Contrarian claims (it wins or is refunded about half the time) | 15 | 0.024 |
+| Light agents' bets | 18 | 0.046 |
+| Light agents' claims (about half) | 9 | 0.015 |
+| **Total gas** | | **about 0.38 to 0.41** (0.013 per played round) |
+| Of which the deployer wallet | | 0.22 to 0.25 |
+
+  Stakes are on top of gas: the house money that moves is up to 0.25 per Contrarian join and 0.10 per light-agent call, and it comes back or goes to users as the rounds resolve.
+- **Budget on about 10 USDC** (replaces the D6 figures of 2 and 3 USDC):
+
+| Wallet | USDC | Why |
+|---|---|---|
+| Deployer / runner | 4.00 | 0.15 deploy, 2.00 safety floor, about 1.85 to run on, which is 7 to 8 days at 0.22 to 0.25 a day |
+| Contrarian | 2.50 | stakes up to 0.25 per join, plus gas |
+| Three light agents | 2.10 (0.70 each) | stake 0.10 per call plus gas, about 0.03 a day each |
+| Your test wallet | 1.00 | your own calls and claims |
+| **Total** | **9.60** | about 0.4 left as slack |
+
+  The grant needs at least one mainnet transaction moving USDC and an example transaction on the explorer; this plan gives many. From Thursday 29 Oct to Monday 2 Nov is 5 days: about 2 USDC of gas, so the budget covers it with room for the house's stake swings.
+
+### 6. What changes in the build plan (still nothing built)
+- **Contracts:** `GuardedRelayFeed` (new, via Arc Studio T5) and its tests; one new arena test (one-sided unsettled round claimed after the window). `PredictionArena` is unchanged.
+- **Deploy script:** `--set mainnet` deploys 3 relay feeds (pusher = the runner wallet, guard = the Chainlink proxy, band 1.0%/1.5%/1.5%) and 3 markets of 900 s with offsets 0, 300, 600 (BTC, ETH, SOL staggered by 5 minutes). Before sending, it reads each Chainlink proxy on chain (description, decimals 8, answer above zero and recent) and the bytecode comparison (D4) runs as planned.
+- **Runner:** a mainnet mode: lazy pushes and settles only for two-sided rounds, no mid-round pushes, the balance floor and alerts, Contrarian rule above, light schedule for the others. It reuses the existing start/end price timing rules and tests, plus new tests (lazy mode, floor stop, alert called once).
+- **Site:** time frame buttons are not needed on mainnet (one 15-minute market per coin); they stay for testnet's 5/10/30 markets. New text: the price-source line above, "Refund available at hh:mm" for one-sided rounds, and the Contrarian's join visible in Live calls like any other call.
+- **Docs:** RULES.md gets the mainnet price-source and owner-power change; the submission description says the relay and guard honestly.
+- **Open points for you:** (a) alert channel; (b) agent wallets by script or Circle mainnet; (c) Contrarian stake cap 0.25 or other; (d) accept the trust statement in section 1; (e) the T5 turn for the relay contract while Arc Studio shows 100% used.
