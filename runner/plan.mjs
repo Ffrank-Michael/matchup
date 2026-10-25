@@ -1,0 +1,148 @@
+// The round runner's brain: given a snapshot of the chain and the clock, decide what to do now.
+// Pure logic. It reads nothing and sends nothing, so it can be tested without a blockchain.
+//
+//   planTick(snapshot, cfg, decided) -> { actions, decisions }
+//
+// snapshot = {
+//   now,                                   // unix seconds (latest block time)
+//   markets: [{ id, name, roundLength, startOffset, minStake, paused,
+//               nextRound,                 // the round that can be bet on right now
+//               feed: { updates: [{ id: BigInt, updatedAt, price: BigInt }] },   // oldest first
+//               rounds: { [k]: { state, up, down, startPrice, endPrice } } }],  // state: 'Unsettled' | 'SettledUp' | 'SettledDown' | 'Refunded'
+//   agents:  [{ key, balance, allowance, positions: { 'marketId:k': { up, down, claimed } } }],
+// }
+// decided = Set of decision ids ("market:round:agent") that were already taken this round, so an
+//           agent never decides twice (a skip counts as a decision).
+//
+// Actions:  pushPrice | approve | bet | settle | claim   (the executor turns them into transactions)
+import * as trendFollower from '../agents/trendFollower.mjs';
+import * as streakHunter from '../agents/streakHunter.mjs';
+import * as coinFlipper from '../agents/coinFlipper.mjs';
+import * as contrarian from '../agents/contrarian.mjs';
+import { findSettleIds } from './settleIds.mjs';
+
+const LOGIC = {
+  'trend-follower': trendFollower,
+  'streak-hunter': streakHunter,
+  'coin-flipper': coinFlipper,
+  contrarian,
+};
+export const EARLY = ['trend-follower', 'streak-hunter', 'coin-flipper']; // bet early, in this order
+export const LATE = 'contrarian'; // bets last, about 5 minutes before lock
+
+export const lockTime = (m, k) => m.startOffset + k * m.roundLength;
+export const endTime = (m, k) => lockTime(m, k) + m.roundLength;
+const opensAt = (m, k) => (k === 0 ? 0 : lockTime(m, k - 1));
+const posKey = (m, k) => `${m.id}:${k}`;
+const decisionId = (m, k, agent) => `${m.id}:${k}:${agent}`;
+
+/**
+ * How the last few finished rounds went, worked out from the PRICE FEED (not from what the
+ * contract settled), so rounds nobody bet on still count. A round's start price is the first
+ * update at or after its lock and its end price is the last update at or before its end, the
+ * same rule the contract uses. Round k-1 is still running, so the newest finished round is k-2.
+ * Oldest first, in the form the agents expect (USD numbers).
+ */
+function historyFor(m, cfg) {
+  const out = [];
+  for (let j = Math.max(0, m.nextRound - cfg.lookback); j <= m.nextRound - 2; j++) {
+    const { startId, endId } = findSettleIds(m.feed.updates, lockTime(m, j), endTime(m, j));
+    if (startId === 0n || endId <= startId) continue; // the feed did not move during that round
+    const s = m.feed.updates.find((u) => u.id === startId);
+    const e = m.feed.updates.find((u) => u.id === endId);
+    out.push({ startPrice: Number(s.price) / 1e8, endPrice: Number(e.price) / 1e8 });
+  }
+  return out;
+}
+
+function planBet(m, k, agent, cfg, actions, decisions) {
+  const round = m.rounds[k];
+  const d = LOGIC[agent.key].decide({
+    market: m.name,
+    history: historyFor(m, cfg),
+    bets: { up: round ? round.up : 0, down: round ? round.down : 0 },
+    minStake: m.minStake,
+    balance: Math.max(0, agent.balance - cfg.gasReserve),
+    random: cfg.random,
+  });
+  decisions.push({ id: decisionId(m, k, agent.key), agent: agent.key, market: m.name, round: k, decision: d });
+  if (d.action !== 'BET') return;
+  const stake = Math.min(d.stake, cfg.maxStake);
+  if (stake < m.minStake) return;
+  if (agent.allowance < stake) actions.push({ type: 'approve', agent: agent.key, amount: cfg.approveAmount });
+  actions.push({ type: 'bet', agent: agent.key, market: m.id, marketName: m.name, round: k, side: d.side, stake, reason: d.reason });
+}
+
+export function planTick(snap, cfg, decided = new Set()) {
+  const { now } = snap;
+  const actions = [];
+  const decisions = [];
+  const agentByKey = Object.fromEntries(snap.agents.map((a) => [a.key, a]));
+
+  for (const m of snap.markets) {
+    const k = m.nextRound;
+    const updates = m.feed.updates;
+    const latest = updates.length ? updates[updates.length - 1] : null;
+
+    // ---- 1. settle rounds that have ended (and still have a chance) ----
+    for (let j = Math.max(0, k - cfg.lookback); j < k; j++) {
+      const r = m.rounds[j];
+      if (!r || r.state !== 'Unsettled' || r.up + r.down === 0) continue;
+      const et = endTime(m, j);
+      if (now <= et || now > et + cfg.settleWindow) continue;
+      const ids = r.up === 0 || r.down === 0
+        ? { startId: 0n, endId: 0n } // one-sided: the contract refunds without looking at ids
+        : findSettleIds(updates, lockTime(m, j), et);
+      actions.push({ type: 'settle', market: m.id, marketName: m.name, round: j, ...ids });
+    }
+
+    // ---- 2. test prices for the round that is running now (round k-1) ----
+    if (k >= 1) {
+      const r = k - 1;
+      const lockR = lockTime(m, r);
+      const endR = endTime(m, r);
+      if (now >= lockR + cfg.startDelay && now < endR && (!latest || latest.updatedAt < lockR)) {
+        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, why: 'start price' });
+      } else if (latest && now >= endR - cfg.endMargin && now < endR && latest.updatedAt >= lockR && latest.updatedAt < endR - cfg.endMargin) {
+        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, why: 'end price' });
+      } else if (latest && latest.updatedAt >= lockR && now >= latest.updatedAt + cfg.midInterval && now < endR - cfg.endMargin - cfg.midCutoff) {
+        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, why: 'mid-round price' });
+      }
+    }
+
+    // ---- 3. bets on round k ----
+    if (!m.paused) {
+      const lockK = lockTime(m, k);
+      const hasPosition = (a) => {
+        const p = a.positions[posKey(m, k)];
+        return !!p && p.up + p.down > 0;
+      };
+      const finished = (key) => hasPosition(agentByKey[key]) || decided.has(decisionId(m, k, key));
+
+      if (now >= opensAt(m, k) + cfg.earlyDelay && now < lockK - cfg.earlyCutoff) {
+        for (const key of EARLY) {
+          if (!finished(key)) planBet(m, k, agentByKey[key], cfg, actions, decisions);
+        }
+      }
+      // The contrarian only acts once every early agent has bet or skipped (in an earlier tick), so
+      // it sees their real money.
+      if (now >= lockK - cfg.contrarianLead && now < lockK - cfg.contrarianCutoff
+          && EARLY.every(finished) && !finished(LATE)) {
+        planBet(m, k, agentByKey[LATE], cfg, actions, decisions);
+      }
+    }
+
+    // ---- 4. claims: winnings, refunds, and timed-out rounds ----
+    for (const a of snap.agents) {
+      for (let j = Math.max(0, k - cfg.lookback); j < k; j++) {
+        const p = a.positions[posKey(m, j)];
+        const r = m.rounds[j];
+        if (!p || !r || p.claimed || p.up + p.down === 0) continue;
+        const wins = (r.state === 'SettledUp' && p.up > 0) || (r.state === 'SettledDown' && p.down > 0);
+        const refund = r.state === 'Refunded' || (r.state === 'Unsettled' && now > endTime(m, j) + cfg.settleWindow);
+        if (wins || refund) actions.push({ type: 'claim', agent: a.key, market: m.id, marketName: m.name, round: j });
+      }
+    }
+  }
+  return { actions, decisions };
+}

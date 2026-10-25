@@ -12,6 +12,8 @@
     "viem": "2.57.2"
   },
   "scripts": {
-    "test:agents": "node --test agents/agents.test.mjs"
+    "test:agents": "node --test agents/agents.test.mjs",
+    "test:runner": "node --test runner/runner.test.mjs",
+    "simulate": "node runner/simulate.mjs --hours 4"
   }
 }
