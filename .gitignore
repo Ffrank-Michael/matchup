@@ -44,7 +44,7 @@ lcov.info
 
 # --- Dependencies (installed fresh by the test workflow) ---
 node_modules/
-lib/
+/lib/
 
 # --- Local tool state ---
 .arc-studio/
