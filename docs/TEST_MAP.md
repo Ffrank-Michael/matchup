@@ -66,3 +66,16 @@ E2 claim details: `test_alreadyClaimed_*`, `test_stranger_nothingToClaim`, `test
 
 ## G. Built for later
 Rule 28 (head-to-head) and rule 29 (Pyth) are not built. Today the contract refuses a second feed (`test_createMarket_revertIfFeedBNonZero`).
+
+## H. Testnet setup: 10-minute rounds (file `contracts/test/TenMinuteRounds.t.sol`, 21 tests)
+Rules 2, 3, 6, 14, 15, 19: the same rules, proven with the exact testnet settings (round length 600 s, BTC offset 0, ETH 180, SOL 360, one test feed per market) and the runner's 3-push pattern (start at lock + 3 s, middle at lock + 300 s, end at end - 30 s).
+| What | Tests |
+|---|---|
+| Market settings and lock minutes (:00 / :03 / :06) | `test_tenMin_marketSettings`, `test_tenMin_locksLandOnTheRightMinutes`, `test_tenMin_nextBettableRound_staggered`, `test_tenMin_roundLengthLimits` |
+| Bet window is 10 minutes, closes at lock | `test_tenMin_betWindowIsTenMinutes` |
+| A full round and payout on each market | `test_tenMin_fullRound_BTC`, `..._ETH`, `..._SOL`, `test_tenMin_downWins_evenWhenTheMiddlePriceWasHigher` |
+| Judged from the lock price | `test_tenMin_judgedFromTheLockPrice_notFromTheMomentOfTheBet`, `test_tenMin_onlyTheFirstUpdateAfterLockIsAValidStart`, `test_tenMin_theNextRoundsFirstPushIsNotThisRoundsEnd`, `test_tenMin_secondRoundOnSameFeed` |
+| Refunds with no fee | `test_tenMin_onlyTheStartPriceArrived_isRefunded`, `test_tenMin_noPriceAtAll_isRefunded`, `test_tenMin_unchangedPrice_isRefunded`, `test_tenMin_oneSidedRound_isRefunded` |
+| 1-hour settle window, then refund | `test_tenMin_settleWindow_oneHourAfterTheEnd`, `test_tenMin_nobodySettled_everyoneGetsARefund` |
+| Three staggered markets independent | `test_tenMin_threeMarketsSettleIndependently` |
+| Gas measurements for the cost estimate | `test_tenMin_gasReport` |
