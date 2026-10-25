@@ -15,7 +15,11 @@ function count(text, needle) {
 }
 
 if (cmd === 'list') {
-  console.log(JSON.stringify(muts.map((m) => m.id)));
+  // optional filter: ONLY="P26,M01" (comma separated); empty means all
+  const only = (process.env.ONLY || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const pick = only.length ? muts.filter((m) => only.includes(m.id)) : muts;
+  if (only.length && pick.length !== only.length) { console.error('unknown id in ONLY'); process.exit(2); }
+  console.log(JSON.stringify(pick.map((m) => m.id)));
 } else if (cmd === 'check') {
   const src = fs.readFileSync(file, 'utf8');
   let bad = 0;

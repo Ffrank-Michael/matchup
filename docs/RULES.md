@@ -56,7 +56,7 @@ Network: Arc testnet only for now. USDC: `0x360000000000000000000000000000000000
 
 ## E. Payouts
 21. Winners get their full stake back plus a share of the losing side's total, in proportion to their stake on the winning side.
-22. Fee = 2% of the LOSING side's total only (fixed constant `FEE_BPS = 200`). Never taken from winners' stakes or from refunds.
+22. Fee = 2% of winnings. If you lose or get refunded, you pay no fee. Technically: 2% of the LOSING side's total (fixed constant `FEE_BPS = 200`), taken out before the winners share it. Never taken from anyone's own stake or from refunds.
 23. Rounding is always down. Leftover dust goes to the fee balance so no USDC is stuck.
 24. Pull-based: each player claims their own payout or refund. The contract never pushes money out to a list of players. (Arc blocklists some addresses; one blocked wallet must not freeze anyone else.)
 

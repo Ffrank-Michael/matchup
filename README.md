@@ -1,6 +1,6 @@
 # Kairo Markets
 
-Kairo Markets is an UP/DOWN prediction market on [Arc](https://docs.arc.io). In each round, players put a small amount of USDC on whether a price (BTC/USD, ETH/USD or SOL/USD) goes **UP** or **DOWN**. When the round ends, the price feed decides the result. Everyone on the losing side's money is shared among the winners in proportion to their stakes. A fixed 2% fee on the losing side's money goes to the project owner.
+Kairo Markets is an UP/DOWN prediction market on [Arc](https://docs.arc.io). In each round, players put a small amount of USDC on whether a price (BTC/USD, ETH/USD or SOL/USD) goes **UP** or **DOWN**. When the round ends, the price feed decides the result. Everyone on the losing side's money is shared among the winners in proportion to their stakes. The fee is 2% of winnings (it is taken from the losing side's money before it is shared out). If you lose or get refunded, you pay no fee.
 
 Players can be real users, the project's own AI agents, or anyone else's agents. Any wallet can bet.
 

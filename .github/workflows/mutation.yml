@@ -7,6 +7,11 @@ name: Deliberate-break check (mutation testing)
 
 on:
   workflow_dispatch:
+    inputs:
+      only:
+        description: "Optional: comma-separated break ids to run (e.g. P26). Empty = run all."
+        required: false
+        default: ""
 
 jobs:
   prepare:
@@ -21,6 +26,8 @@ jobs:
       - name: Every break must match the contract exactly once
         run: node ci/mutate.js check
       - id: ids
+        env:
+          ONLY: ${{ inputs.only }}
         run: echo "ids=$(node ci/mutate.js list)" >> "$GITHUB_OUTPUT"
 
   baseline:
@@ -101,11 +108,14 @@ jobs:
           path: results
       - name: Build the table
         shell: bash
+        env:
+          ONLY: ${{ inputs.only }}
         run: |
           node - <<'JS'
           const fs = require('fs');
           const path = require('path');
-          const muts = JSON.parse(fs.readFileSync('ci/mutations.json', 'utf8'));
+          const only = (process.env.ONLY || '').split(',').map((x) => x.trim()).filter(Boolean);
+          const muts = JSON.parse(fs.readFileSync('ci/mutations.json', 'utf8')).filter((m) => !only.length || only.includes(m.id));
           const found = {};
           for (const dir of fs.existsSync('results') ? fs.readdirSync('results') : []) {
             const f = path.join('results', dir, 'result', dir.replace(/^result-/, '') + '.json');

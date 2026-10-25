@@ -997,4 +997,25 @@ contract ClaimTest is ClaimBase {
         assertEq(arena.claimable(btcId, 1, alice), MIN);
         assertEq(arena.claimable(btcId, 1, bob),   MIN);
     }
+
+    /// The preview must agree with claim() on the exact boundary: at endTime + 1 hour the
+    /// settle window is still open (claim reverts), so the preview must still say 0.
+    /// One second later the round has timed out and the preview shows the full refund.
+    function test_claimable_timeoutBoundary_exactlyAtDeadline() public {
+        vm.warp(1);
+        _bet(alice, btcId, 1, true, MIN);
+        _bet(bob,   btcId, 1, false, MIN);
+        uint256 deadline = _end(btcId, 1) + SETTLE_WINDOW();
+
+        vm.warp(deadline);
+        assertEq(arena.claimable(btcId, 1, alice), 0, "still inside the window at the deadline");
+        assertEq(arena.claimable(btcId, 1, bob),   0, "still inside the window at the deadline");
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(PredictionArena.RoundNotSettled.selector, btcId, 1));
+        arena.claim(btcId, 1);
+
+        vm.warp(deadline + 1);
+        assertEq(arena.claimable(btcId, 1, alice), MIN, "timed out one second later");
+        assertEq(arena.claimable(btcId, 1, bob),   MIN, "timed out one second later");
+    }
 }
