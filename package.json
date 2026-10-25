@@ -9,5 +9,8 @@
   "devDependencies": {
     "solc": "0.8.28",
     "viem": "2.57.2"
+  },
+  "scripts": {
+    "test:agents": "node --test agents/agents.test.mjs"
   }
 }

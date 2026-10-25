@@ -13,6 +13,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
 
+      - name: House agent logic tests
+        run: node --test agents/agents.test.mjs
+
       - name: Which Arc network flag does this forge have?
         shell: bash
         run: |

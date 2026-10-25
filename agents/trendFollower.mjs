@@ -1,0 +1,17 @@
+// Trend follower: bets the same direction as the last round.
+import { UNITS, directionOf, fmtPrice, fmtPct, legalStake, bet, skip } from './lib.mjs';
+
+export const name = 'Trend follower';
+export const BASE_STAKE = 0.5 * UNITS;
+
+export function decide(ctx) {
+  if (ctx.history.length === 0) return skip(`${ctx.market}: no finished rounds yet, so there is no trend to follow.`);
+  const last = ctx.history[ctx.history.length - 1];
+  const side = directionOf(last);
+  if (!side) return skip(`${ctx.market}: last round was flat at ${fmtPrice(last.startPrice)}, so there is no trend to follow.`);
+
+  const s = legalStake(BASE_STAKE, ctx);
+  if (s.skip) return skip(s.skip);
+  return bet(side, s.stake,
+    `${ctx.market} last round went ${side} (${fmtPrice(last.startPrice)} -> ${fmtPrice(last.endPrice)}, ${fmtPct(last.startPrice, last.endPrice)}), so I follow the trend and bet ${side}.`);
+}

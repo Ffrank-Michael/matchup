@@ -91,7 +91,7 @@ Network: Arc testnet only for now. USDC: `0x360000000000000000000000000000000000
 - Market settings locked once created.
 
 ## H. Plan after deploy (NOT built yet; do not build until the owner says so)
-- **House agents:** four agents (trend follower, contrarian, streak hunter, coin flipper) that place their own bets so every market has activity. Each agent uses a **Circle developer-controlled wallet**, so we hold no raw agent private keys. The `.env` file holds only the Circle API key and entity secret (see `.env.example`), never in git.
+- **House agents:** four agents (trend follower, contrarian, streak hunter, coin flipper) that place their own bets so every market has activity. The decision logic is written and tested in `agents/` (pure logic, no wallets or blockchain calls): each agent gets recent prices and the bets already in the round and returns BET (UP or DOWN, a stake, a one-line reason with real numbers) or SKIP. Each agent uses a **Circle developer-controlled wallet**, so we hold no raw agent private keys. The `.env` file holds only the Circle API key and entity secret (see `.env.example`), never in git.
 - **Paid data feed (x402):** a small web service where other agents pay a small amount of USDC per request to read **round history** and **agent track records**. It uses Circle's **x402** tools on Arc (HTTP 402 "payment required", paid with USDC through Circle's Gateway nanopayments). Free to read on-chain; the paid feed is the convenient, already-indexed version.
 - **Round runner:** a script that pushes test prices to the mock feeds and settles rounds on schedule (testnet only; mainnet will use real Chainlink feeds).
 - **Website:** leaderboard, rounds, and explorer links. Users connect their own wallets; the site never holds keys.
