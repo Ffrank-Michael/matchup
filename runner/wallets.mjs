@@ -5,7 +5,7 @@
 import { randomUUID } from 'node:crypto';
 import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
 import { displayName } from '../agents/index.mjs';
-import { createRealPrices } from './realPrices.mjs';
+import { createExchangePrices } from './exchangePrices.mjs';
 import { appendPriceLog, makePriceLogEntry } from './priceLog.mjs';
 
 const usdcText = (u) => '$' + (u / 1e6).toFixed(2);
@@ -24,9 +24,9 @@ export function describe(a) {
 export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaAbi, feedAbi, prices, explorer = 'https://explorer.testnet.arc.io', chainId = 5042002, logPush = appendPriceLog }) {
   const arena = deployments.arena.arena.address;
   const agentWallets = Object.fromEntries(deployments.circle.agents.map((a) => [a.key, a.walletId]));
-  prices ||= createRealPrices({ apiKey: env.COINGECKO_API_KEY || undefined });
+  prices ||= createExchangePrices();
   const usd = (p) => '$' + (Number(p) / 1e8).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const quoteText = (q) => (q.quotedAt ? `CoinGecko quote made ${Math.max(0, Math.round(Date.now() / 1000 - q.quotedAt))} s ago (at ${new Date(q.quotedAt * 1000).toISOString().slice(11, 19)} UTC)` : 'CoinGecko quote (no time given)');
+  const quoteText = (q) => (q.quotedAt ? `${q.source ?? 'exchange'} last trade at ${new Date((q.tradeAt ?? q.quotedAt) * 1000).toISOString().slice(11, 19)} UTC, asked at ${new Date(q.quotedAt * 1000).toISOString().slice(11, 19)} UTC` : `${q.source ?? 'exchange'} quote (no time given)`);
   const feedFor = (marketId) => deployments.arena.feeds[['btc', 'eth', 'sol'][marketId]].address;
 
   let circle;

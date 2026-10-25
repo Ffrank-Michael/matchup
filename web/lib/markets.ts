@@ -1,14 +1,14 @@
 // The three markets and the round schedule. The schedule comes from docs/RULES.md (rule 2):
 // the lock of round k is startOffset + k * roundLength, counted from the Unix epoch, so every
-// market locks at a fixed clock time. Nothing here is a price; prices come from CoinGecko.
+// market locks at a fixed clock time. Nothing here is a price; prices come from lib/price-feed.ts (Bitfinex).
 
 /** Testnet: 10-minute rounds. The mainnet option is 3600 (1 hour, offsets 0 / 1200 / 2400). */
 export const ROUND_SECONDS = 600;
 
 export const MARKETS = [
-  { key: "BTC", pair: "BTC/USD", coingeckoId: "bitcoin", lockOffset: 0 },
-  { key: "ETH", pair: "ETH/USD", coingeckoId: "ethereum", lockOffset: 180 },
-  { key: "SOL", pair: "SOL/USD", coingeckoId: "solana", lockOffset: 360 },
+  { key: "BTC", pair: "BTC/USD", lockOffset: 0 },
+  { key: "ETH", pair: "ETH/USD", lockOffset: 180 },
+  { key: "SOL", pair: "SOL/USD", lockOffset: 360 },
 ] as const;
 
 export type Market = (typeof MARKETS)[number];
@@ -31,9 +31,9 @@ export function formatCountdown(totalSeconds: number) {
 
 const usdFormats = new Map<number, Intl.NumberFormat>();
 
-/** US dollars: whole dollars from $1,000 up, cents below that. */
+/** US dollars: whole dollars from $10,000 up, cents below that (so a moving ETH or SOL price shows its cents). */
 export function formatUsd(value: number) {
-  const digits = value >= 1000 ? 0 : 2;
+  const digits = value >= 10000 ? 0 : 2;
   let f = usdFormats.get(digits);
   if (!f) {
     f = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: digits, maximumFractionDigits: digits });

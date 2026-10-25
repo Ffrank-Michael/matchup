@@ -8,7 +8,7 @@
 // A line looks like:
 //   {"v":1,"label":"TEST PRICES - NOT REAL DATA","chainId":5042002,"market":"BTC/USD","marketId":0,
 //    "round":12345,"kind":"start","price":"8047700000000","priceUsd":80477,"decimals":8,
-//    "source":"CoinGecko","sourceQuoteAt":1792947711,"sourceQuoteAgeSec":48,
+//    "source":"Bitfinex","sourceQuoteAt":1792947755,"sourceQuoteAgeSec":5,"lastTradeAt":1792947751,
 //    "recordedAt":1792947760,"recordedAtIso":"2026-10-25T17:02:40.000Z",
 //    "txHash":"0x...","blockNumber":"123","feed":"0x...","explorerUrl":"https://explorer.testnet.arc.io/tx/0x..."}
 // "round" is the round the price belongs to (the round that was running when it was pushed).
@@ -34,8 +34,9 @@ export function makePriceLogEntry({ action, quote, txHash, blockNumber, blockTim
     price: String(quote.price),
     priceUsd: quote.usd,
     decimals: 8,
-    source: 'CoinGecko',
+    source: quote.source ?? 'Bitfinex',
     sourceQuoteAt: quote.quotedAt,
+    lastTradeAt: quote.tradeAt ?? null, // when the trade that set this price happened (same source, same number the website shows)
     sourceQuoteAgeSec: quote.quotedAt ? Math.max(0, Math.round(Number(blockTimestamp) - quote.quotedAt)) : null,
     recordedAt: Number(blockTimestamp),
     recordedAtIso: new Date(Number(blockTimestamp) * 1000).toISOString(),

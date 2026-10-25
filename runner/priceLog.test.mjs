@@ -1,5 +1,5 @@
 // Tests for the public price log and for the live price push that writes it. No network, no chain:
-// fakes stand in for the blockchain and for CoinGecko.   node --test runner/priceLog.test.mjs
+// fakes stand in for the blockchain and for Bitfinex.   node --test runner/priceLog.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,7 +19,7 @@ const FEEDS = {
   sol: { address: '0x5050000000000000000000000000000000000003' },
 };
 const deployments = { arena: { arena: { address: '0xA' }, feeds: FEEDS }, circle: { agents: [] } };
-const QUOTE = { price: 8047700000000n, usd: 80477, quotedAt: 1_800_000_030 };
+const QUOTE = { price: 8047700000000n, usd: 80477, quotedAt: 1_800_000_030, tradeAt: 1_800_000_027, source: 'Bitfinex' };
 
 function fakeChain({ fail } = {}) {
   const sent = [];
@@ -75,9 +75,10 @@ test('entry: has the price, the source, both times, the transaction and an explo
   assert.equal(e.kind, 'start');
   assert.equal(e.price, '8047700000000'); // a string: JSON cannot hold big numbers safely
   assert.equal(e.priceUsd, 80477);
-  assert.equal(e.source, 'CoinGecko');
+  assert.equal(e.source, 'Bitfinex');
+  assert.equal(e.lastTradeAt, 1_800_000_027); // when the trade that set the price happened
   assert.equal(e.sourceQuoteAt, 1_800_000_030);
-  assert.equal(e.sourceQuoteAgeSec, 45); // block time minus CoinGecko's own quote time
+  assert.equal(e.sourceQuoteAgeSec, 45); // block time minus the time the price was asked for (Bitfinex's clock)
   assert.equal(e.recordedAt, 1_800_000_075);
   assert.equal(e.recordedAtIso, new Date(1_800_000_075_000).toISOString());
   assert.equal(e.txHash, '0xabc');
@@ -122,7 +123,7 @@ test('a dry run writes no log line and sends nothing', async () => {
 test('if the price API fails nothing is sent and nothing is logged', async () => {
   const chain = fakeChain();
   const logged = [];
-  const failing = { quote: async () => { throw new Error('CoinGecko answered HTTP 429'); } };
+  const failing = { quote: async () => { throw new Error('Bitfinex answered HTTP 429'); } };
   const execute = executor({ pub: chain.pub, wallet: chain.wallet, prices: failing, logPush: (e) => logged.push(e) });
   await assert.rejects(() => execute(push), /429/);
   assert.equal(chain.sent.length, 0);

@@ -1,20 +1,23 @@
 import { formatCountdown, formatUsd, type Market } from "@/lib/markets";
-import type { Coin } from "@/lib/use-live";
+import { HOUR, type Point } from "@/lib/price-feed";
 import { cn } from "@/lib/utils";
 
 import { NotLive } from "./tile";
 
-function Sparkline({ series }: { series: number[] }) {
+/** The last hour as a line: left edge is one hour ago, right edge is now (the live price). */
+function Sparkline({ points, nowMs }: { points: Point[]; nowMs: number }) {
   const W = 200;
   const H = 48;
-  const lo = Math.min(...series);
-  const hi = Math.max(...series);
-  const points = series.map((v, i) => `${((i / (series.length - 1)) * W).toFixed(1)},${(H - 3 - ((v - lo) / (hi - lo || 1)) * (H - 6)).toFixed(1)}`);
-  const up = series[series.length - 1] >= series[0];
+  const prices = points.map((p) => p[1]);
+  const lo = Math.min(...prices);
+  const hi = Math.max(...prices);
+  const from = nowMs - HOUR;
+  const xy = points.map(([t, v]) => `${(((t - from) / HOUR) * W).toFixed(1)},${(H - 3 - ((v - lo) / (hi - lo || 1)) * (H - 6)).toFixed(1)}`);
+  const up = prices[prices.length - 1] >= prices[0];
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-12 w-full" role="img" aria-label={`${up ? "Up" : "Down"} over the last 7 days`}>
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-12 w-full" role="img" aria-label={`${up ? "Up" : "Down"} over the last hour`}>
       <polyline
-        points={points.join(" ")}
+        points={xy.join(" ")}
         fill="none"
         strokeWidth={2}
         strokeLinejoin="round"
@@ -28,7 +31,9 @@ function Sparkline({ series }: { series: number[] }) {
 
 export function MarketCard({
   market,
-  coin,
+  price,
+  points,
+  nowMs,
   feedFailed,
   secondsLeft,
   selected,
@@ -36,9 +41,13 @@ export function MarketCard({
   index,
 }: {
   market: Market;
-  /** null until CoinGecko has answered */
-  coin: Coin | null;
-  /** True when no price has ever arrived and the last attempt failed */
+  /** The last trade on Bitfinex; null until the first data has arrived */
+  price: number | null;
+  /** The last hour as (time, price) points; the final point is the price shown */
+  points: Point[] | null;
+  /** The clock the points are drawn against; null before it is known (server render) */
+  nowMs: number | null;
+  /** True when no price has ever arrived and the connection is down */
   feedFailed: boolean;
   /** null before the clock is known (server render) */
   secondsLeft: number | null;
@@ -68,11 +77,11 @@ export function MarketCard({
       </span>
 
       <span className="mt-4 block font-mono text-[30px] font-semibold leading-none tracking-[-0.04em] tabular-nums">
-        {coin ? formatUsd(coin.price) : feedFailed ? <span className="text-[14px] font-medium tracking-normal text-muted-foreground">price unavailable</span> : <span className="text-muted-foreground">…</span>}
+        {price !== null ? formatUsd(price) : feedFailed ? <span className="text-[14px] font-medium tracking-normal text-muted-foreground">price unavailable</span> : <span className="text-muted-foreground">…</span>}
       </span>
 
-      <span className="mt-3 block">{coin ? <Sparkline series={coin.series} /> : <span className="block h-12" aria-hidden />}</span>
-      <span className="mt-1 block text-[11px] text-muted-foreground">{coin ? "last 7 days" : " "}</span>
+      <span className="mt-3 block">{points && nowMs !== null ? <Sparkline points={points} nowMs={nowMs} /> : <span className="block h-12" aria-hidden />}</span>
+      <span className="mt-1 block text-[11px] text-muted-foreground">{points && nowMs !== null ? "last hour" : " "}</span>
 
       <span className="mt-4 block">
         <span className="block h-2 rounded-full bg-muted" aria-hidden />

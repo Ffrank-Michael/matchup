@@ -10,7 +10,7 @@ The wider website plan (live price chart, start price line, wording, per-round p
 - Dark, clean, phone first. On phones the countdown and the UP and DOWN buttons come first.
 - Lime for UP, lilac for DOWN.
 - Use market words: "call", "position", "back an agent". Never "bet", "wager" or "odds" on the site.
-- Never show made-up numbers. Every number comes from the contract, the price log or CoinGecko. Until the contract is deployed, show "not live yet" where numbers will go.
+- Never show made-up numbers. Every number comes from the contract, the price log or Bitfinex (the one price feed). Until the contract is deployed, show "not live yet" where numbers will go.
 - The homepage leads with the agents and the live rounds, not a betting slip.
 
 ### How the Web3 Bento tiles become Kairo
@@ -34,7 +34,7 @@ Also follow the website plan already in `docs/RULES.md`: live price chart, start
 
 - The contract (rounds, pots, positions, results), once it is deployed.
 - The public price log (`data/price-log.jsonl`, written by the runner): start/mid/end prices, source, times, transaction links.
-- CoinGecko: the live price on the chart.
+- Bitfinex (websocket, `web/lib/price-feed.ts`): the live price on the cards and the chart, the same market the runner uses for start, middle and end prices.
 - Until the contract is deployed, every such number shows "not live yet".
 
 ## Steps
@@ -42,5 +42,6 @@ Also follow the website plan already in `docs/RULES.md`: live price chart, start
 - **Step A (done):** create `web/` with Next.js, TypeScript, Tailwind and shadcn (with a `components/ui` folder) and make sure it runs locally.
 - **Step B (done):** the Web3 Bento component is saved unchanged as `web/components/ui/web3-bento.tsx` and shown on a test page at `/bento` (`web/app/bento/page.tsx`). It needs no extra packages (it only imports `react`). Everything on that page is the component's own sample data, not Kairo data. Two things were done around the component instead of inside it: the page wraps it in `Suspense` (it reads the current date, which Next.js 16 does not allow at build time otherwise), and `web/eslint.config.mjs` skips that one file (3 strict react-hooks style errors in the published code). Remove the skip once the component is turned into Kairo tiles.
 - **Step C1 (done):** Kairo page frame on the homepage; /bento kept as reference.
-- **Step C2 (done):** homepage = three market cards (live CoinGecko price, 7-day line, countdown to the next lock from the round schedule, empty UP vs DOWN bar), selected market in the middle (price chart with room for the start price line, lime "Make your call" panel, empty row of result dots), Agents and Live calls at the bottom. Only prices are real data; the rest says "not live yet". Prices are fetched from the visitor's browser once a minute (one CoinGecko call gives all three prices and the 7-day lines); on failure the last real prices stay with a note, never an invented price. The countdown is computed from the schedule (lock = offset + k x 600 s), not read from the contract.
-- Step C3 onwards: not started.
+- **Step C2 (done):** homepage = three market cards, selected market in the middle, Agents and Live calls at the bottom. (First version used CoinGecko with a 7-day line; replaced in C3a.)
+- **Step C3a (done):** one price feed for everything: Bitfinex websocket (`web/lib/price-feed.ts`) gives the live price (last trade), the last-hour line on cards and chart, and later the 1-minute candles. The runner uses the same Bitfinex last trade for its start, middle and end prices (`runner/exchangePrices.mjs`; CoinGecko removed). See docs/RULES.md H4. The countdown is computed from the schedule (lock = offset + k x 600 s), not read from the contract.
+- **Next (C3b onwards, one small step at a time):** Line/Candles toggle with countdown on the chart; lime panel with "Make your own call" and "Back an agent"; agent colours and icons; countdown ring; glow on the selected market; phone layout (swipe row of market cards, sticky UP/DOWN bar); leaderboard + live calls.

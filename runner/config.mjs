@@ -12,11 +12,12 @@ export const CFG = {
 
   // --- when test prices are pushed (the feed owner is the deployer wallet) ---
   // About 3 prices per round per market (the website shows the live price straight from the price API).
-  // Fairness: CoinGecko's prices are refreshed about once a minute and are 13 to 89 seconds old when asked
-  // (median 51 s, measured over 20 minutes). The START price must not be a price from before the lock, or
-  // someone watching a live exchange just before lock would know which way it is already leaning.
+  // Fairness: the START price must not be a price from before the lock, or someone watching the market just
+  // before lock would know which way it is already leaning. Prices are the last trade on Bitfinex (the same
+  // number the website shows). The delays below were chosen for CoinGecko's lag (13 to 89 s); with an exchange
+  // feed they are more careful than strictly needed, and they stay as approved (the site says about 2 minutes).
   startDelay: 90,        // first try at the START price this long after lock (a new quote is usually ready by then) ...
-  startQuoteMargin: 30,  // ... and CoinGecko's own quote time must be at least this long AFTER the lock, or nothing is pushed (retried every 20 s)
+  startQuoteMargin: 30,  // ... and the quote (Bitfinex's clock) must be at least this long AFTER the lock, or nothing is pushed (retried every 20 s)
   midAt: 300,            // one price in the middle of the round
   midCutoff: 60,         // no mid price in the last minute (plus endMargin) before the end
   endMargin: 30,         // last price this long before the end: it becomes the END price
