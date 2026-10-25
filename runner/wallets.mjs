@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
 import { displayName } from '../agents/index.mjs';
 import { createRealPrices } from './realPrices.mjs';
+import { appendPriceLog, makePriceLogEntry } from './priceLog.mjs';
 
 const usdcText = (u) => '$' + (u / 1e6).toFixed(2);
 
@@ -20,7 +21,7 @@ export function describe(a) {
   }
 }
 
-export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaAbi, feedAbi, prices }) {
+export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaAbi, feedAbi, prices, explorer = 'https://explorer.testnet.arc.io', chainId = 5042002, logPush = appendPriceLog }) {
   const arena = deployments.arena.arena.address;
   const agentWallets = Object.fromEntries(deployments.circle.agents.map((a) => [a.key, a.walletId]));
   prices ||= createRealPrices({ apiKey: env.COINGECKO_API_KEY || undefined });
@@ -49,12 +50,13 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
     throw new Error('Circle transaction still pending after 2 minutes');
   }
 
-  async function deployerCall(address, abi, functionName, args) {
+  async function deployerSend(address, abi, functionName, args) {
     const hash = await wallet.writeContract({ address, abi, functionName, args });
     const rc = await pub.waitForTransactionReceipt({ hash });
     if (rc.status !== 'success') throw new Error(`${functionName} reverted (${hash})`);
-    return hash;
+    return { hash, rc };
   }
+  const deployerCall = async (...a) => (await deployerSend(...a)).hash;
 
   return async function execute(a) {
     if (!live) {
@@ -65,7 +67,15 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
     switch (a.type) {
       case 'pushPrice': {
         const q = await prices.quote(a.marketName, { quotedAfter: a.quotedAfter }); // throws if the API fails or is too old: then nothing is pushed
-        return { tx: await deployerCall(feedFor(a.market), feedAbi, 'setPrice', [q.price]), note: `real price ${usd(q.price)}, ${quoteText(q)}, pushed to the TEST feed` };
+        const feed = feedFor(a.market);
+        const { hash, rc } = await deployerSend(feed, feedAbi, 'setPrice', [q.price]);
+        let note = `real price ${usd(q.price)}, ${quoteText(q)}, pushed to the TEST feed`;
+        try { // the price is already on chain; a log problem must be loud but must not look like a failed push
+          const block = await pub.getBlock({ blockNumber: rc.blockNumber });
+          logPush(makePriceLogEntry({ action: a, quote: q, txHash: hash, blockNumber: rc.blockNumber, blockTimestamp: block.timestamp, feed, explorer, chainId }));
+        } catch (e) { note += `
+         WARNING: the price is on chain but could not be written to the price log: ${e.message}`; }
+        return { tx: hash, note };
       }
       case 'settle': return { tx: await deployerCall(arena, arenaAbi, 'settle', [BigInt(a.market), BigInt(a.round), a.startId, a.endId]) };
       case 'approve': return { tx: await circleCall(a.agent, usdc, 'approve(address,uint256)', [arena, String(a.amount)]) };

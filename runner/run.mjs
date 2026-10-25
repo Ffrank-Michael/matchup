@@ -35,7 +35,7 @@ let execute;
 
 async function tick() {
   const snap = await readSnapshot();
-  execute ||= makeExecutor({ live: LIVE, env, deployments, pub, wallet, usdc, arenaAbi: snap.art.arena.abi, feedAbi: snap.art.feed.abi });
+  execute ||= makeExecutor({ live: LIVE, env, deployments, pub, wallet, usdc, arenaAbi: snap.art.arena.abi, feedAbi: snap.art.feed.abi, explorer: chain.blockExplorers.default.url, chainId: chain.id });
   const { actions, decisions } = planTick(snap, { ...CFG, random: Math.random }, decided);
 
   for (const d of decisions) {

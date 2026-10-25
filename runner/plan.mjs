@@ -15,6 +15,7 @@
 //           agent never decides twice (a skip counts as a decision).
 //
 // Actions:  pushPrice | approve | bet | settle | claim   (the executor turns them into transactions)
+//           pushPrice carries { round } = the running round the price belongs to; every live push is written to the public price log (priceLog.mjs)
 import * as trendFollower from '../agents/trendFollower.mjs';
 import * as streakHunter from '../agents/streakHunter.mjs';
 import * as coinFlipper from '../agents/coinFlipper.mjs';
@@ -104,14 +105,14 @@ export function planTick(snap, cfg, decided = new Set()) {
       // Start price: the first update at or after lock. It waits startDelay seconds (the price API can be a
       // little behind the market) and the executor also checks the API's own quote time is after the lock.
       if (now >= lockR + cfg.startDelay && now < endR && (!latest || latest.updatedAt < lockR)) {
-        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, why: 'start price', quotedAfter: lockR + cfg.startQuoteMargin });
+        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, round: r, why: 'start price', quotedAfter: lockR + cfg.startQuoteMargin });
       } else if (latest && now >= endR - cfg.endMargin && now < endR && latest.updatedAt >= lockR && latest.updatedAt < endR - cfg.endMargin) {
         // End price: the last update at or before the end.
-        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, why: 'end price' });
+        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, round: r, why: 'end price' });
       } else if (latest && latest.updatedAt >= lockR && latest.updatedAt < lockR + cfg.midAt
                  && now >= lockR + cfg.midAt && now < endR - cfg.endMargin - cfg.midCutoff) {
         // One price in the middle of the round.
-        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, why: 'mid-round price' });
+        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, round: r, why: 'mid-round price' });
       }
     }
 

@@ -54,3 +54,6 @@ lib/
 .DS_Store
 Thumbs.db
 *.swp
+
+# --- Runtime data written by the runner (the public price log); published separately, not committed ---
+data/
