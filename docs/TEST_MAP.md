@@ -74,7 +74,7 @@ Rules 2, 3, 6, 14, 15, 19: the same rules, proven with the exact testnet setting
 | Market settings and lock minutes (:00 / :03 / :06) | `test_tenMin_marketSettings`, `test_tenMin_locksLandOnTheRightMinutes`, `test_tenMin_nextBettableRound_staggered`, `test_tenMin_roundLengthLimits` |
 | Bet window is 10 minutes, closes at lock | `test_tenMin_betWindowIsTenMinutes` |
 | A full round and payout on each market | `test_tenMin_fullRound_BTC`, `..._ETH`, `..._SOL`, `test_tenMin_downWins_evenWhenTheMiddlePriceWasHigher` |
-| Judged from the lock price | `test_tenMin_judgedFromTheLockPrice_notFromTheMomentOfTheBet`, `test_tenMin_onlyTheFirstUpdateAfterLockIsAValidStart`, `test_tenMin_theNextRoundsFirstPushIsNotThisRoundsEnd`, `test_tenMin_secondRoundOnSameFeed` |
+| Judged from the start price (first update at or after lock) | `test_tenMin_judgedFromTheLockPrice_notFromTheMomentOfTheBet`, `test_tenMin_onlyTheFirstUpdateAfterLockIsAValidStart`, `test_tenMin_theNextRoundsFirstPushIsNotThisRoundsEnd`, `test_tenMin_secondRoundOnSameFeed` |
 | Refunds with no fee | `test_tenMin_onlyTheStartPriceArrived_isRefunded`, `test_tenMin_noPriceAtAll_isRefunded`, `test_tenMin_unchangedPrice_isRefunded`, `test_tenMin_oneSidedRound_isRefunded` |
 | 1-hour settle window, then refund | `test_tenMin_settleWindow_oneHourAfterTheEnd`, `test_tenMin_nobodySettled_everyoneGetsARefund` |
 | Three staggered markets independent | `test_tenMin_threeMarketsSettleIndependently` |
