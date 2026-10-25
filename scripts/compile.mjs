@@ -53,7 +53,21 @@ export function compile() {
       immutableReferences: c.evm.deployedBytecode.immutableReferences || {},
     };
   };
+  // Standard JSON input listing every source file the build used (OpenZeppelin included), for
+  // verifying the source on the block explorer.
+  const used = {};
+  for (const name of Object.keys(out.sources)) used[name] = { content: findImports(name).contents };
+  const standardInput = {
+    language: 'Solidity',
+    sources: used,
+    settings: {
+      optimizer: { enabled: true, runs: 200 },
+      evmVersion: 'cancun',
+      outputSelection: { '*': { '*': ['abi', 'evm.bytecode', 'evm.deployedBytecode', 'evm.methodIdentifiers', 'metadata'] } },
+    },
+  };
   return {
+    standardInput,
     arena: pick('contracts/PredictionArena.sol', 'PredictionArena'),
     feed: pick('contracts/mocks/MockPriceFeed.sol', 'MockPriceFeed'),
   };
