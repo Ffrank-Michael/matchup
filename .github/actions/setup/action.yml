@@ -1,0 +1,39 @@
+name: Set up Arc Foundry and dependencies
+description: Installs the pinned Arc Foundry release (checksum verified), OpenZeppelin and forge-std.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Install Arc Foundry (pinned, checksum verified)
+      shell: bash
+      env:
+        ARC_FOUNDRY_TAG: v0.8.0-2
+        # sha256 of the Linux x86_64 tarball, checked against the release's own .sha256 file
+        ARC_FOUNDRY_SHA256: 088bdb96a84418b757f9825d491e702792f1d1d1e29a9145af305a6600a79556
+      run: |
+        set -euo pipefail
+        asset="arc-foundry-${ARC_FOUNDRY_TAG}-x86_64-unknown-linux-gnu.tar.gz"
+        mkdir -p "$HOME/arc-foundry"
+        curl -fsSL -o "$RUNNER_TEMP/$asset" \
+          "https://github.com/circlefin/arc-foundry/releases/download/${ARC_FOUNDRY_TAG}/${asset}"
+        echo "${ARC_FOUNDRY_SHA256}  $RUNNER_TEMP/$asset" | sha256sum -c -
+        tar -xzf "$RUNNER_TEMP/$asset" -C "$HOME/arc-foundry"
+        echo "$HOME/arc-foundry" >> "$GITHUB_PATH"
+
+    - name: Show tool versions
+      shell: bash
+      run: |
+        forge --version
+        node --version
+
+    - name: Install OpenZeppelin (pinned by package-lock.json)
+      shell: bash
+      run: npm ci --ignore-scripts
+
+    - name: Install forge-std v1.16.2
+      shell: bash
+      run: git clone --depth 1 --branch v1.16.2 https://github.com/foundry-rs/forge-std.git lib/forge-std

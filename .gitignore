@@ -1,0 +1,54 @@
+# ===== Kairo Markets .gitignore =====
+# Anything secret must NEVER be committed. If in doubt, add it here first.
+
+# --- Secrets: environment files and keys ---
+.env
+.env.*
+!.env.example
+*.env
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+keystore/
+keystores/
+wallets/
+secrets/
+*secret*
+*mnemonic*
+*seed-phrase*
+*seedphrase*
+*private-key*
+*privatekey*
+*private_key*
+id_rsa*
+id_ed25519*
+.npmrc
+.netrc
+
+# --- Build output and caches (recreated by the build) ---
+contracts/out/
+contracts/cache/
+out/
+cache/
+broadcast/
+artifacts/
+typechain-types/
+coverage/
+lcov.info
+*.log
+
+# --- Dependencies (installed fresh by the test workflow) ---
+node_modules/
+lib/
+
+# --- Local tool state ---
+.arc-studio/
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp

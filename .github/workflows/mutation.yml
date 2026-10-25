@@ -1,0 +1,140 @@
+name: Deliberate-break check (mutation testing)
+
+# One run does everything: a baseline (unbroken code must pass), then every
+# deliberate break from ci/mutations.json in its own job, then one summary table.
+# A break is CAUGHT if at least one test fails; SURVIVED if every test still passes;
+# INVALID if the broken code does not even compile (that proves nothing).
+
+on:
+  workflow_dispatch:
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      ids: ${{ steps.ids.outputs.ids }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Every break must match the contract exactly once
+        run: node ci/mutate.js check
+      - id: ids
+        run: echo "ids=$(node ci/mutate.js list)" >> "$GITHUB_OUTPUT"
+
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Unbroken code must pass every test
+        shell: bash
+        run: |
+          set -o pipefail
+          forge test 2>&1 | tee baseline.log
+        env:
+          FOUNDRY_FUZZ_SEED: "0x4b6169726f"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: baseline-log
+          path: baseline.log
+
+  mutant:
+    needs: [prepare, baseline]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        id: ${{ fromJson(needs.prepare.outputs.ids) }}
+    env:
+      FOUNDRY_FUZZ_SEED: "0x4b6169726f"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - name: Apply the deliberate break
+        run: node ci/mutate.js apply "${{ matrix.id }}"
+
+      - name: Run tests against the broken code
+        shell: bash
+        run: |
+          mkdir -p result
+          id="${{ matrix.id }}"
+          build=pass; unit=skip; inv=skip
+          if ! forge build > build.log 2>&1; then
+            build=fail
+          else
+            if forge test --no-match-path "contracts/test/ClaimInvariant.t.sol" > unit.log 2>&1; then unit=pass; else unit=fail; fi
+            if forge test --match-path "contracts/test/ClaimInvariant.t.sol" > inv.log 2>&1; then inv=pass; else inv=fail; fi
+          fi
+          touch unit.log inv.log build.log
+          # names of the first few failing tests, for the summary table
+          failing=$( (grep -h -E "^\[FAIL" unit.log inv.log || true) | sed -E 's/^\[FAIL[^]]*\] *//; s/ \(.*//' | head -3 | tr '\n' ';' | sed 's/"//g' )
+          printf '{"id":"%s","build":"%s","unit":"%s","invariant":"%s","failing":"%s"}\n' \
+            "$id" "$build" "$unit" "$inv" "$failing" > "result/${id}.json"
+          cat "result/${id}.json"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: result-${{ matrix.id }}
+          path: |
+            result/${{ matrix.id }}.json
+            build.log
+            unit.log
+            inv.log
+
+  summary:
+    needs: [prepare, mutant]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: result-*
+          path: results
+      - name: Build the table
+        shell: bash
+        run: |
+          node - <<'JS'
+          const fs = require('fs');
+          const path = require('path');
+          const muts = JSON.parse(fs.readFileSync('ci/mutations.json', 'utf8'));
+          const found = {};
+          for (const dir of fs.existsSync('results') ? fs.readdirSync('results') : []) {
+            const f = path.join('results', dir, 'result', dir.replace(/^result-/, '') + '.json');
+            if (fs.existsSync(f)) { const r = JSON.parse(fs.readFileSync(f, 'utf8')); found[r.id] = r; }
+          }
+          const rows = [];
+          const tally = { CAUGHT: 0, SURVIVED: 0, INVALID: 0, 'NO RESULT': 0 };
+          for (const m of muts) {
+            const r = found[m.id];
+            let verdict = 'NO RESULT';
+            if (r) verdict = r.build === 'fail' ? 'INVALID' : (r.unit === 'fail' || r.invariant === 'fail') ? 'CAUGHT' : 'SURVIVED';
+            tally[verdict]++;
+            const mark = (x) => x === 'fail' ? 'caught' : x === 'pass' ? '-' : x;
+            rows.push(`| ${m.id} | ${m.desc} | **${verdict}** | ${r ? mark(r.unit) : '?'} | ${r ? mark(r.invariant) : '?'} | ${r ? r.failing : ''} |`);
+          }
+          const out = [
+            '## Deliberate-break results',
+            '',
+            `CAUGHT ${tally.CAUGHT} / SURVIVED ${tally.SURVIVED} / INVALID ${tally.INVALID} / NO RESULT ${tally['NO RESULT']}  (total ${muts.length})`,
+            '',
+            '| id | what was broken | verdict | unit tests | invariant tests | first failing tests |',
+            '|---|---|---|---|---|---|',
+            ...rows,
+          ].join('\n');
+          fs.writeFileSync('mutation-summary.md', out + '\n');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, out + '\n');
+          console.log(out);
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mutation-summary
+          path: mutation-summary.md

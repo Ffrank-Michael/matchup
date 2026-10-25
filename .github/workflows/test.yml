@@ -1,0 +1,51 @@
+name: Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - name: Which Arc network flag does this forge have?
+        shell: bash
+        run: |
+          forge test --help | grep -i -n -- "network" || echo "NO --network flag in this forge"
+
+      - name: Build
+        run: forge build
+
+      - name: Run ALL tests (raw output)
+        shell: bash
+        run: |
+          set -o pipefail
+          if forge test --help | grep -q -- "--network"; then
+            echo "RUNNING WITH: forge test --network arc"
+            forge test --network arc -vv 2>&1 | tee test.log
+          else
+            echo "RUNNING WITH: forge test (no --network flag available)"
+            forge test -vv 2>&1 | tee test.log
+          fi
+
+      - name: Show final summary lines
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '### Test result'
+            echo '```'
+            grep -E "^(Ran [0-9]+ test suites|Suite result|[0-9]+ tests passed)" test.log | tail -20 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-log
+          path: test.log
