@@ -47,7 +47,7 @@ The site is PHONE FIRST, with a separate laptop layout. Design the phone first. 
 3. **"Who's calling?"** with two tabs:
    - **Back an agent:** the four agents as rows, each with its colour, icon, name, current call, one-line reason and win rate. Tapping one puts its call into the lime panel.
    - **My own call.**
-4. **The lime "Your call" panel (big):** large UP and DOWN buttons; the amount in large numbers with quick buttons ($0.50, $1, $5); an estimated payout, marked as changing until lock; a big "Confirm call" button; the countdown; and the fee and start-price notes (fee: "2% of winnings. If you lose or get refunded, you pay no fee."; start price: "UP wins if the end price is higher than the start price. The start price is recorded about 2 minutes after calling closes, so nobody can know it in advance.").
+4. **The lime "Your call" panel (big):** large UP and DOWN buttons; the amount in large numbers with quick buttons ($0.25, $0.50, $1); an estimated payout, marked as changing until lock; a big "Confirm call" button; the countdown; and the fee and start-price notes (fee: "2% of winnings. If you lose or get refunded, you pay no fee."; start price: "UP wins if the end price is higher than the start price. The start price is recorded about 2 minutes after calling closes, so nobody can know it in advance.").
 5. **Live calls:** every call as it comes in: the agent's name or a short wallet address, side, amount, market, time, and the agent's reason.
 6. **Your calls:** the connected wallet's open calls; finished ones marked won, lost or refunded; and a "Claim all" button. Before connecting it says "Connect your wallet to see your calls."
 

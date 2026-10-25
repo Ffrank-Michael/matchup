@@ -122,3 +122,27 @@ Kairo Markets lets people call the next 1-hour move of BTC, ETH and SOL, UP or D
 - Testnet addresses: _not deployed_. Mainnet addresses: _not deployed_.
 - Example mainnet transaction and explorer.arc.io link: _none yet_.
 - Live app link (Vercel): _none yet_. Video link: _none yet_.
+
+## Decisions made 2026-10-26 (owner)
+
+- D1 Rehearse on testnet with our own deploy script first (no Arc Studio turn used).
+- D2 The 1 USDC maximum per call is enforced in the site and the runner only; no contract change.
+- D3 Ship mainnet with all three markets if SOL has a feed. Checked: it does (see below).
+- D4 If Arc Studio cannot deploy to mainnet, deploy with our own script and confirm the deployed bytecode matches the Arc Studio code exactly.
+- D5 Replace the locally written connect-wallet code with Arc Studio's version (sent as a reference file; the description says so honestly).
+- D6 The owner funds the mainnet wallets when we reach mainnet (about 2 USDC deployer, about 3 USDC test wallet).
+- D7 Licence: MIT (LICENSE file added when the repo goes public).
+
+## Chainlink on Arc mainnet, checked on chain 2026-10-26 (read-only)
+
+Source list: https://reference-data-directory.vercel.app/feeds-arc-mainnet.json. All three answer `description()`, `decimals()` (8), `latestRoundData()` and `getRoundData(id)`; a made-up round id reverts, as the contract expects. Prices matched Bitfinex within the feeds' deviation thresholds.
+
+| Market | Proxy (use this) | Secondary proxy (not used) | Deviation | Heartbeat |
+|---|---|---|---|---|
+| BTC/USD | 0xa109B535C70C8Be9995be64Bb6751AcDB27e03De | 0x7777547914e03BCbB04Ae034942765a0dbb26aE3 | 0.1% | 24 h |
+| ETH/USD | 0x50FCDD99D6762D1C170DC6A9111db944AEE6D364 | 0x2c7Dc3567b3490f53A8d32625d766834dd023F60 | 0.5% | 24 h |
+| SOL/USD | 0x2d04D354f5fDaE3De723df475745B0a9B4edf90C | 0xaD902511CbF378977149687D6aFB7D93A390D06e | 0.5% | 24 h |
+
+The main proxies are on phase 1; the secondary proxies on phase 2. We do not know from the list alone what the secondary proxy is for.
+
+Honest limit: these feeds update only when the price moves past the deviation threshold, or after 24 hours. Recent gaps between updates: BTC 3 to 27 minutes, ETH 4 to 270 minutes, SOL 6 to 380 minutes. A 1-hour round settles only if the feed updates after lock and again before the end; otherwise it is refunded with no fee. Expect BTC to settle most hours and ETH and SOL to refund on quiet hours. Say so on the site and in the description.

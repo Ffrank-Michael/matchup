@@ -8,13 +8,13 @@ import { cn } from "@/lib/utils";
 
 import { NotLive, Tile } from "./tile";
 
-// Wide price chart for the selected market: the last hour of real Bitfinex trades, ending at the live price.
+// The selected market, bigger (PHONE layout only; on a laptop the selected card replaces it).
+// The line is the last hour of real Bitfinex trades, ending at the live price.
 // The right fifth is kept free: that is where the round's start price line will go once rounds are live.
 
 const W = 640;
 const H = 240;
 const PLOT = W * 0.8;
-const RESULT_DOTS = 30;
 
 export function PriceChart({
   market,
@@ -61,7 +61,7 @@ export function PriceChart({
   };
 
   return (
-    <Tile title={`Price chart · ${market.pair}`} index={index} className={cn("min-h-[360px]", className)}>
+    <Tile title={market.pair} index={index} className={cn("min-h-[300px]", className)}>
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
         <div>
           <p className="font-mono text-[26px] font-semibold leading-none tracking-[-0.03em] tabular-nums">
@@ -86,6 +86,11 @@ export function PriceChart({
           Start price
           <NotLive className="text-[11px]" />
         </p>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-2 text-[12px]">
+        <span className="rounded-full border border-dashed border-border px-2.5 py-1 text-muted-foreground">UP winning / DOWN winning</span>
+        <NotLive className="text-[11px]" />
       </div>
 
       <div className="relative mt-4 flex-1 touch-pan-y" style={{ minHeight: 200 }} onPointerMove={onMove} onPointerLeave={() => setHover(null)}>
@@ -122,18 +127,6 @@ export function PriceChart({
         )}
       </div>
 
-      {/* Last results: one dot per finished round, lime for UP and lilac for DOWN. Empty until rounds are live. */}
-      <div className="mt-4 border-t border-border pt-3">
-        <div className="mb-2 flex items-center justify-between gap-2 text-[12px] text-muted-foreground">
-          <span>Last results</span>
-          <NotLive className="text-[11px]" />
-        </div>
-        <div className="flex flex-wrap gap-1.5" aria-hidden>
-          {Array.from({ length: RESULT_DOTS }, (_, i) => (
-            <span key={i} className="size-2.5 rounded-full border border-muted-foreground/40" />
-          ))}
-        </div>
-      </div>
     </Tile>
   );
 }

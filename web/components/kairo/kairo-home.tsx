@@ -2,23 +2,31 @@
 
 import * as React from "react";
 
+import { AGENTS, type AgentKey } from "@/lib/agents";
 import { MARKETS, secondsToNextLock, type MarketKey } from "@/lib/markets";
 import { hourPoints, lastPrice, usePriceFeed } from "@/lib/price-feed";
 import { useNowSeconds } from "@/lib/use-now";
 
+import { LiveCalls } from "./live-calls";
 import { MarketCard } from "./market-card";
 import { PriceChart } from "./price-chart";
-import { Tile } from "./tile";
 import { WalletButton } from "./wallet-button";
+import { WhosCalling } from "./whos-calling";
+import { YourCall, type Side } from "./your-call";
+import { YourCalls } from "./your-calls";
 
-// Step C2/C3: market cards on top (live price, last-hour line, countdown to the next lock),
-// the selected market in the middle, Agents and Live calls at the bottom.
+// The agreed phone-first layout (docs/WEBSITE.md), top to bottom:
+// market cards (one row), the selected market (phone only), Who's calling, Your call, Live calls, Your calls.
+// On a laptop the selected card holds the chart job, then Who's calling and Your call sit half and half.
 // Only the prices are real data right now: one Bitfinex feed (lib/price-feed.ts) supplies every number.
-// Everything about rounds, money and agents says
-// "not live yet" until the contract is deployed.
+// Everything about rounds, money and agents says "not live yet" until the contract is deployed.
 
 export function KairoHome() {
   const [selected, setSelected] = React.useState<MarketKey>("BTC");
+  const [side, setSide] = React.useState<Side | null>(null);
+  const [amount, setAmount] = React.useState("");
+  const [backing, setBacking] = React.useState<AgentKey | null>(null);
+  const backingAgent = AGENTS.find((a) => a.key === backing) ?? null;
   const feed = usePriceFeed();
   const now = useNowSeconds();
   const nowMs = now === null ? null : now * 1000;
@@ -39,8 +47,8 @@ export function KairoHome() {
       </header>
 
       <div className="flex flex-col gap-3">
-        {/* Top: one card per market (stacked on phones) */}
-        <div role="group" aria-label="Markets" className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        {/* 1. One card per market: all three in ONE row, also on a phone */}
+        <div role="group" aria-label="Markets" className="grid grid-cols-3 gap-2 lg:gap-3">
           {MARKETS.map((m, i) => (
             <MarketCard
               key={m.key}
@@ -57,16 +65,29 @@ export function KairoHome() {
           ))}
         </div>
 
-        {/* Middle: the selected market. On phones the call panel comes first, then the chart. */}
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-          <PriceChart market={market} price={priceOf(market.key)} points={pointsOf(market.key)} nowMs={nowMs} feedFailed={feedFailed} index={3} className="order-2 lg:order-1 lg:col-span-2" />
-          <Tile title={`Make your call · ${market.key}`} accent index={4} className="order-1 min-h-[240px] lg:order-2" />
+        {/* 2. Phone only: the selected market, bigger. On a laptop the selected card above does this job. */}
+        <PriceChart market={market} price={priceOf(market.key)} points={pointsOf(market.key)} nowMs={nowMs} feedFailed={feedFailed} index={3} className="lg:hidden" />
+
+        {/* 3 and 4. Who's calling, then the lime call panel (half and half on a laptop) */}
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <WhosCalling backing={backing} onBack={setBacking} index={4} />
+          <YourCall
+            market={market}
+            secondsLeft={now === null ? null : secondsToNextLock(now, market.lockOffset)}
+            side={side}
+            onSide={setSide}
+            amount={amount}
+            onAmount={setAmount}
+            backing={backingAgent}
+            onClearBacking={() => setBacking(null)}
+            index={5}
+          />
         </div>
 
-        {/* Bottom: two tiles */}
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <Tile title="Agents" index={5} className="min-h-[220px]" />
-          <Tile title="Live calls" index={6} className="min-h-[220px]" />
+        {/* 5 and 6. Live calls, then Your calls */}
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <LiveCalls index={6} className="min-h-[200px]" />
+          <YourCalls index={7} className="min-h-[200px]" />
         </div>
       </div>
 
