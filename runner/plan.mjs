@@ -28,7 +28,7 @@ const LOGIC = {
   contrarian,
 };
 export const EARLY = ['trend-follower', 'streak-hunter', 'coin-flipper']; // bet early, in this order
-export const LATE = 'contrarian'; // bets last, about 5 minutes before lock
+export const LATE = 'contrarian'; // bets last, about 2 minutes before lock
 
 export const lockTime = (m, k) => m.startOffset + k * m.roundLength;
 export const endTime = (m, k) => lockTime(m, k) + m.roundLength;
@@ -96,7 +96,7 @@ export function planTick(snap, cfg, decided = new Set()) {
       actions.push({ type: 'settle', market: m.id, marketName: m.name, round: j, ...ids });
     }
 
-    // ---- 2. test prices for the round that is running now (round k-1) ----
+    // ---- 2. prices for the round that is running now (round k-1): real market prices pushed to the TEST feed ----
     if (k >= 1) {
       const r = k - 1;
       const lockR = lockTime(m, r);

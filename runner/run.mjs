@@ -8,6 +8,7 @@
 // Each pass: read the chain -> ask planTick() what to do -> do it, one action at a time.
 // The agents' wallets are Circle developer-controlled wallets; the deployer wallet owns the test feeds.
 import { setup } from '../scripts/lib.mjs';
+import { displayName } from '../agents/index.mjs';
 import { CFG } from './config.mjs';
 import { planTick } from './plan.mjs';
 import { loadDeployments, makeReader } from './chain.mjs';
@@ -38,7 +39,7 @@ async function tick() {
   const { actions, decisions } = planTick(snap, { ...CFG, random: Math.random }, decided);
 
   for (const d of decisions) {
-    if (d.decision.action === 'SKIP') log(`${d.agent} skips ${d.market} round ${d.round}: ${d.decision.reason}`);
+    if (d.decision.action === 'SKIP') log(`${displayName(d.agent)} skips ${d.market} round ${d.round}: ${d.decision.reason}`);
     if (LIVE || d.decision.action === 'SKIP') decided.add(d.id); // a dry run never marks a bet as decided, so it keeps showing it
   }
   if (actions.length === 0 && decisions.length === 0) return;
@@ -48,9 +49,10 @@ async function tick() {
     if ((failedUntil.get(text) || 0) > Date.now()) continue;
     try {
       const res = await execute(a);
-      log(`${LIVE ? 'DONE' : 'WOULD'}: ${text}${res.tx ? '  tx ' + res.tx : ''}`);
+      log(`${LIVE ? 'DONE' : 'WOULD'}: ${text}${res.note ? '\n         ' + res.note : ''}${res.tx ? '\n         tx ' + res.tx : ''}`);
     } catch (e) {
-      failedUntil.set(text, Date.now() + 5 * 60_000); // do not hammer a failing action
+      // do not hammer a failing action; a failed price push is retried sooner because a new price is due every minute
+      failedUntil.set(text, Date.now() + (a.type === 'pushPrice' ? 30_000 : 5 * 60_000));
       log(`FAILED: ${text}\n         ${String(e.shortMessage || e.message).slice(0, 300)}`);
     }
   }

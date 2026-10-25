@@ -1,7 +1,7 @@
 // Trend follower: bets the same direction as the last round.
 import { UNITS, directionOf, fmtPrice, fmtPct, legalStake, bet, skip } from './lib.mjs';
 
-export const name = 'Trend follower';
+export const name = 'Agent 1 · Trend Follower';
 export const BASE_STAKE = 0.5 * UNITS;
 
 export function decide(ctx) {

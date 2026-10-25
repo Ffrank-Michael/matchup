@@ -2,7 +2,7 @@
 // otherwise follows the trend (same direction as the last round).
 import { UNITS, currentStreak, fmtPrice, fmtPct, opposite, legalStake, bet, skip } from './lib.mjs';
 
-export const name = 'Streak hunter';
+export const name = 'Agent 3 · Streak Hunter';
 export const STREAK_LENGTH = 3;
 export const FOLLOW_STAKE = 0.3 * UNITS;
 export const FADE_STAKE = 0.6 * UNITS; // bigger bet when it thinks a streak is due to end

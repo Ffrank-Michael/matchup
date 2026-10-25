@@ -23,12 +23,21 @@ const opt = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : un
 const SEND = flag('--send');
 const VERIFY_ONLY = flag('--verify-only');
 
-const ROUND = 3600;
+// Round settings. The contract takes any round length of 5 minutes or more, so this is only a deploy setting.
+//   10min (testnet, the default): BTC locks at :00, ETH at :03, SOL at :06 of every 10 minutes
+//   1h    (kept for mainnet later): BTC locks at :00, ETH at :20, SOL at :40 of every hour
+const PRESETS = {
+  '10min': { round: 600, label: '10-minute', offsets: { btc: 0, eth: 180, sol: 360 } },
+  '1h': { round: 3600, label: '1-hour', offsets: { btc: 0, eth: 1200, sol: 2400 } },
+};
+const PRESET = PRESETS[opt('--rounds') || '10min'];
+if (!PRESET) { console.error('STOP: --rounds must be 10min or 1h'); process.exit(1); }
+const ROUND = PRESET.round;
 const MIN_STAKE = 100_000n; // 0.10 USDC
 const MARKETS = [
-  { key: 'btc', name: 'BTC/USD', offset: 0 },
-  { key: 'eth', name: 'ETH/USD', offset: 1200 },
-  { key: 'sol', name: 'SOL/USD', offset: 2400 },
+  { key: 'btc', name: 'BTC/USD', offset: PRESET.offsets.btc },
+  { key: 'eth', name: 'ETH/USD', offset: PRESET.offsets.eth },
+  { key: 'sol', name: 'SOL/USD', offset: PRESET.offsets.sol },
 ];
 const FEED_DECIMALS = 8;
 const feedDescription = (m) => `TEST PRICES - NOT REAL DATA / ${m.name}`;
@@ -186,7 +195,7 @@ async function verify(art, st) {
     check(getAddress(mk[0]) === getAddress(F), `market ${i} uses the ${m.name} test feed`);
     check(getAddress(mk[1]) === zeroAddress, `market ${i} has no second feed`);
     check(Number(mk[2]) === ROUND && Number(mk[3]) === m.offset && mk[4] === MIN_STAKE && mk[5] === false,
-      `market ${i}: 1-hour rounds, offset ${m.offset}s, min stake 0.10 USDC, not paused`);
+      `market ${i}: ${PRESET.label} rounds, offset ${m.offset}s, min stake 0.10 USDC, not paused`);
     const desc = await read(F, art.feed.abi, 'description');
     check(desc.startsWith('TEST PRICES - NOT REAL DATA'), `feed ${m.name} is labelled "${desc}"`);
     check(getAddress(await read(F, art.feed.abi, 'owner')) === getAddress(owner), `feed ${m.name} is owned by the deployer wallet`);

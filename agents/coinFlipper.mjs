@@ -2,7 +2,7 @@
 // in 0.01 USDC steps).
 import { fmtUsdc, legalStake, bet, skip } from './lib.mjs';
 
-export const name = 'Coin flipper';
+export const name = 'Agent 4 · Coin Flipper';
 const STEP = 10_000; // 0.01 USDC
 
 export function decide(ctx) {

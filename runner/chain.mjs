@@ -29,17 +29,30 @@ export function makeReader({ pub, usdc, deployments }) {
   const A = deployments.arena.arena.address;
   const read = (address, abi, functionName, args = []) => pub.readContract({ address, abi, functionName, args });
 
+  // A price goes in about every minute, so the feed is remembered between passes and only the
+  // newest updates are fetched. Updates never change once written, so remembering them is safe.
+  const feedCache = {};
   async function feedUpdates(feedAddress, oldestNeeded) {
-    const updates = [];
     let latest;
-    try { latest = await read(feedAddress, art.feed.abi, 'latestRoundData'); } catch { return updates; } // no price yet
+    try { latest = await read(feedAddress, art.feed.abi, 'latestRoundData'); } catch { return []; } // no price yet
+    const cached = feedCache[feedAddress] || [];
+    const lastKnown = cached.length ? cached[cached.length - 1].id : null;
     let [id, answer, , updatedAt] = latest;
-    for (let i = 0; i < 60; i++) {
-      updates.unshift({ id, updatedAt: Number(updatedAt), price: answer });
+    const fresh = [];
+    let joined = false; // did the walk back reach what we already remembered?
+    for (let i = 0; i < 500; i++) {
+      if (lastKnown !== null && id <= lastKnown) { joined = true; break; }
+      fresh.unshift({ id, updatedAt: Number(updatedAt), price: answer });
       if (Number(updatedAt) < oldestNeeded || (id & 0xffffffffffffffffn) <= 1n) break; // went back far enough, or reached the first update
       try { [id, answer, , updatedAt] = await read(feedAddress, art.feed.abi, 'getRoundData', [id - 1n]); } catch { break; }
     }
-    return updates;
+    let all = joined ? cached.concat(fresh) : fresh;
+    // keep everything from the newest update that is older than we need (the contract looks one back too)
+    let keepFrom = 0;
+    for (let i = 0; i < all.length; i++) if (all[i].updatedAt < oldestNeeded) keepFrom = i;
+    all = all.slice(keepFrom);
+    feedCache[feedAddress] = all;
+    return all;
   }
 
   return async function readSnapshot() {
@@ -53,10 +66,12 @@ export function makeReader({ pub, usdc, deployments }) {
       const nextRound = Number(await read(A, art.arena.abi, 'nextBettableRound', [BigInt(id)]));
       const m = { id, name, roundLength: Number(roundLength), startOffset: Number(startOffset), minStake: Number(minStake), paused, nextRound, rounds: {}, feed: { address: feedA, updates: [] } };
       const first = Math.max(0, nextRound - CFG.lookback);
-      for (let j = first; j <= nextRound; j++) {
-        const r = await read(A, art.arena.abi, 'rounds', [BigInt(id), BigInt(j)]);
+      const indexes = Array.from({ length: nextRound - first + 1 }, (_, i) => first + i);
+      const rows = await Promise.all(indexes.map((j) => read(A, art.arena.abi, 'rounds', [BigInt(id), BigInt(j)])));
+      indexes.forEach((j, i) => {
+        const r = rows[i];
         m.rounds[j] = { up: Number(r[0]), down: Number(r[1]), startPrice: r[4], endPrice: r[5], state: STATES[Number(r[6])] };
-      }
+      });
       m.feed.updates = await feedUpdates(feedA, lockTime(m, first));
       markets.push(m);
     }
@@ -65,12 +80,13 @@ export function makeReader({ pub, usdc, deployments }) {
       const balance = Number((await usdcBalance(pub, usdc, a.address)).raw);
       const allowance = Number(await read(usdc, allowanceAbi, 'allowance', [a.address, A]));
       const positions = {};
-      for (const m of markets) {
-        for (let j = Math.max(0, m.nextRound - CFG.lookback); j <= m.nextRound; j++) {
-          const p = await read(A, art.arena.abi, 'positions', [BigInt(m.id), BigInt(j), a.address]);
-          if (p[0] > 0n || p[1] > 0n) positions[`${m.id}:${j}`] = { up: Number(p[0]), down: Number(p[1]), claimed: p[2] };
-        }
-      }
+      const asks = markets.flatMap((m) =>
+        Array.from({ length: m.nextRound - Math.max(0, m.nextRound - CFG.lookback) + 1 }, (_, i) => ({ id: m.id, j: Math.max(0, m.nextRound - CFG.lookback) + i })));
+      const rows = await Promise.all(asks.map((q) => read(A, art.arena.abi, 'positions', [BigInt(q.id), BigInt(q.j), a.address])));
+      asks.forEach((q, i) => {
+        const p = rows[i];
+        if (p[0] > 0n || p[1] > 0n) positions[`${q.id}:${q.j}`] = { up: Number(p[0]), down: Number(p[1]), claimed: p[2] };
+      });
       agents.push({ key: a.key, name: a.name, address: a.address, walletId: a.walletId, balance, allowance, positions });
     }
     return { now, markets, agents, art };

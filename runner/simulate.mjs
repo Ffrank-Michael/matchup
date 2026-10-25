@@ -5,6 +5,7 @@
 import { CFG } from './config.mjs';
 import { createWalk } from './priceWalk.mjs';
 import { planTick, lockTime, endTime } from './plan.mjs';
+import { displayName } from '../agents/index.mjs';
 
 export function mulberry32(seed) {
   return () => {
@@ -16,19 +17,29 @@ export function mulberry32(seed) {
 }
 
 const KEYS = ['trend-follower', 'contrarian', 'streak-hunter', 'coin-flipper'];
+// The three testnet markets: 10-minute rounds, BTC locks at :00, ETH at :03, SOL at :06.
+// The start prices are made up: this is a pretend chain, nothing here touches a real price.
+const MARKETS = [
+  { name: 'BTC/USD', startOffset: 0, startUsd: 100000 },
+  { name: 'ETH/USD', startOffset: 180, startUsd: 3500 },
+  { name: 'SOL/USD', startOffset: 360, startUsd: 150 },
+];
 const usdc = (u) => '$' + (u / 1e6).toFixed(2);
 const clock = (t0, t) => {
   const s = t - t0;
   return `+${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 };
 
-export function createWorld({ now, seed = 1, startUsd = 100000 }) {
+export function createWorld({ now, seed = 1 }) {
   const random = mulberry32(seed);
   return {
     now,
     random,
-    walk: createWalk(startUsd, random),
-    markets: [{ id: 0, name: 'BTC/USD', roundLength: 3600, startOffset: 0, minStake: 100_000, paused: false, nextRound: 0, feed: { updates: [] }, rounds: {} }],
+    staked: 0, paidOut: 0, // all money bets put in, and all money claims paid out (to check no money appears or vanishes)
+    markets: MARKETS.map((m, id) => ({
+      id, name: m.name, roundLength: 600, startOffset: m.startOffset, minStake: 100_000, paused: false, nextRound: 0,
+      walk: createWalk(m.startUsd, random), feed: { updates: [] }, rounds: {},
+    })),
     agents: KEYS.map((key) => ({ key, balance: 5_000_000, allowance: 0, positions: {} })),
   };
 }
@@ -42,9 +53,9 @@ function apply(world, a) {
   const agent = world.agents.find((x) => x.key === a.agent);
   switch (a.type) {
     case 'pushPrice': {
-      const price = world.walk.next();
+      const price = m.walk.next();
       m.feed.updates.push({ id: (1n << 64n) | BigInt(m.feed.updates.length + 1), updatedAt: world.now, price });
-      return `${a.why}: ${(Number(price) / 1e8).toFixed(2)}`;
+      return `${m.name} ${a.why}: ${(Number(price) / 1e8).toFixed(2)}`;
     }
     case 'approve':
       agent.allowance += a.amount;
@@ -54,10 +65,10 @@ function apply(world, a) {
       const pos = (agent.positions[`${m.id}:${a.round}`] ||= { up: 0, down: 0, claimed: false });
       if ((a.side === 'UP' ? pos.down : pos.up) > 0) throw new Error('wrong side');
       if (a.stake < m.minStake || a.stake > agent.balance || a.stake > agent.allowance) throw new Error('stake/balance/allowance');
-      agent.balance -= a.stake; agent.allowance -= a.stake;
+      agent.balance -= a.stake; agent.allowance -= a.stake; world.staked += a.stake;
       pos[a.side === 'UP' ? 'up' : 'down'] += a.stake;
       round(m, a.round)[a.side === 'UP' ? 'up' : 'down'] += a.stake;
-      return `bets ${a.side} ${usdc(a.stake)} on round ${a.round}: ${a.reason}`;
+      return `bets ${a.side} ${usdc(a.stake)} on ${m.name} round ${a.round}: ${a.reason}`;
     }
     case 'settle': {
       const r = round(m, a.round);
@@ -83,7 +94,7 @@ function apply(world, a) {
         r.startPrice = s.price; r.endPrice = e.price;
       }
       r.state = state;
-      return `settles round ${a.round} -> ${state} (ids ${a.startId & 0xffffn}/${a.endId & 0xffffn})`;
+      return `settles ${m.name} round ${a.round} -> ${state} (ids ${a.startId & 0xffffn}/${a.endId & 0xffffn})`;
     }
     case 'claim': {
       const p = agent.positions[`${m.id}:${a.round}`];
@@ -99,8 +110,8 @@ function apply(world, a) {
         if (s === 0) throw new Error('NothingToClaim');
         payout = s + Math.floor((s * (L - Math.floor((L * 200) / 10000))) / W);
       }
-      p.claimed = true; agent.balance += payout;
-      return `claims ${usdc(payout)} from round ${a.round}`;
+      p.claimed = true; agent.balance += payout; world.paidOut += payout;
+      return `claims ${usdc(payout)} from ${m.name} round ${a.round}`;
     }
     default: throw new Error('unknown action ' + a.type);
   }
@@ -119,10 +130,10 @@ export function simulate({ hours = 3, seed = 1, startAt = 36000 } = {}) {
     const { actions, decisions } = planTick(world, cfg, decided);
     for (const d of decisions) {
       decided.add(d.id);
-      if (d.decision.action === 'SKIP') lines.push(`${clock(startAt, t)}  ${d.agent} skips round ${d.round}: ${d.decision.reason}`);
+      if (d.decision.action === 'SKIP') lines.push(`${clock(startAt, t)}  ${displayName(d.agent)} skips ${d.market} round ${d.round}: ${d.decision.reason}`);
     }
     for (const a of actions) {
-      const who = a.agent || 'runner';
+      const who = a.agent ? displayName(a.agent) : 'Runner';
       try { lines.push(`${clock(startAt, t)}  ${who} ${apply(world, a)}`); }
       catch (e) { failures++; lines.push(`${clock(startAt, t)}  ${who} FAILED ${a.type}: ${e.message}`); }
     }
@@ -135,5 +146,5 @@ if (process.argv[1] && process.argv[1].endsWith('simulate.mjs')) {
   const { lines, world, failures } = simulate({ hours: i >= 0 ? Number(process.argv[i + 1]) : 3 });
   console.log(lines.join('\n'));
   console.log(`\n${failures} failed actions. Final balances:`);
-  for (const a of world.agents) console.log(`  ${a.key.padEnd(15)} ${usdc(a.balance)}`);
+  for (const a of world.agents) console.log(`  ${displayName(a.key).padEnd(26)} ${usdc(a.balance)}`);
 }

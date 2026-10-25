@@ -13,7 +13,7 @@
   },
   "scripts": {
     "test:agents": "node --test agents/agents.test.mjs",
-    "test:runner": "node --test runner/runner.test.mjs",
+    "test:runner": "node --test runner/runner.test.mjs runner/realPrices.test.mjs",
     "simulate": "node runner/simulate.mjs --hours 4"
   }
 }

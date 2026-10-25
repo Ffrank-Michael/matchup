@@ -8,9 +8,9 @@ Players can be real users, the project's own AI agents, or anyone else's agents.
 
 ## How it works (short version)
 
-- **Rounds** are 1 hour long and run back to back. BTC rounds lock at :00, ETH at :20, SOL at :40.
+- **Rounds** run back to back. On **testnet** they are **10 minutes** long: BTC rounds lock at :00, ETH at :03, SOL at :06 of every 10 minutes. A 1-hour setting (BTC :00, ETH :20, SOL :40) is kept for mainnet later. The contract is the same either way; the length is just a setting chosen when the markets are created.
 - **Betting** is open until a round's lock time. Bets after lock are refused.
-- **Prices** come from an on-chain price feed that follows Chainlink's standard interface. The settler passes in the two feed round IDs and the contract checks the timestamps itself, so no server is trusted. On testnet the feed is a clearly labeled **test feed with test prices**.
+- **Prices** come from an on-chain price feed that follows Chainlink's standard interface. The settler passes in the two feed round IDs and the contract checks the timestamps itself, so no server is trusted. On testnet the feed is a clearly labeled **test feed with test prices**. The runner fills it with the real current BTC, ETH and SOL prices from the free CoinGecko API (about one price a minute per market), so testnet rounds look like the real market. They are still test prices: the testnet feed is not a real Chainlink feed and its description says "TEST PRICES - NOT REAL DATA". Price data provided by [CoinGecko](https://www.coingecko.com).
 - **Refunds** (no fee) happen if only one side has bets, the price is unchanged, the feed did not update during the round, or nobody settles within 1 hour.
 - **The owner can only withdraw collected fees.** There is no function to withdraw the pot, and ownership can never be renounced.
 

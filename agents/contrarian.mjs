@@ -1,7 +1,7 @@
 // Contrarian: bets against the side that already has more money on it.
 import { UNITS, fmtUsdc, opposite, legalStake, bet, skip } from './lib.mjs';
 
-export const name = 'Contrarian';
+export const name = 'Agent 2 · Contrarian';
 export const BASE_STAKE = 0.4 * UNITS;
 
 export function decide(ctx) {

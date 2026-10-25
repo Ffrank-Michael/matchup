@@ -6,7 +6,7 @@ import * as trend from './trendFollower.mjs';
 import * as contrarian from './contrarian.mjs';
 import * as streak from './streakHunter.mjs';
 import * as flipper from './coinFlipper.mjs';
-import { agents } from './index.mjs';
+import { agents, displayName } from './index.mjs';
 import { currentStreak } from './lib.mjs';
 
 const MIN = 100_000; // 0.10 USDC
@@ -242,9 +242,43 @@ test('every agent: any BET is UP or DOWN, a whole number of micro-USDC, within l
 });
 
 test('every agent: the four have different names, and none touches the input', () => {
-  assert.deepEqual(agents.map((a) => a.name), ['Trend follower', 'Contrarian', 'Streak hunter', 'Coin flipper']);
+  assert.deepEqual(agents.map((a) => a.name), ['Agent 1 · Trend Follower', 'Agent 2 · Contrarian', 'Agent 3 · Streak Hunter', 'Agent 4 · Coin Flipper']);
   const input = ctx({ history: [up(1, 2), up(2, 3), up(3, 4)], bets: { up: 5, down: 1 } });
   const copy = JSON.stringify(input);
   for (const a of agents) a.decide({ ...input, random: sequence(0.5, 0.5) });
   assert.equal(JSON.stringify(input), copy);
+});
+
+test('every agent: reasons read as normal sentences (words never stuck together, no double spaces)', () => {
+  const histories = [
+    [],
+    [up(100, 101)],
+    [down(100, 99), up(99, 100), up(100, 101)],
+    [up(100, 101), up(101, 102), up(102, 103), up(103, 104)],
+    [down(104, 103), down(103, 102), down(102, 101)],
+    [up(100, 101), flat(101)],
+  ];
+  const crowds = [{ up: 0, down: 0 }, { up: 800_000, down: 200_000 }, { up: 100_000, down: 900_000 }, { up: 500_000, down: 500_000 }];
+  let checked = 0;
+  for (const a of agents) for (const history of histories) for (const bets of crowds) for (const balance of [undefined, 5_000_000, 50_000]) {
+    for (let r = 0; r < 4; r++) {
+      const d = a.decide(ctx({ history, bets, balance, random: sequence(r / 4, (r + 1) / 5) }));
+      const text = d.reason;
+      assert.ok(typeof text === 'string' && text.length > 10, `${a.name}: empty reason`);
+      assert.doesNotMatch(text, /(UP|DOWN)[a-z]|[a-z](UP|DOWN)\b/, `${a.name}: UP/DOWN stuck to a word: ${text}`);
+      assert.doesNotMatch(text, / {2,}/, `${a.name}: double space: ${text}`);
+      assert.doesNotMatch(text, /[a-z]\$/, `${a.name}: money sign stuck to a word: ${text}`);
+      assert.doesNotMatch(text, /undefined|NaN|\[object/, `${a.name}: bad text: ${text}`);
+      checked++;
+    }
+  }
+  assert.ok(checked > 800);
+});
+
+test('agent names: Agent 1 to 4, and the wallet keys map to them', () => {
+  assert.equal(displayName('trend-follower'), 'Agent 1 · Trend Follower');
+  assert.equal(displayName('contrarian'), 'Agent 2 · Contrarian');
+  assert.equal(displayName('streak-hunter'), 'Agent 3 · Streak Hunter');
+  assert.equal(displayName('coin-flipper'), 'Agent 4 · Coin Flipper');
+  assert.equal(displayName('someone-else'), 'someone-else');
 });

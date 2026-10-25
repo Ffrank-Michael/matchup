@@ -4,27 +4,27 @@
 // DRY-RUN is the default: it prints what it WOULD send and sends nothing.
 import { randomUUID } from 'node:crypto';
 import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
-import { createWalk } from './priceWalk.mjs';
-import { START_PRICES } from './config.mjs';
+import { displayName } from '../agents/index.mjs';
+import { createRealPrices } from './realPrices.mjs';
 
 const usdcText = (u) => '$' + (u / 1e6).toFixed(2);
 
 export function describe(a) {
   switch (a.type) {
-    case 'pushPrice': return `runner pushes a test price to the ${a.marketName} feed (${a.why})`;
+    case 'pushPrice': return `runner pushes the real ${a.marketName} price to its TEST feed (${a.why})`;
     case 'settle': return `runner settles ${a.marketName} round ${a.round} (start id ${a.startId}, end id ${a.endId})`;
-    case 'approve': return `${a.agent} lets the arena take up to ${usdcText(a.amount)}`;
-    case 'bet': return `${a.agent} bets ${a.side} ${usdcText(a.stake)} on ${a.marketName} round ${a.round}: ${a.reason}`;
-    case 'claim': return `${a.agent} claims ${a.marketName} round ${a.round}`;
+    case 'approve': return `${displayName(a.agent)} lets the arena take up to ${usdcText(a.amount)}`;
+    case 'bet': return `${displayName(a.agent)} bets ${a.side} ${usdcText(a.stake)} on ${a.marketName} round ${a.round}: ${a.reason}`;
+    case 'claim': return `${displayName(a.agent)} claims ${a.marketName} round ${a.round}`;
     default: return JSON.stringify(a);
   }
 }
 
-export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaAbi, feedAbi }) {
+export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaAbi, feedAbi, prices }) {
   const arena = deployments.arena.arena.address;
   const agentWallets = Object.fromEntries(deployments.circle.agents.map((a) => [a.key, a.walletId]));
-  const walks = {};
-  const priceFor = (marketName) => (walks[marketName] ||= createWalk(START_PRICES[marketName] ?? 100)).next();
+  prices ||= createRealPrices({ apiKey: env.COINGECKO_API_KEY || undefined });
+  const usd = (p) => '$' + (Number(p) / 1e8).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const feedFor = (marketId) => deployments.arena.feeds[['btc', 'eth', 'sol'][marketId]].address;
 
   let circle;
@@ -56,9 +56,12 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
   }
 
   return async function execute(a) {
-    if (!live) return { dryRun: true };
+    if (!live) return a.type === 'pushPrice' ? { dryRun: true, note: `would push the real price ${usd(await prices.price(a.marketName))} (CoinGecko) to the TEST feed` } : { dryRun: true };
     switch (a.type) {
-      case 'pushPrice': return { tx: await deployerCall(feedFor(a.market), feedAbi, 'setPrice', [priceFor(a.marketName)]) };
+      case 'pushPrice': {
+        const price = await prices.price(a.marketName); // throws if the API fails: then nothing is pushed
+        return { tx: await deployerCall(feedFor(a.market), feedAbi, 'setPrice', [price]), note: `real price ${usd(price)} (CoinGecko) pushed to the TEST feed` };
+      }
       case 'settle': return { tx: await deployerCall(arena, arenaAbi, 'settle', [BigInt(a.market), BigInt(a.round), a.startId, a.endId]) };
       case 'approve': return { tx: await circleCall(a.agent, usdc, 'approve(address,uint256)', [arena, String(a.amount)]) };
       case 'bet': return { tx: await circleCall(a.agent, arena, 'placeBet(uint256,uint256,bool,uint256)', [String(a.market), String(a.round), String(a.side === 'UP'), String(a.stake)]) };

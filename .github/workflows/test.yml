@@ -17,7 +17,7 @@ jobs:
         run: node --test agents/agents.test.mjs
 
       - name: Round runner logic tests
-        run: node --test runner/runner.test.mjs
+        run: node --test runner/runner.test.mjs runner/realPrices.test.mjs
 
       - name: Which Arc network flag does this forge have?
         shell: bash
