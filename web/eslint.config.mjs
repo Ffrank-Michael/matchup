@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The 21st.dev Web3 Bento component is kept exactly as published (3 strict
+    // react-hooks style errors). Remove this line once it is turned into Kairo tiles.
+    "components/ui/web3-bento.tsx",
   ]),
 ]);
 
