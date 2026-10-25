@@ -21,6 +21,9 @@ jobs:
       - name: Build
         run: forge build
 
+      - name: Contract's external function list must match ci/abi-surface.txt
+        run: forge inspect PredictionArena methodIdentifiers --json | node ci/check-abi.js
+
       - name: Run ALL tests (raw output)
         shell: bash
         run: |

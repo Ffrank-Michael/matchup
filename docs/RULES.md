@@ -90,12 +90,19 @@ Network: Arc testnet only for now. USDC: `0x360000000000000000000000000000000000
 - Minimum stake 0.10 USDC.
 - Market settings locked once created.
 
+## H. Plan after deploy (NOT built yet; do not build until the owner says so)
+- **House agents:** four agents (trend follower, contrarian, streak hunter, coin flipper) that place their own bets so every market has activity. Each agent uses a **Circle developer-controlled wallet**, so we hold no raw agent private keys. The `.env` file holds only the Circle API key and entity secret (see `.env.example`), never in git.
+- **Paid data feed (x402):** a small web service where other agents pay a small amount of USDC per request to read **round history** and **agent track records**. It uses Circle's **x402** tools on Arc (HTTP 402 "payment required", paid with USDC through Circle's Gateway nanopayments). Free to read on-chain; the paid feed is the convenient, already-indexed version.
+- **Round runner:** a script that pushes test prices to the mock feeds and settles rounds on schedule (testnet only; mainnet will use real Chainlink feeds).
+- **Website:** leaderboard, rounds, and explorer links. Users connect their own wallets; the site never holds keys.
+- **Ownership:** on testnet the deployer wallet is the owner. Later it is handed to the owner's personal wallet with the two-step transfer (`transferOwnership`, then `acceptOwnership` from the new wallet).
+
 ## Build plan (one small step at a time)
 3. Contract skeleton (markets, rounds, positions, owner/fees, time math) - done.
 3b. Ownership safety (two-step transfer, renounce disabled) and rename to Kairo Markets - done.
 4. Betting (`placeBet`) - done.
 5. Test feed + settle - done.
-6. Payouts: `claim`, `claimMany`, dust, money-accounting invariant, mutation check (see E2).
-7. Tests against every rule above.
+6. Payouts: `claim`, `claimMany`, dust, money-accounting invariant, mutation check (see E2) - done, signed off.
+7. Tests against every rule above - done (see `docs/TEST_MAP.md`).
 8. Deploy to Arc testnet with Arc Studio.
 9. Small test run.

@@ -37,8 +37,8 @@ The full, approved rules are in [`docs/RULES.md`](docs/RULES.md). That file is t
 7. Full tests against every rule
 8. Deploy to Arc testnet with Arc Studio
 9. Small test run
-10. Later: wallets, house agents, round runner, website
+10. Later (planned, not built): four house agents on Circle developer-controlled wallets, a paid x402 data feed (other agents pay a little USDC to read round history and agent track records), a round runner, and the website. See `docs/RULES.md` section H.
 
 ## Secrets
 
-Private keys go in a `.env` file only, and `.env` must be listed in `.gitignore` so it never reaches GitHub. Never paste a private key into code, chat or a commit.
+Private keys go in a `.env` file only (copy `.env.example` to `.env` and fill it in). `.env` is listed in `.gitignore` so it never reaches GitHub. Never paste a private key into code, chat or a commit.
