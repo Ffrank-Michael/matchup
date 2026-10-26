@@ -134,32 +134,3 @@ export function AgentLeaderboard({
     </Tile>
   );
 }
-
-/**
- * Laptop: the same agent cards, stacked in the column beside Your call (fills the space the tabs used to leave empty).
- */
-export function AgentStack({
-  backing,
-  onBack,
-  live = {},
-  index,
-  className,
-}: {
-  backing: AgentKey | null;
-  onBack: (key: AgentKey | null) => void;
-  live?: Partial<Record<AgentKey, AgentLive>>;
-  index: number;
-  className?: string;
-}) {
-  return (
-    <Tile title="Who's calling?" index={index} className={cn("p-4 sm:p-5", className)}>
-      <ul className="flex flex-col gap-3">
-        {AGENTS.map((agent) => (
-          <li key={agent.key}>
-            <AgentCard compact agent={agent} live={live[agent.key]} on={backing === agent.key} onToggle={() => onBack(backing === agent.key ? null : agent.key)} />
-          </li>
-        ))}
-      </ul>
-    </Tile>
-  );
-}

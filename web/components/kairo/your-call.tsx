@@ -4,6 +4,7 @@ import * as React from "react";
 
 import type { Agent } from "@/lib/agents";
 import { formatCountdown, ROUND_SECONDS, type Market } from "@/lib/markets";
+import { nextRoundRefundText } from "@/lib/refund";
 import { cn } from "@/lib/utils";
 
 import { AgentAvatar } from "./agent-avatar";
@@ -54,6 +55,7 @@ function Ring({ secondsLeft }: { secondsLeft: number | null }) {
 export function YourCall({
   market,
   secondsLeft,
+  nowSec,
   side,
   onSide,
   amount,
@@ -66,6 +68,8 @@ export function YourCall({
   market: Market;
   /** Seconds until the next lock of this market; null before the clock is known */
   secondsLeft: number | null;
+  /** The clock (unix seconds); null before it is known */
+  nowSec: number | null;
   side: Side | null;
   onSide: (side: Side) => void;
   amount: string;
@@ -219,7 +223,11 @@ export function YourCall({
           <span className="font-semibold">Fee:</span> 2% of winnings. If you lose or get refunded, you pay no fee.
         </li>
         <li>
-          <span className="font-semibold">Start price:</span> UP wins if the end price is higher than the start price. The start price is the first live trade after calling closes (usually within seconds), so nobody can know it in advance. Your call is judged from that start price, not the price when you called.
+          <span className="font-semibold">No one on the other side?</span> You get your full stake back, no fee.{" "}
+          {nowSec !== null && secondsLeft !== null ? <span className="font-semibold">{nextRoundRefundText(nowSec, secondsLeft)}.</span> : null}
+        </li>
+        <li>
+          UP wins if the price is higher at the end of the round than at the start. The price when you tap doesn&apos;t count.
         </li>
       </ul>
     </Tile>

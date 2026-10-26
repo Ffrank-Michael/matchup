@@ -8,7 +8,7 @@ import { MARKETS, secondsToNextLock, type MarketKey } from "@/lib/markets";
 import { hourPoints, lastPrice, usePriceFeed } from "@/lib/price-feed";
 import { useNowSeconds } from "@/lib/use-now";
 
-import { AgentLeaderboard, AgentStack } from "./agent-leaderboard";
+import { AgentLeaderboard } from "./agent-leaderboard";
 import { AgentStrip } from "./agent-strip";
 import { ChartSheet } from "./chart-sheet";
 import { LiveCalls } from "./live-calls";
@@ -19,8 +19,9 @@ import { YourCalls } from "./your-calls";
 
 // The agreed phone-first layout (docs/WEBSITE.md), top to bottom:
 // Same components on phone and laptop, only arranged differently. Top to bottom: the market cards (one row, each with
-// its last-hour line), the four agents, Your call, Live calls, Your calls, then the agent leaderboard. On a laptop the
-// the four agent cards are stacked beside Your call, and Live calls sit beside Your calls. The full chart opens from the selected card
+// its last-hour line), the four agents (a row of robot heads, details of the selected one underneath), Your call, Live
+// calls, Your calls, then the agent leaderboard. On a laptop the agents sit beside Your call (the space under them is
+// kept for history later) and Live calls sit beside Your calls. The full chart opens from the selected card
 // (a sheet from the bottom on a phone, a centred panel on a laptop).
 // Only the prices are real data right now: one Bitfinex feed (lib/price-feed.ts) supplies every number.
 // Everything about rounds, money and agents says "not live yet" until the contract is deployed.
@@ -83,13 +84,14 @@ export function KairoHome() {
         </div>
 
         {/* 2 to 5. The same four tiles on phone and laptop, only arranged differently:
-            phone = one column in this order, laptop = two columns (agents | your call, then live calls | your calls). */}
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <AgentStrip backing={backing} onBack={setBacking} className="lg:hidden" />
-          <AgentStack backing={backing} onBack={setBacking} index={4} className="hidden lg:flex" />
+            phone = one column in this order, laptop = two columns (agents | your call, then live calls | your calls).
+            Agents and Your call are only as tall as their content (items-start), no empty block under either. */}
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:items-start">
+          <AgentStrip backing={backing} onBack={setBacking} />
           <YourCall
             market={market}
             secondsLeft={now === null ? null : secondsToNextLock(now, market.lockOffset)}
+            nowSec={now}
             side={side}
             onSide={setSide}
             amount={amount}
@@ -98,12 +100,12 @@ export function KairoHome() {
             onClearBacking={() => setBacking(null)}
             index={5}
           />
-          <LiveCalls index={6} className="min-h-[200px]" />
-          <YourCalls index={7} className="min-h-[200px]" />
+          <LiveCalls index={6} className="min-h-[200px] lg:self-stretch" />
+          <YourCalls index={7} className="min-h-[200px] lg:self-stretch" />
         </div>
 
         {/* 6. The full agent cards as a leaderboard */}
-        <AgentLeaderboard backing={backing} onBack={setBacking} index={8} className="lg:hidden" />
+        <AgentLeaderboard backing={backing} onBack={setBacking} index={8} />
       </div>
 
       <ChartSheet

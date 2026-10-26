@@ -74,6 +74,31 @@ function planBet(m, k, agent, cfg, actions, decisions) {
   actions.push({ type: 'bet', agent: agent.key, market: m.id, marketName: m.name, round: k, side: d.side, stake, reason: d.reason });
 }
 
+/**
+ * Which price (if any) is due for the round that is running now (round k-1) of a market.
+ *   'start': no update at or after the lock yet, from lock + startAfter until startGiveUp of the round has passed
+ *   'end'  : the round has its start price and the end price is not in yet, from endMargin seconds before the end
+ * Also used by the runner to tick faster while a price is due.
+ */
+export function priceDue(m, now, cfg) {
+  const k = m.nextRound;
+  if (k < 1) return null;
+  const lockR = lockTime(m, k - 1);
+  const endR = endTime(m, k - 1);
+  const updates = m.feed.updates;
+  const latest = updates.length ? updates[updates.length - 1] : null;
+  if (!latest || latest.updatedAt < lockR) {
+    return now >= lockR + cfg.startAfter && now < lockR + m.roundLength * cfg.startGiveUp ? 'start' : null;
+  }
+  if (now >= endR - cfg.endMargin && now < endR && latest.updatedAt < endR - cfg.endMargin) return 'end';
+  return null;
+}
+
+/** Seconds to wait before the next look: short while any market is waiting for a start or end price. */
+export function tickDelay(snap, cfg) {
+  return snap.markets.some((m) => priceDue(m, snap.now, cfg)) ? cfg.fastTickSeconds : cfg.tickSeconds;
+}
+
 export function planTick(snap, cfg, decided = new Set()) {
   const { now } = snap;
   const actions = [];
@@ -83,7 +108,6 @@ export function planTick(snap, cfg, decided = new Set()) {
   for (const m of snap.markets) {
     const k = m.nextRound;
     const updates = m.feed.updates;
-    const latest = updates.length ? updates[updates.length - 1] : null;
 
     // ---- 1. settle rounds that have ended (and still have a chance) ----
     for (let j = Math.max(0, k - cfg.lookback); j < k; j++) {
@@ -98,21 +122,14 @@ export function planTick(snap, cfg, decided = new Set()) {
     }
 
     // ---- 2. prices for the round that is running now (round k-1): real market prices pushed to the TEST feed ----
-    if (k >= 1) {
+    const due = priceDue(m, now, cfg);
+    if (due) {
       const r = k - 1;
-      const lockR = lockTime(m, r);
-      const endR = endTime(m, r);
-      // Start price: the first update at or after lock. It waits startDelay seconds (the price API can be a
-      // little behind the market) and the executor also checks the API's own quote time is after the lock.
-      if (now >= lockR + cfg.startDelay && now < endR && (!latest || latest.updatedAt < lockR)) {
-        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, round: r, why: 'start price', quotedAfter: lockR + cfg.startQuoteMargin });
-      } else if (latest && now >= endR - cfg.endMargin && now < endR && latest.updatedAt >= lockR && latest.updatedAt < endR - cfg.endMargin) {
-        // End price: the last update at or before the end.
+      if (due === 'start') {
+        // First trade whose own time is at least startAfter seconds after the lock (the executor asks Bitfinex for exactly that trade).
+        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, round: r, why: 'start price', firstTradeAfter: lockTime(m, r) + cfg.startAfter });
+      } else {
         actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, round: r, why: 'end price' });
-      } else if (latest && latest.updatedAt >= lockR && latest.updatedAt < lockR + cfg.midAt
-                 && now >= lockR + cfg.midAt && now < endR - cfg.endMargin - cfg.midCutoff) {
-        // One price in the middle of the round.
-        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, round: r, why: 'mid-round price' });
       }
     }
 

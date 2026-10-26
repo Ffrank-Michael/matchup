@@ -145,36 +145,57 @@ test('without a Date header the PC clock is used for the quote time', async () =
   assert.equal((await prices.quote('BTC/USD')).quotedAt, NOW / 1000);
 });
 
-// ---------------------------------------------------------------- fairness: the start price must be a quote made AFTER the lock
+// ---------------------------------------------------------------- fairness (rule H5): the start price is the first trade AFTER the lock
 
-test('quotedAfter: an answer made before the limit is refused, a newer one is accepted', async () => {
-  const lock = NOW / 1000;
-  const { prices, calls, advance } = setup([ok(trade(80522), NOW), (t) => ok(trade(80600, 1), t)]);
-  await assert.rejects(() => prices.quote('BTC/USD', { quotedAfter: lock + 10 }), /too old for this push/); // answer is stamped at the lock
-  advance(11);
-  const q = await prices.quote('BTC/USD', { quotedAfter: lock + 10 });                                       // asks again, gets a newer answer
+const LOCK = NOW / 1000;
+// A "first trade after T" answer: the oldest trade at or after T, stamped by its own time.
+const tradeAt = (usd, atSec) => [[1999595786, atSec * 1000, 0.002, usd]];
+
+test('firstTradeAfter: asks Bitfinex for the OLDEST trade at or after the moment (sort=1&start=T)', async () => {
+  const { prices, calls } = setup([ok(tradeAt(80600, LOCK + 5), NOW + 8_000)]);
+  const q = await prices.quote('BTC/USD', { firstTradeAfter: LOCK + 2 });
+  assert.equal(calls[0].url, `https://api-pub.bitfinex.com/v2/trades/tBTCUSD/hist?limit=1&sort=1&start=${(LOCK + 2) * 1000}`);
   assert.equal(q.usd, 80600);
-  assert.equal(q.quotedAt, lock + 11);
+  assert.equal(q.tradeAt, LOCK + 5);        // the price is stamped with the TRADE's time (not the time of the question)
+  assert.equal(q.quotedAt, LOCK + 8);
+});
+
+test('firstTradeAfter: no trade yet since the lock -> nothing is pushed, and it asks again a few seconds later', async () => {
+  const { prices, calls, advance } = setup([ok([], NOW + 3_000), (t) => ok(tradeAt(80600, LOCK + 6), t)]);
+  advance(3);
+  await assert.rejects(() => prices.quote('BTC/USD', { firstTradeAfter: LOCK + 2 }), /no BTC\/USD trade on Bitfinex yet/);
+  advance(5);
+  const q = await prices.quote('BTC/USD', { firstTradeAfter: LOCK + 2 });
+  assert.equal(q.tradeAt, LOCK + 6);
   assert.equal(calls.length, 2);
 });
 
-test('quotedAfter: an answer made exactly at the limit is accepted, one second earlier is not', async () => {
-  const lock = NOW / 1000;
-  const a = setup([ok(trade(80522), NOW + 10_000)]);
-  assert.equal((await a.prices.quote('BTC/USD', { quotedAfter: lock + 10 })).quotedAt, lock + 10);
-  const b = setup([ok(trade(80522), NOW + 9_000)]);
-  await assert.rejects(() => b.prices.quote('BTC/USD', { quotedAfter: lock + 10 }), /too old/);
+test('firstTradeAfter: a trade from before the moment is refused (even if the answer came late)', async () => {
+  const { prices } = setup([ok(tradeAt(80600, LOCK + 1), NOW + 9_000)]);
+  await assert.rejects(() => prices.quote('BTC/USD', { firstTradeAfter: LOCK + 2 }), /before the lock/);
 });
 
-test('quotedAfter: asking again is still limited to once per 5 seconds (rate limit stays safe)', async () => {
-  const { prices, calls, advance } = setup([ok(trade(80522), NOW), ok(trade(80522), NOW)]);
-  await assert.rejects(() => prices.quote('BTC/USD', { quotedAfter: NOW / 1000 + 60 }), /too old/);
-  advance(2);
-  await assert.rejects(() => prices.quote('BTC/USD', { quotedAfter: NOW / 1000 + 60 }), /too old/);
-  assert.equal(calls.length, 1); // neither the immediate re-ask nor the one 2 seconds later reached Bitfinex again
+test('firstTradeAfter: a trade exactly at the moment is accepted', async () => {
+  const { prices } = setup([ok(tradeAt(80600, LOCK + 2), NOW + 9_000)]);
+  assert.equal((await prices.quote('BTC/USD', { firstTradeAfter: LOCK + 2 })).tradeAt, LOCK + 2);
 });
 
-test('without quotedAfter any answer is fine', async () => {
+test('firstTradeAfter: never uses the 5 second cache, and asking again is still limited to once per 5 seconds', async () => {
+  const { prices, calls, advance } = setup([ok(trade(80522), NOW), ok(tradeAt(80600, LOCK + 3), NOW + 6_000)]);
+  await prices.quote('BTC/USD');                                                  // the normal last-trade answer, now cached
+  advance(1);
+  await assert.rejects(() => prices.quote('BTC/USD', { firstTradeAfter: LOCK + 2 }), /tried a moment ago/);
+  advance(5);
+  assert.equal((await prices.quote('BTC/USD', { firstTradeAfter: LOCK + 2 })).usd, 80600);
+  assert.equal(calls.length, 2);
+});
+
+test('firstTradeAfter: a Bitfinex error answer is not a price', async () => {
+  const { prices } = setup([ok(['error', 11010, 'ratelimit: error'])]);
+  await assert.rejects(() => prices.quote('BTC/USD', { firstTradeAfter: LOCK + 2 }), /no usable price/);
+});
+
+test('without firstTradeAfter the last trade is used, whatever its age', async () => {
   const { prices } = setup([ok(trade(80522, 100))]);
   const q = await prices.quote('BTC/USD');
   assert.equal(q.price, 8052200000000n);

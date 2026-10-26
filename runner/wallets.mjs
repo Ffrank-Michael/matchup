@@ -61,12 +61,12 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
   return async function execute(a) {
     if (!live) {
       if (a.type !== 'pushPrice') return { dryRun: true };
-      const q = await prices.quote(a.marketName, { quotedAfter: a.quotedAfter });
+      const q = await prices.quote(a.marketName, { firstTradeAfter: a.firstTradeAfter });
       return { dryRun: true, note: `would push the real price ${usd(q.price)}, ${quoteText(q)}, to the TEST feed` };
     }
     switch (a.type) {
       case 'pushPrice': {
-        const q = await prices.quote(a.marketName, { quotedAfter: a.quotedAfter }); // throws if the API fails or is too old: then nothing is pushed
+        const q = await prices.quote(a.marketName, { firstTradeAfter: a.firstTradeAfter }); // throws if the API fails or there is no trade after the lock yet: then nothing is pushed
         const feed = feedFor(a.market);
         const { hash, rc } = await deployerSend(feed, feedAbi, 'setPrice', [q.price]);
         let note = `real price ${usd(q.price)}, ${quoteText(q)}, pushed to the TEST feed`;

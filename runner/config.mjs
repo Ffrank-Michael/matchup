@@ -1,6 +1,6 @@
 // Settings for the round runner. All times are in seconds.
-// Made for the testnet's 10-minute rounds (600 s). Each market is staggered by 3 minutes:
-// BTC locks at :00, ETH at :03, SOL at :06 of every 10 minutes.
+// Made for the testnet's 10-minute rounds (600 s) and works for any round length. Each market is staggered:
+// today BTC locks at :00, ETH at :03, SOL at :06 of every 10 minutes.
 export const FEED_DECIMALS = 8;
 
 export const CFG = {
@@ -10,17 +10,15 @@ export const CFG = {
   contrarianLead: 120,   // the contrarian bets about 2 minutes before lock, so there is a crowd to bet against
   contrarianCutoff: 30,  // ... and never in the last 30 seconds
 
-  // --- when test prices are pushed (the feed owner is the deployer wallet) ---
-  // About 3 prices per round per market (the website shows the live price straight from the price API).
-  // Fairness: the START price must not be a price from before the lock, or someone watching the market just
-  // before lock would know which way it is already leaning. Prices are the last trade on Bitfinex (the same
-  // number the website shows). The delays below were chosen for CoinGecko's lag (13 to 89 s); with an exchange
-  // feed they are more careful than strictly needed, and they stay as approved (the site says about 2 minutes).
-  startDelay: 90,        // first try at the START price this long after lock (a new quote is usually ready by then) ...
-  startQuoteMargin: 30,  // ... and the quote (Bitfinex's clock) must be at least this long AFTER the lock, or nothing is pushed (retried every 20 s)
-  midAt: 300,            // one price in the middle of the round
-  midCutoff: 60,         // no mid price in the last minute (plus endMargin) before the end
-  endMargin: 30,         // last price this long before the end: it becomes the END price
+  // --- when test prices are pushed (the feed owner is the deployer wallet); rule H5 in docs/RULES.md ---
+  // Two prices per round per market: the START price and the END price (no price in the middle).
+  // Fairness: the START price must be a trade that happens AFTER calling closes, so nobody can know it when they
+  // call. It is the first Bitfinex trade whose own time is at least startAfter seconds after the lock, pushed as
+  // soon as it is seen (usually 5 to 15 s after the lock, longer on a quiet market). If none has come by
+  // startGiveUp of the round, no start price is recorded and the round refunds.
+  startAfter: 2,         // the start trade must be at least this many seconds after the lock (covers clock differences)
+  startGiveUp: 0.25,     // ... and the runner stops waiting for it after this share of the round
+  endMargin: 15,         // the last trade is pushed this long before the end: it becomes the END price
 
   // --- settling and claiming ---
   settleWindow: 3600,    // the contract only allows settling for 1 hour after a round ends
@@ -31,5 +29,6 @@ export const CFG = {
   approveAmount: 10_000_000, // each approval lets the contract take up to 10 USDC from that agent
   maxStake: 10_000_000,  // beta limit: no bet above 10 USDC per call, whatever an agent decides (the site enforces the same limit)
 
-  tickSeconds: 10,
+  tickSeconds: 10,       // how often the runner looks at the chain
+  fastTickSeconds: 3,    // ... and this often while a start or end price is due (Bitfinex allows one request per 5 s per market; the price module enforces it)
 };

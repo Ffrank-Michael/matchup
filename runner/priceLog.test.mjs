@@ -37,7 +37,7 @@ function fakeChain({ fail } = {}) {
   };
 }
 const prices = (q = QUOTE) => ({ quote: async () => q });
-const push = { type: 'pushPrice', market: 1, marketName: 'ETH/USD', round: 42, why: 'start price', quotedAfter: 1_800_000_010 };
+const push = { type: 'pushPrice', market: 1, marketName: 'ETH/USD', round: 42, why: 'start price', firstTradeAfter: 1_800_000_010 };
 const executor = (over) => makeExecutor({ live: true, env: {}, deployments, usdc: '0xU', arenaAbi: [], feedAbi: [], ...over });
 
 test('log file: appended one line per entry and read back in order', () => {
@@ -148,12 +148,12 @@ test('the planner tells the executor which round each price belongs to', () => {
     id: 0, name: 'BTC/USD', roundLength: 600, startOffset: 0, minStake: 100_000, paused: false,
     nextRound: 11, feed: { updates: [{ id: id(1), updatedAt: 5990, price: 1n }] }, rounds: {},
   };
-  const r = planTick({ now: 6000 + CFG.startDelay, markets: [m], agents: ['trend-follower', 'contrarian', 'streak-hunter', 'coin-flipper'].map((key) => ({ key, balance: 5_000_000, allowance: 10_000_000, positions: {} })) }, { ...CFG, random: Math.random });
+  const r = planTick({ now: 6000 + CFG.startAfter, markets: [m], agents: ['trend-follower', 'contrarian', 'streak-hunter', 'coin-flipper'].map((key) => ({ key, balance: 5_000_000, allowance: 10_000_000, positions: {} })) }, { ...CFG, random: Math.random });
   const p = r.actions.find((a) => a.type === 'pushPrice');
   assert.equal(p.round, 10); // round 10 is the one running (round 11 is the one open for calls)
 });
 
-test('start, middle and end prices all carry the running round and the right kind', () => {
+test('start and end prices carry the running round and the right kind', () => {
   const id = (n) => (1n << 64n) | BigInt(n);
   const agentsList = ['trend-follower', 'contrarian', 'streak-hunter', 'coin-flipper'].map((key) => ({ key, balance: 5_000_000, allowance: 10_000_000, positions: {} }));
   const at = (now, updates) => {
@@ -161,9 +161,7 @@ test('start, middle and end prices all carry the running round and the right kin
     return planTick({ now, markets: [m], agents: agentsList }, { ...CFG, random: Math.random }).actions.filter((a) => a.type === 'pushPrice');
   };
   const old = { id: id(1), updatedAt: 5990, price: 1n };
-  const start = { id: id(2), updatedAt: 6090, price: 1n };
-  const mid = { id: id(3), updatedAt: 6300, price: 1n };
-  assert.deepEqual(at(6090, [old]).map((a) => [a.why, a.round]), [['start price', 10]]);
-  assert.deepEqual(at(6300, [old, start]).map((a) => [a.why, a.round]), [['mid-round price', 10]]);
-  assert.deepEqual(at(6570, [old, start, mid]).map((a) => [a.why, a.round]), [['end price', 10]]);
+  const start = { id: id(2), updatedAt: 6010, price: 1n };
+  assert.deepEqual(at(6010, [old]).map((a) => [a.why, a.round]), [['start price', 10]]);
+  assert.deepEqual(at(6585, [old, start]).map((a) => [a.why, a.round]), [['end price', 10]]);
 });

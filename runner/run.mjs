@@ -10,7 +10,7 @@
 import { setup } from '../scripts/lib.mjs';
 import { displayName } from '../agents/index.mjs';
 import { CFG } from './config.mjs';
-import { planTick } from './plan.mjs';
+import { planTick, tickDelay } from './plan.mjs';
 import { loadDeployments, makeReader } from './chain.mjs';
 import { makeExecutor, describe } from './wallets.mjs';
 
@@ -37,12 +37,13 @@ async function tick() {
   const snap = await readSnapshot();
   execute ||= makeExecutor({ live: LIVE, env, deployments, pub, wallet, usdc, arenaAbi: snap.art.arena.abi, feedAbi: snap.art.feed.abi, explorer: chain.blockExplorers.default.url, chainId: chain.id });
   const { actions, decisions } = planTick(snap, { ...CFG, random: Math.random }, decided);
+  const delay = tickDelay(snap, CFG);
 
   for (const d of decisions) {
     if (d.decision.action === 'SKIP') log(`${displayName(d.agent)} skips ${d.market} round ${d.round}: ${d.decision.reason}`);
     if (LIVE || d.decision.action === 'SKIP') decided.add(d.id); // a dry run never marks a bet as decided, so it keeps showing it
   }
-  if (actions.length === 0 && decisions.length === 0) return;
+  if (actions.length === 0 && decisions.length === 0) return delay;
 
   for (const a of actions) {
     const text = describe(a);
@@ -51,14 +52,16 @@ async function tick() {
       const res = await execute(a);
       log(`${LIVE ? 'DONE' : 'WOULD'}: ${text}${res.note ? '\n         ' + res.note : ''}${res.tx ? '\n         tx ' + res.tx : ''}`);
     } catch (e) {
-      // do not hammer a failing action; a failed price push is retried sooner (the start price waits for a fresh quote)
-      failedUntil.set(text, Date.now() + (a.type === 'pushPrice' ? 20_000 : 5 * 60_000));
+      // do not hammer a failing action; a failed price push is retried after 5 s (the start price waits for the first trade after the lock)
+      failedUntil.set(text, Date.now() + (a.type === 'pushPrice' ? 5_000 : 5 * 60_000));
       log(`FAILED: ${text}\n         ${String(e.shortMessage || e.message).slice(0, 300)}`);
     }
   }
+  return delay;
 }
 
 do {
-  try { await tick(); } catch (e) { log(`tick error: ${String(e.shortMessage || e.message).slice(0, 300)}`); }
-  if (!ONCE) await new Promise((r) => setTimeout(r, CFG.tickSeconds * 1000));
+  let delay = CFG.tickSeconds;
+  try { delay = await tick(); } catch (e) { log(`tick error: ${String(e.shortMessage || e.message).slice(0, 300)}`); }
+  if (!ONCE) await new Promise((r) => setTimeout(r, delay * 1000));
 } while (!ONCE);

@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { CFG } from './config.mjs';
-import { planTick, lockTime, endTime } from './plan.mjs';
+import { planTick, tickDelay, lockTime, endTime } from './plan.mjs';
 import { findSettleIds } from './settleIds.mjs';
 import { createWalk } from './priceWalk.mjs';
 import { simulate, createWorld, mulberry32 } from './simulate.mjs';
@@ -35,14 +35,14 @@ const kinds = (r) => r.actions.map((a) => a.type);
 
 // ---------------------------------------------------------------- the settings fit 10-minute rounds
 
-test('settings: early bets 1 minute after a round opens, contrarian 2 minutes before lock, about 3 prices a round', () => {
+test('settings: early bets 1 minute after a round opens, contrarian 2 minutes before lock, two prices a round', () => {
   assert.equal(CFG.earlyDelay, 60);
   assert.equal(CFG.contrarianLead, 120);
-  assert.equal(CFG.midAt, 300);
-  assert.equal(CFG.endMargin, 30);
-  assert.ok(CFG.startDelay >= 60, 'the start price must wait for the price API to catch up');
-  assert.ok(CFG.startDelay < CFG.midAt);
-  assert.ok(CFG.startQuoteMargin >= 30, 'the start price must come from a quote made well after the lock');
+  assert.equal(CFG.endMargin, 15);
+  assert.equal(CFG.startAfter, 2);
+  assert.equal(CFG.startGiveUp, 0.25);
+  assert.ok(CFG.fastTickSeconds < CFG.tickSeconds, 'looks more often while a price is due');
+  assert.ok(CFG.fastTickSeconds >= 3, "stays inside the exchange's request limit when several markets are due");
 });
 
 test('settings: the look-back covers the contract\'s whole 1-hour settle window', () => {
@@ -179,14 +179,14 @@ test('each market gets its early bets 1 minute after ITS round opens', () => {
   assert.deepEqual(who(run(6420, decided2)).filter((n) => n === 'SOL/USD'), ['SOL/USD']);       // SOL opened at 6360
 });
 
-test('each market gets its start price ${CFG.startDelay} seconds after ITS lock', () => {
+test('each market asks for its start price right after ITS lock', () => {
   const startDue = (now, over) => planTick(snap(now, market(now, over)), cfg()).actions.filter((x) => x.type === 'pushPrice' && x.why === 'start price').length;
   // BTC round 10 locks at 6000, ETH round 10 at 6180, SOL round 10 at 6360 (each has an older price only)
   const eth = (now) => ({ id: 1, name: 'ETH/USD', startOffset: 180, nextRound: nextAt(now, 180), feed: { updates: [upd(1, 6120, 100)] } });
   const sol = (now) => ({ id: 2, name: 'SOL/USD', startOffset: 360, nextRound: nextAt(now, 360), feed: { updates: [upd(1, 6300, 100)] } });
-  assert.equal(startDue(6089), 0);          assert.equal(startDue(6090), 1);
-  assert.equal(startDue(6269, eth(6269)), 0); assert.equal(startDue(6270, eth(6270)), 1);
-  assert.equal(startDue(6449, sol(6449)), 0); assert.equal(startDue(6450, sol(6450)), 1);
+  assert.equal(startDue(6001), 0);          assert.equal(startDue(6002), 1);
+  assert.equal(startDue(6181, eth(6181)), 0); assert.equal(startDue(6182, eth(6182)), 1);
+  assert.equal(startDue(6361, sol(6361)), 0); assert.equal(startDue(6362, sol(6362)), 1);
 });
 
 // ---------------------------------------------------------------- test prices
@@ -194,57 +194,69 @@ test('each market gets its start price ${CFG.startDelay} seconds after ITS lock'
 
 const priceAt = (now, updates) => planTick(snap(now, market(now, { feed: { updates } })), cfg()).actions.filter((a) => a.type === 'pushPrice');
 
-test('start price: pushed ' + CFG.startDelay + ' seconds after lock, once, and only from a quote made after the lock', () => {
-  const at = 6000 + CFG.startDelay;
-  assert.equal(priceAt(at - 1, FEED).length, 0);
-  const r = priceAt(at, FEED);
+test('start price: asked for 2 seconds after the lock, as the first trade after the lock, once', () => {
+  assert.equal(priceAt(6001, FEED).length, 0);
+  const r = priceAt(6002, FEED);
   assert.equal(r.length, 1);
   assert.equal(r[0].why, 'start price');
-  assert.equal(r[0].quotedAfter, 6000 + CFG.startQuoteMargin); // the executor refuses a quote older than this
-  assert.equal(priceAt(at + 1, [...FEED, upd(5, at, 102)]).length, 0); // already pushed
+  assert.equal(r[0].firstTradeAfter, 6000 + CFG.startAfter); // the executor uses the oldest trade at or after this moment
+  assert.equal(priceAt(6003, [...FEED, upd(5, 6003, 102)]).length, 0); // already pushed
 });
 
-test('a start price that is late is still pushed (until the round ends), a price from before lock never counts as pushed', () => {
-  assert.equal(priceAt(6400, FEED)[0].why, 'start price');
-  assert.equal(priceAt(6590, FEED)[0].why, 'start price');
-  assert.equal(priceAt(6600, FEED).length, 0); // next round now; round 10 is over
+test('the start price keeps being asked for until 25% of the round has passed (150 s of 600), then the round is left to refund', () => {
+  assert.equal(priceAt(6100, FEED)[0].why, 'start price');
+  assert.equal(priceAt(6149, FEED)[0].why, 'start price');
+  assert.equal(priceAt(6150, FEED).length, 0);
+  assert.equal(priceAt(6400, FEED).length, 0);
+  assert.equal(priceAt(6585, FEED).length, 0, 'with no start price there is no end price either');
 });
 
-test('only the start price asks for a fresh quote', () => {
-  const f = [...FEED, upd(5, 6090, 102)];
-  assert.equal(priceAt(6300, f)[0].quotedAfter, undefined);
-  assert.equal(priceAt(6570, f)[0].quotedAfter, undefined);
+test('a price from before the lock never counts as the start price', () => {
+  const old = [...FEED, upd(5, 5999, 102)];
+  assert.equal(priceAt(6002, old)[0].why, 'start price');
 });
 
-test('mid-round price: one, at the middle of the round (5 minutes after lock), never in the last 90 seconds', () => {
-  const f = [...FEED, upd(5, 6090, 102)];
-  assert.equal(priceAt(6299, f).length, 0);
-  assert.equal(priceAt(6300, f)[0].why, 'mid-round price');
-  // only one: after it has been pushed there is no second mid-round price
-  const g = [...f, upd(6, 6300, 102.5)];
-  assert.equal(priceAt(6360, g).length, 0);
-  assert.equal(priceAt(6500, g).length, 0);
-  // a late mid-round price (e.g. the price API failed for a while) is allowed until 90 seconds before the end
-  assert.equal(priceAt(6509, f)[0].why, 'mid-round price');
-  assert.equal(priceAt(6510, f).length, 0);
+test('only the start price asks for a trade after the lock; the end price is the last trade', () => {
+  const f = [...FEED, upd(5, 6010, 102)];
+  assert.equal(priceAt(6585, f)[0].why, 'end price');
+  assert.equal(priceAt(6585, f)[0].firstTradeAfter, undefined);
 });
 
-test('end price: pushed 30 seconds before the end, once', () => {
-  const f = [...FEED, upd(5, 6090, 102)];
-  assert.equal(priceAt(6569, f).length, 0);
-  assert.equal(priceAt(6570, f)[0].why, 'end price');
-  assert.equal(priceAt(6570, [...f, upd(6, 6300, 102.5)])[0].why, 'end price');
-  assert.equal(priceAt(6571, [...f, upd(6, 6570, 103)]).length, 0);
+test('there is no price in the middle of the round', () => {
+  const f = [...FEED, upd(5, 6010, 102)];
+  for (let now = 6011; now < 6585; now += 7) assert.equal(priceAt(now, f).length, 0, 'at ' + now);
 });
 
-test('three prices go into one 10-minute round: start, middle, end', () => {
+test('end price: pushed 15 seconds before the end, once', () => {
+  const f = [...FEED, upd(5, 6010, 102)];
+  assert.equal(priceAt(6584, f).length, 0);
+  assert.equal(priceAt(6585, f)[0].why, 'end price');
+  assert.equal(priceAt(6599, f)[0].why, 'end price'); // late is better than never, until the end
+  assert.equal(priceAt(6585, [...f, upd(6, 6585, 103)]).length, 0);
+  assert.equal(priceAt(6600, f).length, 0); // next round now
+});
+
+test('two prices go into one 10-minute round: start, end', () => {
   let feed = [...FEED];
   const why = [];
-  for (let now = 6000; now < 6600; now += 10) {
+  for (let now = 6000; now < 6600; now += 3) {
     const p = priceAt(now, feed);
     if (p.length) { why.push(p[0].why); feed = [...feed, upd(100 + why.length, now, 100 + why.length)]; }
   }
-  assert.deepEqual(why, ['start price', 'mid-round price', 'end price']);
+  assert.deepEqual(why, ['start price', 'end price']);
+});
+
+// ---------------------------------------------------------------- how often the runner looks
+
+test('the runner looks every 3 seconds while a start or end price is due, otherwise every 10', () => {
+  const delay = (now, updates) => tickDelay(snap(now, market(now, { feed: { updates } })), CFG);
+  const f = [...FEED, upd(5, 6010, 102)];
+  assert.equal(delay(5990, FEED), 10);
+  assert.equal(delay(6002, FEED), 3);   // start price due
+  assert.equal(delay(6150, FEED), 10);  // gave up
+  assert.equal(delay(6100, f), 10);     // start is in, end not due yet
+  assert.equal(delay(6585, f), 3);      // end price due
+  assert.equal(delay(6585, [...f, upd(6, 6585, 103)]), 10);
 });
 
 // ---------------------------------------------------------------- settling
@@ -381,14 +393,15 @@ test('simulation: 8 hours, 3 markets, 5 different seeds, no failed action', () =
   }
 });
 
-test('simulation: each market gets about 3 prices a round (start, middle, end)', () => {
+test('simulation: each market gets two prices a round (start and end)', () => {
   const { lines } = simulate({ hours: 2, seed: 4 });
   for (const m of ['BTC/USD', 'ETH/USD', 'SOL/USD']) {
     const mine = lines.filter((l) => l.includes(`Runner ${m} `) && /price:/.test(l));
-    assert.ok(mine.length >= 33 && mine.length <= 38, `${m}: ${mine.length} prices in 2 hours (12 rounds)`);
-    for (const why of ['start price', 'mid-round price', 'end price']) {
+    assert.ok(mine.length >= 22 && mine.length <= 26, `${m}: ${mine.length} prices in 2 hours (12 rounds)`);
+    for (const why of ['start price', 'end price']) {
       assert.ok(mine.filter((l) => l.includes(why)).length >= 11, `${m}: too few ${why}`);
     }
+    assert.equal(mine.filter((l) => l.includes('mid-round')).length, 0, `${m}: a price in the middle`);
   }
 });
 
