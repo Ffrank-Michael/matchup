@@ -21,13 +21,17 @@ export function describe(a) {
   }
 }
 
-export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaAbi, feedAbi, prices, explorer = 'https://explorer.testnet.arc.io', chainId = 5042002, logPush = appendPriceLog }) {
+export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaAbi, feedAbi, relayAbi, prices, explorer = 'https://explorer.testnet.arc.io', chainId = 5042002, logPush = appendPriceLog }) {
   const arena = deployments.arena.arena.address;
   const agentWallets = Object.fromEntries(deployments.circle.agents.map((a) => [a.key, a.walletId]));
   prices ||= createExchangePrices();
   const usd = (p) => '$' + (Number(p) / 1e8).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const quoteText = (q) => (q.quotedAt ? `${q.source ?? 'exchange'} last trade at ${new Date((q.tradeAt ?? q.quotedAt) * 1000).toISOString().slice(11, 19)} UTC, asked at ${new Date(q.quotedAt * 1000).toISOString().slice(11, 19)} UTC` : `${q.source ?? 'exchange'} quote (no time given)`);
-  const feedFor = (marketId) => deployments.arena.feeds[['btc', 'eth', 'sol'][marketId]].address;
+  // The feed to push to is the one the market uses (the planner reads it from the chain). In the testnet rehearsal each coin's
+  // stand-in for Chainlink (deployments.arena.guards) is pushed the same price first, so the relay's guard never goes stale.
+  const feedFor = (a) => a.feed ?? deployments.arena.feeds[['btc', 'eth', 'sol'][a.market]].address;
+  const standInFor = (a) => deployments.arena.guards?.[a.marketName.split(' ')[0].slice(0, 3).toLowerCase()]?.kind === 'test stand-in'
+    ? deployments.arena.guards[a.marketName.split(' ')[0].slice(0, 3).toLowerCase()].address : null;
 
   let circle;
   const circleClient = () => (circle ||= initiateDeveloperControlledWalletsClient({ apiKey: env.CIRCLE_API_KEY, entitySecret: env.CIRCLE_ENTITY_SECRET }));
@@ -67,8 +71,10 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
     switch (a.type) {
       case 'pushPrice': {
         const q = await prices.quote(a.marketName, { firstTradeAfter: a.firstTradeAfter }); // throws if the API fails or there is no trade after the lock yet: then nothing is pushed
-        const feed = feedFor(a.market);
-        const { hash, rc } = await deployerSend(feed, feedAbi, 'setPrice', [q.price]);
+        const feed = feedFor(a);
+        const standIn = standInFor(a);
+        if (standIn) await deployerSend(standIn, feedAbi, 'setPrice', [q.price]);
+        const { hash, rc } = await deployerSend(feed, relayAbi ?? feedAbi, 'setPrice', [q.price]);
         let note = `real price ${usd(q.price)}, ${quoteText(q)}, pushed to the TEST feed`;
         try { // the price is already on chain; a log problem must be loud but must not look like a failed push
           const block = await pub.getBlock({ blockNumber: rc.blockNumber });

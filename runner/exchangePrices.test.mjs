@@ -200,3 +200,17 @@ test('without firstTradeAfter the last trade is used, whatever its age', async (
   const q = await prices.quote('BTC/USD');
   assert.equal(q.price, 8052200000000n);
 });
+
+// ---------------------------------------------------------------- "BTC/USD 5m" and "BTC/USD 10m" are the same coin
+
+test('market names with a time frame use the coin\'s Bitfinex market, and share its 5 second limit', async () => {
+  const { prices, calls, advance } = setup([ok(trade(80522)), ok(trade(80530))]);
+  assert.equal((await prices.quote('BTC/USD 5m')).usd, 80522);
+  assert.equal(calls[0].url, 'https://api-pub.bitfinex.com/v2/trades/tBTCUSD/hist?limit=1');
+  assert.equal((await prices.quote('BTC/USD 10m')).usd, 80522);   // same coin: the 5 second cache answers
+  assert.equal(calls.length, 1);
+  advance(6);
+  assert.equal((await prices.quote('BTC/USD 10m')).usd, 80530);
+  assert.equal(calls.length, 2);
+  await assert.rejects(() => prices.quote('DOGE/USD 5m'), /no real price source/);
+});

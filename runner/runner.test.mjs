@@ -434,3 +434,31 @@ test('simulation: three markets, 10-minute rounds, BTC :00, ETH :03, SOL :06', (
   const w = createWorld({ now: 36000 });
   assert.deepEqual(w.markets.map((m) => [m.name, m.roundLength, m.startOffset]), [['BTC/USD', 600, 0], ['ETH/USD', 600, 180], ['SOL/USD', 600, 360]]);
 });
+
+// ---------------------------------------------------------------- 5- and 10-minute markets of one coin share one feed
+
+test('two markets of one coin on the same feed: one start price push, one end price push, not two', () => {
+  // BTC 5m (round 10 of 300 s: 3000..3300) and BTC 10m (round 5 of 600 s: 3000..3600) both lock at 3000.
+  const feed = { address: '0xRELAY', updates: [upd(1, 2990, 100)] };
+  const m5 = { id: 0, name: 'BTC/USD 5m', roundLength: 300, startOffset: 0, minStake: 100_000, paused: false, nextRound: 11, feed, rounds: {} };
+  const m10 = { id: 3, name: 'BTC/USD 10m', roundLength: 600, startOffset: 0, minStake: 100_000, paused: false, nextRound: 6, feed, rounds: {} };
+  const pushes = (now, f) => planTick({ now, markets: [{ ...m5, feed: f }, { ...m10, feed: f }], agents: agents() }, cfg()).actions.filter((a) => a.type === 'pushPrice');
+  const start = pushes(3002, feed);
+  assert.equal(start.length, 1);
+  assert.equal(start[0].why, 'start price');
+  assert.equal(start[0].feed, '0xRELAY'); // the executor pushes to the feed the market uses
+  // after that push both markets have their start price, so nothing more is due
+  assert.equal(pushes(3003, { address: '0xRELAY', updates: [...feed.updates, upd(2, 3003, 101)] }).length, 0);
+  // at 3285 the 5-minute round ends in 15 s; the 10-minute round has 5 more minutes: one end price push, for the 5m market
+  const mid = { address: '0xRELAY', updates: [...feed.updates, upd(2, 3003, 101)] };
+  const end = pushes(3285, mid);
+  assert.equal(end.length, 1);
+  assert.equal(end[0].why, 'end price');
+  assert.equal(end[0].marketName, 'BTC/USD 5m');
+});
+
+test('markets of different coins each get their own push', () => {
+  const mk = (id, name, address, offset) => ({ id, name, roundLength: 300, startOffset: offset, minStake: 100_000, paused: false, nextRound: Math.floor((3004 - offset) / 300) + 1, feed: { address, updates: [upd(1, 2000, 100)] }, rounds: {} });
+  const r = planTick({ now: 3004, markets: [mk(0, 'BTC/USD 5m', '0xB', 0), mk(1, 'ETH/USD 5m', '0xE', 2)], agents: agents() }, cfg());
+  assert.deepEqual(r.actions.filter((a) => a.type === 'pushPrice').map((a) => a.marketName).sort(), ['BTC/USD 5m', 'ETH/USD 5m']);
+});

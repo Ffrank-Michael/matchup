@@ -103,6 +103,7 @@ export function planTick(snap, cfg, decided = new Set()) {
   const { now } = snap;
   const actions = [];
   const decisions = [];
+  const pushedNow = new Set(); // markets of one coin share a feed: one price push per feed and kind of price per tick
   const agentByKey = Object.fromEntries(snap.agents.map((a) => [a.key, a]));
 
   for (const m of snap.markets) {
@@ -123,13 +124,15 @@ export function planTick(snap, cfg, decided = new Set()) {
 
     // ---- 2. prices for the round that is running now (round k-1): real market prices pushed to the TEST feed ----
     const due = priceDue(m, now, cfg);
-    if (due) {
+    if (due && !pushedNow.has(`${m.feed.address ?? 'market' + m.id}:${due}`)) {
+      pushedNow.add(`${m.feed.address ?? 'market' + m.id}:${due}`);
       const r = k - 1;
+      const where = { market: m.id, marketName: m.name, round: r, feed: m.feed.address };
       if (due === 'start') {
         // First trade whose own time is at least startAfter seconds after the lock (the executor asks Bitfinex for exactly that trade).
-        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, round: r, why: 'start price', firstTradeAfter: lockTime(m, r) + cfg.startAfter });
+        actions.push({ type: 'pushPrice', ...where, why: 'start price', firstTradeAfter: lockTime(m, r) + cfg.startAfter });
       } else {
-        actions.push({ type: 'pushPrice', market: m.id, marketName: m.name, round: r, why: 'end price' });
+        actions.push({ type: 'pushPrice', ...where, why: 'end price' });
       }
     }
 

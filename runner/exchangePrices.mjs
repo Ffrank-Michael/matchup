@@ -37,11 +37,11 @@ export function createExchangePrices({
 
   // One request to Bitfinex for the given market; returns the checked quote of the first trade in the answer,
   // or null when the answer is an empty list (no trade in that range).
-  async function ask(marketName, query) {
-    const symbol = SYMBOLS[marketName];
-    if (!symbol) throw new Error(`no real price source for market ${marketName}`);
-    if (nowMs() - (lastTry[marketName] ?? -Infinity) < minGapMs) throw new Error('price API was tried a moment ago; waiting before asking again');
-    lastTry[marketName] = nowMs();
+  async function ask(pair, query) {
+    const symbol = SYMBOLS[pair];
+    if (!symbol) throw new Error(`no real price source for market ${pair}`);
+    if (nowMs() - (lastTry[pair] ?? -Infinity) < minGapMs) throw new Error('price API was tried a moment ago; waiting before asking again');
+    lastTry[pair] = nowMs();
 
     const res = await fetchFn(`${BASE}/${symbol}/hist?${query}`, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) throw new Error(`Bitfinex answered HTTP ${res.status}${res.status === 429 ? ' (too many requests: rate limited)' : ''}`);
@@ -68,12 +68,12 @@ export function createExchangePrices({
     return { usd, quotedAt, tradeAt, source: SOURCE };
   }
 
-  async function load(marketName) {
-    const c = cache[marketName];
+  async function load(pair) {
+    const c = cache[pair];
     if (c && nowMs() - c.at < ttlMs) return c.quote;
-    const quote = await ask(marketName, 'limit=1');
-    if (!quote) throw new Error(`Bitfinex gave no usable price for ${SYMBOLS[marketName]} (empty answer)`);
-    cache[marketName] = { at: nowMs(), quote };
+    const quote = await ask(pair, 'limit=1');
+    if (!quote) throw new Error(`Bitfinex gave no usable price for ${SYMBOLS[pair]} (empty answer)`);
+    cache[pair] = { at: nowMs(), quote };
     return quote;
   }
 
@@ -86,19 +86,20 @@ export function createExchangePrices({
      * (the START price). Throws if there is none yet; the cache is not used and the 5 second limit still applies.
      */
     async quote(marketName, { firstTradeAfter } = {}) {
+      const pair = marketName.split(' ')[0]; // "BTC/USD 5m" and "BTC/USD 10m" are the same coin
       let q;
       if (firstTradeAfter !== undefined) {
-        q = await ask(marketName, `limit=1&sort=1&start=${Math.floor(firstTradeAfter * 1000)}`);
-        if (!q) throw new Error(`no ${marketName} trade on Bitfinex yet since ${new Date(firstTradeAfter * 1000).toISOString().slice(11, 19)} UTC; will try again`);
-        if (q.tradeAt < firstTradeAfter) throw new Error(`Bitfinex answered with a ${marketName} trade from before the lock; will try again`);
+        q = await ask(pair, `limit=1&sort=1&start=${Math.floor(firstTradeAfter * 1000)}`);
+        if (!q) throw new Error(`no ${pair} trade on Bitfinex yet since ${new Date(firstTradeAfter * 1000).toISOString().slice(11, 19)} UTC; will try again`);
+        if (q.tradeAt < firstTradeAfter) throw new Error(`Bitfinex answered with a ${pair} trade from before the lock; will try again`);
       } else {
-        q = await load(marketName);
+        q = await load(pair);
       }
-      const before = lastPrice[marketName];
+      const before = lastPrice[pair];
       if (before && Math.abs(q.usd - before) / before > maxJump) {
-        throw new Error(`${marketName} moved from ${before} to ${q.usd} (over ${maxJump * 100}%): not trusting it`);
+        throw new Error(`${pair} moved from ${before} to ${q.usd} (over ${maxJump * 100}%): not trusting it`);
       }
-      lastPrice[marketName] = q.usd;
+      lastPrice[pair] = q.usd;
       return { price: BigInt(Math.round(q.usd * 1e8)), ...q };
     },
 
