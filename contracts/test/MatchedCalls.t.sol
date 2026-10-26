@@ -139,7 +139,8 @@ contract MatchedCallsTest is ClaimBase {
         assertEq(arena.totalPlayerFunds(), 0);
         assertEq(usdc.balanceOf(address(arena)), 20_001);
         // money in = money out + fees: 2_000_030 = 1_980_000 + 29 + 20_001
-        assertEq(2_000_030, 1_980_000 + 11 + 9 + 9 + 20_001);
+        uint256 totalIn = 400_010 + 300_010 + 300_010 + 1_000_000;
+        assertEq(totalIn, 1_980_000 + 11 + 9 + 9 + 20_001);
     }
 
     // =========================================================
@@ -206,11 +207,22 @@ contract MatchedCallsTest is ClaimBase {
 
     function _ceilDiv(uint256 a, uint256 b) internal pure returns (uint256) { return (a + b - 1) / b; }
 
-    function _model(uint256 s, uint256 M, uint256 T, bool onBigger, bool biggerWon, bool winner, uint256 dist)
-        internal pure returns (uint256)
-    {
-        uint256 matched = !onBigger ? s : (biggerWon ? s * M / T : _ceilDiv(s * M, T));
-        return winner ? s + matched * dist / M : s - matched;
+    /// Everything the independent model needs, in one place (keeps the stack small).
+    struct Spec { uint256 M; uint256 T; uint256 dist; bool upBigger; bool dnBigger; bool biggerWon; bool upWins; }
+
+    function _model(uint256 s, Spec memory c, bool onBigger, bool winner) internal pure returns (uint256) {
+        uint256 matched = !onBigger ? s : (c.biggerWon ? s * c.M / c.T : _ceilDiv(s * c.M, c.T));
+        return winner ? s + matched * c.dist / c.M : s - matched;
+    }
+
+    function _spec(uint256 U, uint256 D, bool upWins) internal pure returns (Spec memory c) {
+        c.M = U < D ? U : D;
+        c.T = U > D ? U : D;
+        c.dist = c.M - c.M * 200 / 10_000;
+        c.upBigger = U > D;
+        c.dnBigger = D > U;
+        c.upWins = upWins;
+        c.biggerWon = upWins ? c.upBigger : c.dnBigger; // a tie has no bigger side: every caller is fully matched
     }
 
     function testFuzz_conservation_and_model(uint64[4] memory upS, uint64[3] memory dnS, bool upWins) public {
@@ -220,28 +232,22 @@ contract MatchedCallsTest is ClaimBase {
         for (uint256 i = 0; i < 4; i++) { ups[i]   = bound(upS[i], 1, 5_000_000_000); U += ups[i]; }
         for (uint256 i = 0; i < 3; i++) { downs[i] = bound(dnS[i], 1, 5_000_000_000); D += downs[i]; }
         (address[] memory u, address[] memory d) = _play(ups, downs, upWins);
-
-        uint256 M = U < D ? U : D;
-        uint256 T = U > D ? U : D;
-        uint256 dist = M - M * 200 / 10_000;
-        bool upBigger = U > D;
-        bool dnBigger = D > U;
-        bool biggerWon = upWins ? upBigger : dnBigger; // a tie has no bigger side: every caller is fully matched
+        Spec memory c = _spec(U, D, upWins);
 
         uint256 paid;
-        for (uint256 i = 0; i < 4; i++) paid += _settleOne(u[i], ups[i], M, T, upBigger, biggerWon, upWins, dist);
-        for (uint256 i = 0; i < 3; i++) paid += _settleOne(d[i], downs[i], M, T, dnBigger, biggerWon, !upWins, dist);
+        for (uint256 i = 0; i < 4; i++) paid += _settleOne(u[i], ups[i], c, c.upBigger, upWins);
+        for (uint256 i = 0; i < 3; i++) paid += _settleOne(d[i], downs[i], c, c.dnBigger, !upWins);
 
         uint256 bal = usdc.balanceOf(address(arena));
         assertEq(paid + bal, U + D, "money in = money out + what the contract still holds");
         assertGe(bal, arena.totalPlayerFunds() + arena.feesAccrued(), "never owes more than it holds");
-        assertGe(arena.feesAccrued(), M * 200 / 10_000, "at least the 2% fee on the matched pool");
+        assertGe(arena.feesAccrued(), c.M * 200 / 10_000, "at least the 2% fee on the matched pool");
     }
 
-    function _settleOne(address who, uint256 s, uint256 M, uint256 T, bool onBigger, bool biggerWon, bool isWinner, uint256 dist)
+    function _settleOne(address who, uint256 s, Spec memory c, bool onBigger, bool isWinner)
         internal returns (uint256 got)
     {
-        uint256 expected = _model(s, M, T, onBigger, biggerWon, isWinner, dist);
+        uint256 expected = _model(s, c, onBigger, isWinner);
         assertEq(arena.claimable(mid, 1, who), expected, "claimable matches the model");
         if (expected == 0) {
             vm.prank(who);
