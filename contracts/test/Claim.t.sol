@@ -461,6 +461,43 @@ contract ClaimTest is ClaimBase {
         assertEq(arena.feesAccrued(), 0);
     }
 
+    /// Mainnet plan: a round with calls on one side only is never settled (no price pushed, nobody calls settle()).
+    /// After the settle window the caller's own claim() finalises it as a Timeout refund: full stake back, no fee.
+    function test_refund_oneSided_neverSettled_claimedAfterWindow_fullRefund() public {
+        vm.warp(1);
+        _bet(alice, btcId, 1, true, MIN); // only UP; nobody takes DOWN
+        uint256 et = _end(btcId, 1);
+
+        // Still inside the window (exactly at the deadline): not claimable yet, and the preview says 0.
+        vm.warp(et + SETTLE_WINDOW());
+        assertEq(arena.claimable(btcId, 1, alice), 0, "preview is 0 inside the window");
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(PredictionArena.RoundNotSettled.selector, btcId, 1));
+        arena.claim(btcId, 1);
+
+        // One second later: the preview shows the full stake and claim() pays it, with no settle() call at all.
+        vm.warp(et + SETTLE_WINDOW() + 1);
+        assertEq(arena.claimable(btcId, 1, alice), MIN, "preview shows the full refund");
+        (, , , , , , PredictionArena.RoundState before_) = arena.rounds(btcId, 1);
+        assertEq(uint8(before_), uint8(PredictionArena.RoundState.Unsettled), "never settled before the claim");
+
+        uint256 balBefore = usdc.balanceOf(alice);
+        uint256 p = _claim(alice, btcId, 1);
+        assertEq(p, MIN, "full stake refunded");
+        assertEq(usdc.balanceOf(alice) - balBefore, MIN, "USDC arrived in alice's wallet");
+        assertEq(arena.feesAccrued(), 0, "no fee on a refund");
+        assertEq(arena.totalPlayerFunds(), 0, "nothing left owed");
+        assertEq(usdc.balanceOf(address(arena)), 0, "contract holds nothing");
+
+        (, , , , , , PredictionArena.RoundState after_) = arena.rounds(btcId, 1);
+        assertEq(uint8(after_), uint8(PredictionArena.RoundState.Refunded), "finalised as a refund by the claim");
+
+        // And only once.
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(PredictionArena.AlreadyClaimed.selector, btcId, 1));
+        arena.claim(btcId, 1);
+    }
+
     // =========================================================
     //  Once-only, timing, stranger guards
     // =========================================================

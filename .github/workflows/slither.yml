@@ -1,0 +1,69 @@
+name: Slither
+
+# Free static analysis of the contract (Trail of Bits Slither). It reports, it does not block:
+# the job stays green and the findings are in the run summary and the slither-report artifact.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "contracts/**"
+      - ".github/workflows/slither.yml"
+
+jobs:
+  slither:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install OpenZeppelin (pinned by package-lock.json)
+        run: npm ci --ignore-scripts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Slither and solc 0.8.28
+        run: |
+          pip install slither-analyzer==0.10.4 solc-select==1.0.4
+          solc-select install 0.8.28
+          solc-select use 0.8.28
+      - name: Run Slither on the contract and its test price feed
+        shell: bash
+        run: |
+          slither contracts/PredictionArena.sol \
+            --solc-remaps "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/" \
+            --solc-args "--evm-version cancun --optimize --optimize-runs 200" \
+            --filter-paths "node_modules" \
+            --no-fail-pedantic \
+            --json slither.json \
+            --checklist > slither-report.md 2> slither-stderr.txt || echo "slither exited with $?"
+          tail -5 slither-stderr.txt || true
+      - name: Summary by severity
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '### Slither findings (PredictionArena.sol; OpenZeppelin excluded)'
+            node -e '
+              const fs = require("fs");
+              if (!fs.existsSync("slither.json")) { console.log("No slither.json: Slither did not finish. See slither-stderr.txt in the artifact."); process.exit(0); }
+              const j = JSON.parse(fs.readFileSync("slither.json", "utf8"));
+              const d = (j.results && j.results.detectors) || [];
+              const by = {};
+              for (const x of d) { const k = x.impact + " / " + x.check; by[k] = (by[k] || 0) + 1; }
+              console.log("Total: " + d.length);
+              console.log("```");
+              for (const k of Object.keys(by).sort()) console.log(by[k] + "  " + k);
+              console.log("```");
+            '
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: slither-report
+          path: |
+            slither-report.md
+            slither.json
+            slither-stderr.txt
