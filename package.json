@@ -14,6 +14,7 @@
   "scripts": {
     "test:agents": "node --test agents/agents.test.mjs",
     "test:runner": "node --test runner/runner.test.mjs runner/exchangePrices.test.mjs runner/priceLog.test.mjs",
+    "test:scripts": "node --test scripts/markets.test.mjs",
     "simulate": "node runner/simulate.mjs --hours 4"
   }
 }

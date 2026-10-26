@@ -1,215 +1,292 @@
-// Kairo Markets: deploy to Arc TESTNET and create the three markets.
+// Kairo Markets: deploy the six markets (BTC, ETH and SOL at 5 and 10 minutes) with one guarded relay feed per coin.
 //
-//   node scripts/deploy.mjs                 DRY RUN (default). Compiles, checks the wallet and
-//                                           estimates the cost. Sends nothing.
-//   node scripts/deploy.mjs --send          Deploys 3 test price feeds + PredictionArena, creates the
-//                                           3 markets, then verifies everything on chain.
-//   node scripts/deploy.mjs --send --arena 0x.. --feeds 0xBTC,0xETH,0xSOL
-//                                           The contracts were already deployed elsewhere (for example
-//                                           by Arc Studio). Only create the markets and verify.
-//   node scripts/deploy.mjs --verify-only   Re-check the addresses in deployments/arc-testnet.json.
+//   node scripts/deploy.mjs --set rehearsal                  DRY RUN on Arc TESTNET (default). Compiles, checks, estimates. Sends nothing.
+//   node scripts/deploy.mjs --set rehearsal --send           Deploys 3 test stand-ins for Chainlink, the arena, 3 relays, 6 markets, then verifies.
+//   node scripts/deploy.mjs --set mainnet                    DRY RUN on Arc MAINNET: reads Chainlink on chain and checks it. Sends nothing.
+//   node scripts/deploy.mjs --set mainnet --send --i-understand-this-spends-real-usdc
+//                                                            Real deployment on Arc MAINNET (real USDC for gas).
+//   node scripts/deploy.mjs --set X --verify-only            Re-check the addresses saved in deployments/arc-<testnet|mainnet>.json.
+//   node scripts/deploy.mjs --set X --send --arena 0x..      The arena was already deployed elsewhere (for example by Arc Studio): use it.
+//   node scripts/deploy.mjs --set X --send --pusher 0x..     The address allowed to push prices (default: the deployer wallet).
 //
-// Safe to re-run: every finished step is saved to deployments/arc-testnet.json and skipped next time.
-// The owner on testnet is the deployer wallet. The private key is read from .env and never printed.
+// Safe to re-run: every finished step is saved to the deployment file and skipped next time.
+// The owner is the deployer wallet. Keys are read from .env (DEPLOYER_PRIVATE_KEY on testnet, MAINNET_DEPLOYER_PRIVATE_KEY on
+// mainnet) and never printed. Market lists, bands and Chainlink addresses live in scripts/markets.mjs.
 import fs from 'node:fs';
 import path from 'node:path';
-import { formatUnits, getAddress, isAddress, zeroAddress } from 'viem';
+import { formatUnits, getAddress, isAddress, zeroAddress, encodeDeployData } from 'viem';
 import { setup, ROOT, usdcBalance } from './lib.mjs';
 import { compile, normalise } from './compile.mjs';
+import { SETS, COINS, CHAINLINK_MAINNET, MIN_STAKE, FEED_DECIMALS, MAX_GUARD_AGE_SECONDS, marketName, relayDescription, standInDescription, validateSet, judgeGuard } from './markets.mjs';
+import { createExchangePrices } from '../runner/exchangePrices.mjs';
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
 const opt = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+function fail(msg) { console.error('\nSTOP: ' + msg); process.exit(1); }
+function step(msg) { console.log('\n== ' + msg); }
+
 const SEND = flag('--send');
 const VERIFY_ONLY = flag('--verify-only');
+const SET_NAME = opt('--set') || 'rehearsal';
+const SET = SETS[SET_NAME];
+if (!SET) fail(`--set must be one of: ${Object.keys(SETS).join(', ')}`);
+const problems = validateSet(SET_NAME);
+if (problems.length) fail('the market list is wrong:\n  ' + problems.join('\n  '));
+const MAINNET = SET.network === 'mainnet';
+if (MAINNET && SEND && !flag('--i-understand-this-spends-real-usdc')) {
+  fail('Mainnet spends real USDC. Add --i-understand-this-spends-real-usdc to --send once you have read the dry run.');
+}
 
-// Round settings. The contract takes any round length of 5 minutes or more, so this is only a deploy setting.
-//   10min (testnet, the default): BTC locks at :00, ETH at :03, SOL at :06 of every 10 minutes
-//   1h    (kept for mainnet later): BTC locks at :00, ETH at :20, SOL at :40 of every hour
-const PRESETS = {
-  '10min': { round: 600, label: '10-minute', offsets: { btc: 0, eth: 180, sol: 360 } },
-  '1h': { round: 3600, label: '1-hour', offsets: { btc: 0, eth: 1200, sol: 2400 } },
-};
-const PRESET = PRESETS[opt('--rounds') || '10min'];
-if (!PRESET) { console.error('STOP: --rounds must be 10min or 1h'); process.exit(1); }
-const ROUND = PRESET.round;
-const MIN_STAKE = 100_000n; // 0.10 USDC
-const MARKETS = [
-  { key: 'btc', name: 'BTC/USD', offset: PRESET.offsets.btc },
-  { key: 'eth', name: 'ETH/USD', offset: PRESET.offsets.eth },
-  { key: 'sol', name: 'SOL/USD', offset: PRESET.offsets.sol },
-];
-const FEED_DECIMALS = 8;
-const feedDescription = (m) => `TEST PRICES - NOT REAL DATA / ${m.name}`;
-
-const STATE_FILE = path.join(ROOT, 'deployments', 'arc-testnet.json');
+const COIN_KEYS = Object.keys(COINS);
+const STATE_FILE = path.join(ROOT, 'deployments', MAINNET ? 'arc-mainnet.json' : 'arc-testnet.json');
 const loadState = () => (fs.existsSync(STATE_FILE) ? JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) : null);
 const saveState = (s) => {
   fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
   fs.writeFileSync(STATE_FILE, JSON.stringify(s, null, 2) + '\n');
 };
 
-const { pub, wallet, account, chain, usdc } = setup();
+const { pub, wallet, account, chain, usdc, hasKey } = setup(SET.network, { needKey: SEND });
 const explorer = chain.blockExplorers.default.url;
 const addrUrl = (a) => `${explorer}/address/${a}`;
 const txUrl = (h) => `${explorer}/tx/${h}`;
+const deployData = (c, a) => encodeDeployData({ abi: c.abi, bytecode: c.bytecode, args: a });
+const sizeOf = (c) => (c.deployedBytecode.length - 2) / 2;
+// Rough deploy gas when the node cannot estimate (a relay needs its guard to exist first): 32k + 200 per byte of code + calldata.
+const guessDeployGas = (c) => 53_000n + 200n * BigInt(sizeOf(c)) + 16n * BigInt((c.bytecode.length - 2) / 2);
 
-function fail(msg) { console.error('\nSTOP: ' + msg); process.exit(1); }
-function step(msg) { console.log('\n== ' + msg); }
+const guardAbi = [
+  { type: 'function', name: 'description', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+  { type: 'function', name: 'decimals', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
+  { type: 'function', name: 'latestRoundData', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint80' }, { type: 'int256' }, { type: 'uint256' }, { type: 'uint256' }, { type: 'uint80' }] },
+];
+
+/** Reads Chainlink's proxy for a coin on mainnet and returns the problems (empty = a fit guard). */
+async function readGuardProblems(coin, address) {
+  const now = Number((await pub.getBlock()).timestamp);
+  const [description, decimals, round] = await Promise.all([
+    pub.readContract({ address, abi: guardAbi, functionName: 'description' }),
+    pub.readContract({ address, abi: guardAbi, functionName: 'decimals' }),
+    pub.readContract({ address, abi: guardAbi, functionName: 'latestRoundData' }),
+  ]);
+  const found = { description, decimals, answer: round[1], updatedAt: Number(round[3]) };
+  return { found, problems: judgeGuard(found, coin, now), ageHours: ((now - found.updatedAt) / 3600).toFixed(1) };
+}
 
 async function main() {
   const id = await pub.getChainId();
-  if (id !== 5042002) fail(`RPC reports chain ${id}; this script only runs on Arc testnet (5042002).`);
+  if (id !== chain.id) fail(`RPC reports chain ${id}; this set runs on ${chain.name} (${chain.id}).`);
 
   const art = compile();
-  const arenaSize = (art.arena.deployedBytecode.length - 2) / 2;
-  console.log(`Compiled with solc 0.8.28. PredictionArena runtime size: ${arenaSize} bytes (limit 24576).`);
+  const arenaSize = sizeOf(art.arena);
+  console.log(`Set "${SET_NAME}" on ${chain.name}. Compiled with solc 0.8.28. PredictionArena runtime size: ${arenaSize} bytes (limit 24576); relay ${sizeOf(art.relay)} bytes.`);
   if (arenaSize > 24576) fail('PredictionArena is over the 24576-byte contract size limit.');
 
   const owner = account.address;
   const bal = await usdcBalance(pub, usdc, owner);
-  console.log(`Deployer / owner : ${owner}`);
-  console.log(`USDC balance     : ${bal.text} USDC`);
+  console.log(`Deployer / owner : ${owner}${hasKey ? '' : '  (no key in .env: read-only dry run with a placeholder address)'}`);
+  console.log(`USDC balance     : ${hasKey ? bal.text + ' USDC' : 'not shown (no key)'}`);
   console.log(`USDC token       : ${usdc}`);
 
   if (VERIFY_ONLY) {
     const st = loadState();
-    if (!st) fail('No deployments/arc-testnet.json yet.');
+    if (!st) fail(`No ${path.basename(STATE_FILE)} yet.`);
     await verify(art, st);
     return;
+  }
+
+  // ---------- guards (mainnet: Chainlink must be what we think it is, before anything is sent) ----------
+  if (MAINNET) {
+    step('Check Chainlink on Arc mainnet (reads only)');
+    let bad = 0;
+    for (const coin of COIN_KEYS) {
+      const { found, problems: p, ageHours } = await readGuardProblems(coin, getAddress(CHAINLINK_MAINNET[coin].toLowerCase()));
+      console.log(`  ${p.length ? 'FAIL' : 'OK  '} ${COINS[coin].pair} proxy ${CHAINLINK_MAINNET[coin]}: "${found.description}", ${found.decimals} decimals, answer ${(Number(found.answer) / 1e8).toLocaleString('en-US')} USD, ${ageHours} h old`);
+      for (const x of p) console.log(`         - ${x}`);
+      bad += p.length;
+    }
+    if (bad) fail('Chainlink does not look right on Arc mainnet. Nothing was deployed.');
   }
 
   // ---------- dry run ----------
   if (!SEND) {
     step('DRY RUN (nothing is sent). Add --send to deploy for real.');
     const gasPrice = await pub.getGasPrice();
-    const feedGas = await pub.estimateGas({
-      account: owner,
-      data: await encodeDeploy(art.feed, [owner, FEED_DECIMALS, feedDescription(MARKETS[0])]),
-    });
-    const arenaGas = await pub.estimateGas({
-      account: owner,
-      data: await encodeDeploy(art.arena, [usdc, owner]),
-    });
-    const totalGas = feedGas * 3n + arenaGas + 3n * 400_000n; // 3 createMarket calls, generous
+    const est = async (c, a) => { try { return { gas: await pub.estimateGas({ account: owner, data: deployData(c, a) }), how: 'node estimate' }; } catch { return { gas: guessDeployGas(c), how: 'guess from code size' }; } };
+    const arenaE = await est(art.arena, [usdc, owner]);
+    const feedE = await est(art.feed, [owner, FEED_DECIMALS, standInDescription('btc')]);
+    const relayGas = guessDeployGas(art.relay);
+    const MARKET_GAS = 400_000n;
+    const seeds = MAINNET ? 0n : 3n * (feedE.gas + 90_000n);
+    const totalGas = arenaE.gas + 3n * relayGas + BigInt(SET.markets.length) * MARKET_GAS + seeds;
     const cost = totalGas * gasPrice;
     console.log(`Gas price        : ${formatUnits(gasPrice, 9)} gwei`);
-    console.log(`Estimated gas    : feed ${feedGas} x3, arena ${arenaGas}, 3 createMarket (guess 400k each)`);
+    console.log(`Estimated gas    : arena ${arenaE.gas} (${arenaE.how}), 3 relays ${relayGas} each (guess from code size), ${SET.markets.length} createMarket ${MARKET_GAS} each (guess)${MAINNET ? '' : `, 3 test stand-ins ${feedE.gas} each plus a first price`}`);
     console.log(`Estimated cost   : about ${formatUnits(cost, 18)} USDC (native 18-decimal view of the same USDC)`);
-    if (bal.raw * 10n ** 12n < cost * 2n) console.log('WARNING: balance is less than twice the estimate. Fund the wallet before --send.');
+    if (!hasKey) console.log('Balance not checked (no key in .env).');
+    else if (bal.raw * 10n ** 12n < cost * 2n) console.log('WARNING: balance is less than twice the estimate. Fund the wallet before --send.');
     else console.log('Balance covers the estimate with room to spare.');
     console.log('\nPlan on --send:');
-    for (const m of MARKETS) console.log(`  feed  "${feedDescription(m)}" (decimals ${FEED_DECIMALS}, owner ${owner})`);
-    console.log(`  arena PredictionArena(usdc ${usdc}, owner ${owner})`);
-    for (const m of MARKETS) console.log(`  market ${m.name}: round ${ROUND}s, offset ${m.offset}s, min stake ${MIN_STAKE} (0.10 USDC), feedB = none`);
+    for (const coin of COIN_KEYS) {
+      console.log(MAINNET
+        ? `  guard ${COINS[coin].pair}: Chainlink proxy ${CHAINLINK_MAINNET[coin]} (nothing deployed)`
+        : `  guard ${COINS[coin].pair}: new MockPriceFeed "${standInDescription(coin)}" (owner ${owner}), first price from Bitfinex`);
+    }
+    console.log(`  arena PredictionArena(usdc ${usdc}, owner ${owner})${opt('--arena') ? ` -> already deployed at ${opt('--arena')}, used as it is` : ''}`);
+    for (const coin of COIN_KEYS) console.log(`  relay ${COINS[coin].pair}: "${relayDescription(coin, SET_NAME)}", band ${COINS[coin].bandBps} bps, pusher ${opt('--pusher') || owner}`);
+    for (const m of SET.markets) console.log(`  market "${marketName(m)}": round ${m.round}s, offset ${m.offset}s, min stake ${MIN_STAKE} (0.10 USDC), feed = the ${m.coin.toUpperCase()} relay, feedB = none`);
     return;
   }
 
   // ---------- real deployment ----------
-  let st = loadState() || { network: 'arc-testnet', chainId: 5042002, usdc, owner, feeds: {}, arena: null, markets: [] };
-  if (getAddress(st.owner) !== getAddress(owner)) fail('deployments/arc-testnet.json belongs to a different owner wallet.');
+  if (!hasKey) fail('--send needs the deployer key in .env.');
+  const pusher = opt('--pusher') ? getAddress(opt('--pusher')) : owner;
+  let st = loadState() || { network: MAINNET ? 'arc-mainnet' : 'arc-testnet', set: SET_NAME, chainId: chain.id, usdc, owner, pusher, guards: {}, feeds: {}, arena: null, markets: [] };
+  if (getAddress(st.owner) !== getAddress(owner)) fail(`${path.basename(STATE_FILE)} belongs to a different owner wallet.`);
+  if (getAddress(st.pusher || owner) !== pusher) fail('This deployment already uses a different pusher address.');
+  if (MAINNET) {
+    const need = 2n * 10n ** 6n; // 2 USDC
+    if (bal.raw < need) fail(`Deployer holds ${bal.text} USDC; mainnet needs at least 2 USDC (cost plus room). Fund it first.`);
+  }
 
+  const send = async (what, p) => {
+    step(what);
+    const hash = await p;
+    const rc = await pub.waitForTransactionReceipt({ hash });
+    if (rc.status !== 'success') fail(`${what} reverted: ${txUrl(hash)}`);
+    console.log(`  ${txUrl(hash)}`);
+    return { hash, rc };
+  };
+
+  // guards
+  for (const coin of COIN_KEYS) {
+    if (st.guards[coin]) continue;
+    if (MAINNET) {
+      st.guards[coin] = { address: getAddress(CHAINLINK_MAINNET[coin].toLowerCase()), kind: 'Chainlink proxy' };
+    } else {
+      const { hash, rc } = await send(`Deploy test stand-in for Chainlink ${COINS[coin].pair}`, wallet.deployContract({ abi: art.feed.abi, bytecode: art.feed.bytecode, args: [owner, FEED_DECIMALS, standInDescription(coin)] }));
+      st.guards[coin] = { address: rc.contractAddress, tx: hash, block: Number(rc.blockNumber), kind: 'test stand-in', seeded: false };
+      console.log(`  ${rc.contractAddress}`);
+    }
+    saveState(st);
+  }
+  if (!MAINNET) {
+    // The relay refuses to push while its guard has no price, so the stand-ins get one real Bitfinex price now.
+    // (The runner keeps them fresh: the relay refuses a guard older than 26 hours.)
+    const prices = createExchangePrices();
+    for (const coin of COIN_KEYS) {
+      if (st.guards[coin].seeded) continue;
+      const price = await prices.price(COINS[coin].pair);
+      await send(`First price for the ${COINS[coin].pair} stand-in: ${(Number(price) / 1e8).toLocaleString('en-US')} USD (Bitfinex last trade)`,
+        wallet.writeContract({ address: st.guards[coin].address, abi: art.feed.abi, functionName: 'setPrice', args: [price] }));
+      st.guards[coin].seeded = true;
+      saveState(st);
+      await new Promise((r) => setTimeout(r, 5200)); // Bitfinex: one request per 5 seconds per market
+    }
+  }
+
+  // arena
   const existingArena = opt('--arena');
-  const existingFeeds = opt('--feeds');
-  if (existingArena || existingFeeds) {
-    if (!existingArena || !existingFeeds) fail('Give both --arena and --feeds (BTC,ETH,SOL).');
-    const f = existingFeeds.split(',');
-    if (f.length !== 3 || ![existingArena, ...f].every(isAddress)) fail('--arena / --feeds must be valid addresses (3 feeds: BTC,ETH,SOL).');
+  if (existingArena) {
+    if (!isAddress(existingArena)) fail('--arena must be a valid address.');
+    if (st.arena && getAddress(st.arena.address) !== getAddress(existingArena)) fail('This deployment already has a different arena.');
     st.arena = { address: getAddress(existingArena), tx: null, source: 'deployed elsewhere' };
-    MARKETS.forEach((m, i) => { st.feeds[m.key] = { address: getAddress(f[i]), tx: null, source: 'deployed elsewhere' }; });
     saveState(st);
   }
-
-  for (const m of MARKETS) {
-    if (st.feeds[m.key]) continue;
-    step(`Deploy test price feed ${m.name}`);
-    const hash = await wallet.deployContract({ abi: art.feed.abi, bytecode: art.feed.bytecode, args: [owner, FEED_DECIMALS, feedDescription(m)] });
-    const rc = await pub.waitForTransactionReceipt({ hash });
-    if (rc.status !== 'success') fail(`Feed deployment reverted: ${txUrl(hash)}`);
-    st.feeds[m.key] = { address: rc.contractAddress, tx: hash, block: Number(rc.blockNumber) };
-    saveState(st);
-    console.log(`  ${rc.contractAddress}\n  ${txUrl(hash)}`);
-  }
-
   if (!st.arena) {
-    step('Deploy PredictionArena');
-    const hash = await wallet.deployContract({ abi: art.arena.abi, bytecode: art.arena.bytecode, args: [usdc, owner] });
-    const rc = await pub.waitForTransactionReceipt({ hash });
-    if (rc.status !== 'success') fail(`Arena deployment reverted: ${txUrl(hash)}`);
+    const { hash, rc } = await send('Deploy PredictionArena', wallet.deployContract({ abi: art.arena.abi, bytecode: art.arena.bytecode, args: [usdc, owner] }));
     st.arena = { address: rc.contractAddress, tx: hash, block: Number(rc.blockNumber) };
     saveState(st);
-    console.log(`  ${rc.contractAddress}\n  ${txUrl(hash)}`);
+    console.log(`  ${rc.contractAddress}`);
   }
 
+  // relays
+  for (const coin of COIN_KEYS) {
+    if (st.feeds[coin]) continue;
+    const { hash, rc } = await send(`Deploy relay feed ${COINS[coin].pair}`, wallet.deployContract({
+      abi: art.relay.abi, bytecode: art.relay.bytecode,
+      args: [owner, pusher, st.guards[coin].address, COINS[coin].bandBps, relayDescription(coin, SET_NAME)],
+    }));
+    st.feeds[coin] = { address: rc.contractAddress, tx: hash, block: Number(rc.blockNumber) };
+    saveState(st);
+    console.log(`  ${rc.contractAddress}`);
+  }
+
+  // markets
   const count = Number(await pub.readContract({ address: st.arena.address, abi: art.arena.abi, functionName: 'marketCount' }));
   if (count > st.markets.length) {
     fail(`The arena already has ${count} markets but this file lists ${st.markets.length}. Check ${addrUrl(st.arena.address)} before going on.`);
   }
-  for (let i = st.markets.length; i < MARKETS.length; i++) {
-    const m = MARKETS[i];
-    step(`Create market ${m.name}`);
-    const hash = await wallet.writeContract({
+  for (let i = st.markets.length; i < SET.markets.length; i++) {
+    const m = SET.markets[i];
+    const { hash, rc } = await send(`Create market ${marketName(m)}`, wallet.writeContract({
       address: st.arena.address, abi: art.arena.abi, functionName: 'createMarket',
-      args: [m.name, st.feeds[m.key].address, zeroAddress, ROUND, m.offset, MIN_STAKE],
-    });
-    const rc = await pub.waitForTransactionReceipt({ hash });
-    if (rc.status !== 'success') fail(`createMarket reverted: ${txUrl(hash)}`);
-    st.markets.push({ id: i, name: m.name, tx: hash, block: Number(rc.blockNumber) });
+      args: [marketName(m), st.feeds[m.coin].address, zeroAddress, m.round, m.offset, MIN_STAKE],
+    }));
+    st.markets.push({ id: i, name: marketName(m), coin: m.coin, round: m.round, offset: m.offset, feed: st.feeds[m.coin].address, tx: hash, block: Number(rc.blockNumber) });
     saveState(st);
-    console.log(`  market id ${i}\n  ${txUrl(hash)}`);
+    console.log(`  market id ${i}`);
   }
 
   st.deployedAt = st.deployedAt || new Date().toISOString();
   saveState(st);
   await verify(art, st);
 
-  console.log('\nDeployment record saved to deployments/arc-testnet.json (public information only).');
+  console.log(`\nDeployment record saved to deployments/${path.basename(STATE_FILE)} (public information only).`);
   console.log(`Arena: ${addrUrl(st.arena.address)}`);
-  for (const m of MARKETS) console.log(`${m.name} feed: ${addrUrl(st.feeds[m.key].address)}`);
-}
-
-async function encodeDeploy(c, constructorArgs) {
-  const { encodeDeployData } = await import('viem');
-  return encodeDeployData({ abi: c.abi, bytecode: c.bytecode, args: constructorArgs });
+  for (const coin of COIN_KEYS) console.log(`${COINS[coin].pair} relay: ${addrUrl(st.feeds[coin].address)}`);
 }
 
 async function verify(art, st) {
   step('Verify on chain (reads only)');
-  const owner = account.address;
+  const owner = getAddress(st.owner);
+  const pusher = getAddress(st.pusher || st.owner);
   let bad = 0;
   const check = (ok, what) => { console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${what}`); if (!ok) bad++; };
   const read = (address, abi, functionName, a = []) => pub.readContract({ address, abi, functionName, args: a });
+  const sameCode = async (address, c) => {
+    const onchain = await pub.getCode({ address });
+    return !!onchain && normalise(onchain, c.immutableReferences) === normalise(c.deployedBytecode, c.immutableReferences);
+  };
 
   const A = st.arena.address;
-  check(getAddress(await read(A, art.arena.abi, 'owner')) === getAddress(owner), 'arena owner is the deployer wallet');
+  check(getAddress(await read(A, art.arena.abi, 'owner')) === owner, 'arena owner is the deployer wallet');
   check(getAddress(await read(A, art.arena.abi, 'USDC')) === getAddress(usdc), 'arena USDC is the Arc USDC token');
   check((await read(A, art.arena.abi, 'FEE_BPS')) === 200n, 'fee is 200 basis points (2%)');
   check((await read(A, art.arena.abi, 'SETTLE_WINDOW')) === 3600n, 'settle window is 1 hour');
-  check((await read(A, art.arena.abi, 'marketCount')) === 3n, 'three markets exist');
+  check((await read(A, art.arena.abi, 'marketCount')) === BigInt(SET.markets.length), `${SET.markets.length} markets exist`);
+  // The code on chain must be the code in this repo (immutable slots and the compiler's metadata tail ignored).
+  check(await sameCode(A, art.arena), 'arena code on chain matches the code compiled from this repo');
 
-  for (let i = 0; i < MARKETS.length; i++) {
-    const m = MARKETS[i];
-    const F = st.feeds[m.key].address;
-    const mk = await read(A, art.arena.abi, 'markets', [BigInt(i)]);
-    check((await read(A, art.arena.abi, 'marketName', [BigInt(i)])) === m.name, `market ${i} is named ${m.name}`);
-    check(getAddress(mk[0]) === getAddress(F), `market ${i} uses the ${m.name} test feed`);
-    check(getAddress(mk[1]) === zeroAddress, `market ${i} has no second feed`);
-    check(Number(mk[2]) === ROUND && Number(mk[3]) === m.offset && mk[4] === MIN_STAKE && mk[5] === false,
-      `market ${i}: ${PRESET.label} rounds, offset ${m.offset}s, min stake 0.10 USDC, not paused`);
-    const desc = await read(F, art.feed.abi, 'description');
-    check(desc.startsWith('TEST PRICES - NOT REAL DATA'), `feed ${m.name} is labelled "${desc}"`);
-    check(getAddress(await read(F, art.feed.abi, 'owner')) === getAddress(owner), `feed ${m.name} is owned by the deployer wallet`);
-    check(Number(await read(F, art.feed.abi, 'decimals')) === FEED_DECIMALS, `feed ${m.name} has ${FEED_DECIMALS} decimals`);
+  for (const coin of COIN_KEYS) {
+    const pair = COINS[coin].pair;
+    const R = st.feeds[coin].address;
+    const G = st.guards[coin].address;
+    check(getAddress(await read(R, art.relay.abi, 'owner')) === owner, `${pair} relay is owned by the deployer wallet`);
+    check(getAddress(await read(R, art.relay.abi, 'pusher')) === pusher, `${pair} relay pusher is ${pusher}`);
+    check(getAddress(await read(R, art.relay.abi, 'guard')) === getAddress(G), `${pair} relay guard is ${G}`);
+    check(Number(await read(R, art.relay.abi, 'bandBps')) === COINS[coin].bandBps, `${pair} relay band is ${COINS[coin].bandBps} bps`);
+    check((await read(R, art.relay.abi, 'MAX_GUARD_AGE')) === BigInt(MAX_GUARD_AGE_SECONDS), `${pair} relay accepts a guard up to 26 hours old`);
+    check(Number(await read(R, art.relay.abi, 'decimals')) === FEED_DECIMALS, `${pair} relay has ${FEED_DECIMALS} decimals`);
+    check((await read(R, art.relay.abi, 'description')) === relayDescription(coin, SET_NAME), `${pair} relay says: "${relayDescription(coin, SET_NAME)}"`);
+    check(await sameCode(R, art.relay), `${pair} relay code on chain matches the repo`);
+    if (MAINNET) {
+      const { problems: p } = await readGuardProblems(coin, G);
+      check(p.length === 0, `${pair} guard is Chainlink's proxy and looks healthy${p.length ? ': ' + p.join('; ') : ''}`);
+    } else {
+      check((await read(G, art.feed.abi, 'description')) === standInDescription(coin), `${pair} stand-in is labelled "${standInDescription(coin)}"`);
+      check(await sameCode(G, art.feed), `${pair} stand-in code on chain matches the repo`);
+    }
   }
 
-  // The code on chain must be the code in this repo (immutable slots and the compiler's metadata tail ignored).
-  const onchain = await pub.getCode({ address: A });
-  const same = onchain && normalise(onchain, art.arena.immutableReferences) === normalise(art.arena.deployedBytecode, art.arena.immutableReferences);
-  check(!!same, 'arena code on chain matches the code compiled from this repo');
-  for (const m of MARKETS) {
-    const c = await pub.getCode({ address: st.feeds[m.key].address });
-    const ok = c && normalise(c, art.feed.immutableReferences) === normalise(art.feed.deployedBytecode, art.feed.immutableReferences);
-    check(!!ok, `${m.name} feed code on chain matches the repo`);
+  for (let i = 0; i < SET.markets.length; i++) {
+    const m = SET.markets[i];
+    const mk = await read(A, art.arena.abi, 'markets', [BigInt(i)]);
+    check((await read(A, art.arena.abi, 'marketName', [BigInt(i)])) === marketName(m), `market ${i} is named ${marketName(m)}`);
+    check(getAddress(mk[0]) === getAddress(st.feeds[m.coin].address), `market ${i} uses the ${m.coin.toUpperCase()} relay`);
+    check(getAddress(mk[1]) === zeroAddress, `market ${i} has no second feed`);
+    check(Number(mk[2]) === m.round && Number(mk[3]) === m.offset && mk[4] === MIN_STAKE && mk[5] === false,
+      `market ${i}: ${m.round / 60}-minute rounds, offset ${m.offset}s, min stake 0.10 USDC, not paused`);
   }
 
   if (bad) fail(`${bad} check(s) failed. Do not use this deployment until they are understood.`);

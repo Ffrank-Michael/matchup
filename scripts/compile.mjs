@@ -12,6 +12,7 @@ const FILES = [
   'contracts/PredictionArena.sol',
   'contracts/interfaces/AggregatorV3Interface.sol',
   'contracts/mocks/MockPriceFeed.sol',
+  'contracts/GuardedRelayFeed.sol',
 ];
 
 export function compile() {
@@ -70,6 +71,7 @@ export function compile() {
     standardInput,
     arena: pick('contracts/PredictionArena.sol', 'PredictionArena'),
     feed: pick('contracts/mocks/MockPriceFeed.sol', 'MockPriceFeed'),
+    relay: pick('contracts/GuardedRelayFeed.sol', 'GuardedRelayFeed'),
   };
 }
 
