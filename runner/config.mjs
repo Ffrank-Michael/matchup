@@ -29,7 +29,7 @@ export const CFG = {
   // --- money safety ---
   gasReserve: 50_000,    // 0.05 USDC an agent always keeps for fees (on Arc the gas is USDC too)
   approveAmount: 10_000_000, // each approval lets the contract take up to 10 USDC from that agent
-  maxStake: 1_000_000,   // no bet above 1 USDC, whatever an agent decides
+  maxStake: 10_000_000,  // beta limit: no bet above 10 USDC per call, whatever an agent decides (the site enforces the same limit)
 
   tickSeconds: 10,
 };

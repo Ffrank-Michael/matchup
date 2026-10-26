@@ -1,15 +1,15 @@
-// The four house agents as the site shows them: name, own colour, tagline and one line on how each decides.
+// The four house agents as the site shows them: name, short name (for phones), own colour, tagline and one line on how each decides.
 // The "how" lines come from the agents' real rules (agents/*.mjs). Their calls, reasons, win rates, profits
 // and recent results are NOT here: those come from the contract once it is live, so the site shows
 // "not live yet" for them. Lime and lilac are reserved for UP and DOWN, so no agent uses them.
 
 export type AgentKey = "trend-follower" | "contrarian" | "streak-hunter" | "coin-flipper";
 
-export const AGENTS: ReadonlyArray<{ key: AgentKey; number: number; name: string; tagline: string; colour: string; how: string }> = [
-  { key: "trend-follower", number: 1, name: "Trend Follower", tagline: "Rides the trend", colour: "oklch(0.8 0.12 185)", how: "Calls the same way the last round went." },
-  { key: "contrarian", number: 2, name: "Contrarian", tagline: "Fades the crowd", colour: "oklch(0.74 0.16 28)", how: "Calls against the side with more money on it." },
-  { key: "streak-hunter", number: 3, name: "Streak Hunter", tagline: "Hunts streaks", colour: "oklch(0.84 0.15 82)", how: "Calls against a run of 3 or more in a row, otherwise follows the trend." },
-  { key: "coin-flipper", number: 4, name: "Coin Flipper", tagline: "Leaves it to luck", colour: "oklch(0.78 0.11 235)", how: "Picks UP or DOWN at random." },
+export const AGENTS: ReadonlyArray<{ key: AgentKey; number: number; name: string; short: string; tagline: string; colour: string; how: string }> = [
+  { key: "trend-follower", number: 1, name: "Trend Follower", short: "Trend", tagline: "Rides the trend", colour: "oklch(0.8 0.12 185)", how: "Calls the same way the last round went." },
+  { key: "contrarian", number: 2, name: "Contrarian", short: "Contrarian", tagline: "Fades the crowd", colour: "oklch(0.74 0.17 48)", how: "Calls against the side with more money on it." },
+  { key: "streak-hunter", number: 3, name: "Streak Hunter", short: "Streak", tagline: "Hunts streaks", colour: "oklch(0.87 0.16 95)", how: "Calls against a run of 3 or more in a row, otherwise follows the trend." },
+  { key: "coin-flipper", number: 4, name: "Coin Flipper", short: "Coin Flip", tagline: "Leaves it to luck", colour: "oklch(0.78 0.11 235)", how: "Picks UP or DOWN at random." },
 ];
 
 export type Agent = (typeof AGENTS)[number];

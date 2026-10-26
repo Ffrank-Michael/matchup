@@ -3,57 +3,128 @@ import * as React from "react";
 import type { Agent, AgentKey } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 
-// An animated avatar: a glowing circle in the agent's colour with a small loop that acts out its personality
-// (keyframes in app/globals.css; they switch off for people who prefer reduced motion).
-// Once the agent has made its call for the current round, the ring around it glows lime (UP) or lilac (DOWN).
+// Four robot heads that look like one team: the same size, the same visor, the same chin lights. Each one differs
+// slightly (head corners, antenna, ears) so they are easy to tell apart, and each visor acts out its agent's
+// personality in a loop (keyframes in app/globals.css; they switch off for people who prefer reduced motion).
+// Once the agent has made its call for the current round, the outline of the head glows lime (UP) or lilac (DOWN).
+//
+// Drawing space is 64 x 64. Head x 9..55, y 14..54. Visor x 14..50, y 24..46 (the art is clipped to it).
 
-const ART: Record<AgentKey, (c: string, clip: string) => React.ReactNode> = {
-  // a line flowing forward across the circle like a wave
-  "trend-follower": (c, clip) => (
-    <g clipPath={`url(#${clip})`}>
-      <path
-        className="kairo-wave"
-        d="M-32 34 q8 -14 16 0 t16 0 t16 0 t16 0 t16 0 t16 0 t16 0"
-        fill="none"
-        stroke={c}
-        strokeWidth="3.4"
-        strokeLinecap="round"
-      />
-    </g>
+const VISOR = { x: 14, y: 24, w: 36, h: 22 };
+
+/** The small differences between the four heads (corner roundness, antenna and ears). */
+const HEAD: Record<AgentKey, { rx: number; antenna: (c: string) => React.ReactNode; ears: (c: string) => React.ReactNode }> = {
+  // round head, one ball on a stalk, round ear discs
+  "trend-follower": {
+    rx: 15,
+    antenna: (c) => (
+      <>
+        <path d="M32 14V8" stroke={c} strokeWidth="2.4" strokeLinecap="round" />
+        <circle cx="32" cy="6.5" r="2.8" fill={c} />
+      </>
+    ),
+    ears: (c) => (
+      <>
+        <circle cx="6" cy="34" r="3.6" fill={c} opacity="0.85" />
+        <circle cx="58" cy="34" r="3.6" fill={c} opacity="0.85" />
+      </>
+    ),
+  },
+  // squarer head, two little horns leaning out, tall flat ears
+  contrarian: {
+    rx: 9,
+    antenna: (c) => (
+      <>
+        <path d="M24 15L19 7M40 15L45 7" stroke={c} strokeWidth="2.4" strokeLinecap="round" />
+        <circle cx="18.5" cy="6.5" r="2.2" fill={c} />
+        <circle cx="45.5" cy="6.5" r="2.2" fill={c} />
+      </>
+    ),
+    ears: (c) => (
+      <>
+        <rect x="3.5" y="26" width="5" height="17" rx="2" fill={c} opacity="0.85" />
+        <rect x="55.5" y="26" width="5" height="17" rx="2" fill={c} opacity="0.85" />
+      </>
+    ),
+  },
+  // medium head, a fin on top, bolts as ears
+  "streak-hunter": {
+    rx: 11,
+    antenna: (c) => <path d="M25 14L32 5L39 14Z" fill={c} strokeLinejoin="round" stroke={c} strokeWidth="1.6" />,
+    ears: (c) => (
+      <>
+        <rect x="4" y="29" width="5" height="9" rx="1.5" fill={c} opacity="0.85" />
+        <rect x="55" y="29" width="5" height="9" rx="1.5" fill={c} opacity="0.85" />
+        <circle cx="6.5" cy="33.5" r="1" fill="rgba(0,0,0,0.5)" />
+        <circle cx="57.5" cy="33.5" r="1" fill="rgba(0,0,0,0.5)" />
+      </>
+    ),
+  },
+  // roundest head, a dome button on top instead of an antenna, no ears (side dials)
+  "coin-flipper": {
+    rx: 17,
+    antenna: (c) => <path d="M25 14A7 7 0 0 1 39 14Z" fill={c} />,
+    ears: (c) => (
+      <>
+        <rect x="5" y="31" width="4" height="6" rx="2" fill={c} opacity="0.85" />
+        <rect x="55" y="31" width="4" height="6" rx="2" fill={c} opacity="0.85" />
+      </>
+    ),
+  },
+};
+
+const ART: Record<AgentKey, (c: string) => React.ReactNode> = {
+  // a wave flowing forward across the visor
+  "trend-follower": (c) => (
+    <path
+      className="kairo-wave"
+      d="M-4 35 q4 -9 8 0 t8 0 t8 0 t8 0 t8 0 t8 0 t8 0 t8 0 t8 0"
+      fill="none"
+      stroke={c}
+      strokeWidth="3.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ filter: `drop-shadow(0 0 2px ${c})` }}
+    />
   ),
-  // a cluster of small dots drifting one way, one bright dot going the opposite way
-  contrarian: (c, clip) => (
-    <g clipPath={`url(#${clip})`}>
-      {[
-        [24, 22, 0],
-        [34, 28, 0.5],
-        [28, 34, 1.1],
-        [38, 40, 1.6],
-        [22, 42, 2.2],
-      ].map(([x, y, d]) => (
-        <circle key={`${x}-${y}`} className="kairo-drift-right" cx={x} cy={y} r="2.4" fill={c} style={{ animationDelay: `${d}s`, opacity: 0.6 }} />
-      ))}
-      <circle className="kairo-drift-left" cx="32" cy="32" r="4.4" fill="white" style={{ filter: `drop-shadow(0 0 4px ${c})` }} />
-    </g>
-  ),
-  // three bars rising one after another, then a crosshair locks onto the third
-  "streak-hunter": (c, clip) => (
-    <g clipPath={`url(#${clip})`}>
-      <rect className="kairo-bar-1" x="18" y="34" width="7" height="12" rx="2" fill={c} opacity="0.55" />
-      <rect className="kairo-bar-2" x="28.5" y="28" width="7" height="18" rx="2" fill={c} opacity="0.75" />
-      <rect className="kairo-bar-3" x="39" y="20" width="7" height="26" rx="2" fill={c} />
-      <g className="kairo-lock" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round">
-        <circle cx="42.5" cy="19" r="6" />
-        <path d="M42.5 10.5v4M42.5 23.5v4M34 19h4M47 19h4" />
+  // a row of small arrows going one way (right), one bigger arrow going the other way (left)
+  contrarian: (c) => (
+    <>
+      <g className="kairo-row-right" fill="none" stroke={c} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.65">
+        {[-4, 5, 14, 23, 32, 41, 50].map((x) => (
+          <path key={x} d={`M${x} 26.5l3 2.5l-3 2.5`} />
+        ))}
       </g>
-    </g>
+      <g className="kairo-drift-left" fill="none" stroke="white" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" style={{ filter: `drop-shadow(0 0 3px ${c})` }}>
+        <path d="M37 39H27M31 34.5L26.5 39L31 43.5" />
+      </g>
+    </>
   ),
-  // a coin flipping in 3D
+  // three bars rising one after another, then a crosshair locks onto the third (drawn big)
+  "streak-hunter": (c) => (
+    <>
+      <rect className="kairo-bar-1" x="18.5" y="34" width="7" height="9" rx="2" fill={c} opacity="0.55" />
+      <rect className="kairo-bar-2" x="28.5" y="29" width="7" height="14" rx="2" fill={c} opacity="0.78" />
+      <rect className="kairo-bar-3" x="38.5" y="25" width="7" height="18" rx="2" fill={c} />
+      <g className="kairo-lock" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round">
+        <circle cx="42" cy="32" r="6.2" />
+        <path d="M42 22.5v4.5M42 37v4.5M32.5 32H37M47 32h4.5" />
+      </g>
+    </>
+  ),
+  // a coin with two different faces, flipping with a hop
   "coin-flipper": (c) => (
-    <g className="kairo-flip">
-      <circle cx="32" cy="34" r="11" fill={c} opacity="0.95" />
-      <circle cx="32" cy="34" r="8" fill="none" stroke="rgba(0,0,0,0.35)" strokeWidth="1.6" />
-      <path d="M29 37l3-6 3 6" fill="none" stroke="rgba(0,0,0,0.5)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <g className="kairo-hop">
+      <g className="kairo-face-a">
+        <circle cx="32" cy="36" r="9" fill={c} />
+        <circle cx="32" cy="36" r="5.6" fill="none" stroke="rgba(0,0,0,0.38)" strokeWidth="1.6" />
+        <circle cx="32" cy="36" r="1.7" fill="rgba(0,0,0,0.5)" />
+      </g>
+      <g className="kairo-face-b">
+        <circle cx="32" cy="36" r="9" fill={c} opacity="0.7" />
+        <circle cx="32" cy="36" r="5.6" fill="none" stroke="rgba(0,0,0,0.38)" strokeWidth="1.6" />
+        <path d="M28.5 36H35.5" stroke="rgba(0,0,0,0.55)" strokeWidth="2.2" strokeLinecap="round" />
+      </g>
     </g>
   ),
 };
@@ -65,14 +136,15 @@ export function AgentAvatar({
   className,
 }: {
   agent: Agent;
-  /** The agent's call for the round that is open now; lights the ring. Leave out while it is not known. */
+  /** The agent's call for the round that is open now; lights the outline. Leave out while it is not known. */
   call?: "UP" | "DOWN" | null;
   size?: number;
   className?: string;
 }) {
   const uid = React.useId().replace(/:/g, "");
-  const ring = call === "UP" ? "var(--color-up)" : call === "DOWN" ? "var(--color-down)" : null;
-  const clip = `${uid}-clip`;
+  const glow = call === "UP" ? "var(--color-up)" : call === "DOWN" ? "var(--color-down)" : null;
+  const clip = `${uid}-visor`;
+  const head = HEAD[agent.key];
   return (
     <svg
       viewBox="0 0 64 64"
@@ -81,29 +153,33 @@ export function AgentAvatar({
       className={cn("kairo-avatar shrink-0 overflow-visible", className)}
       role="img"
       aria-label={`${agent.name}${call ? `, calling ${call}` : ""}`}
-      style={{ filter: `drop-shadow(0 0 ${ring ? 9 : 6}px ${ring ?? agent.colour})` }}
+      style={{ filter: `drop-shadow(0 0 ${glow ? 8 : 4}px ${glow ?? agent.colour})` }}
     >
       <defs>
         <clipPath id={clip}>
-          <circle cx="32" cy="32" r="24" />
+          <rect x={VISOR.x} y={VISOR.y} width={VISOR.w} height={VISOR.h} rx="8" />
         </clipPath>
-        <radialGradient id={`${uid}-bg`} cx="50%" cy="40%" r="70%">
-          <stop offset="0" style={{ stopColor: agent.colour, stopOpacity: 0.32 }} />
-          <stop offset="1" style={{ stopColor: agent.colour, stopOpacity: 0.08 }} />
-        </radialGradient>
       </defs>
-      {/* ring: the agent's own colour until it has called, then lime or lilac */}
-      <circle
-        className={ring ? "kairo-ring-on" : undefined}
-        cx="32"
-        cy="32"
-        r="29"
-        fill="none"
-        strokeWidth={ring ? 3.5 : 2}
-        style={{ stroke: ring ?? agent.colour, opacity: ring ? 1 : 0.55 }}
+      {head.ears(agent.colour)}
+      {head.antenna(agent.colour)}
+      {/* head: tinted in the agent's colour; the outline turns lime or lilac once the agent has called */}
+      <rect
+        className={glow ? "kairo-ring-on" : undefined}
+        x="9"
+        y="14"
+        width="46"
+        height="40"
+        rx={head.rx}
+        style={{ fill: `color-mix(in oklch, ${agent.colour} 22%, #11141a)`, stroke: glow ?? agent.colour, strokeWidth: glow ? 3.4 : 2.2, strokeOpacity: glow ? 1 : 0.75 }}
       />
-      <circle cx="32" cy="32" r="25" fill={`url(#${uid}-bg)`} />
-      {ART[agent.key](agent.colour, clip)}
+      {/* visor */}
+      <rect x={VISOR.x} y={VISOR.y} width={VISOR.w} height={VISOR.h} rx="8" fill="#0b0d12" />
+      <g clipPath={`url(#${clip})`}>{ART[agent.key](agent.colour)}</g>
+      <rect x={VISOR.x} y={VISOR.y} width={VISOR.w} height={VISOR.h} rx="8" fill="none" stroke={agent.colour} strokeOpacity="0.35" strokeWidth="1" />
+      {/* chin lights: the same on every head */}
+      <circle cx="25" cy="50" r="1.3" fill={agent.colour} opacity="0.8" />
+      <circle cx="32" cy="50" r="1.3" fill={agent.colour} opacity="0.8" />
+      <circle cx="39" cy="50" r="1.3" fill={agent.colour} opacity="0.8" />
     </svg>
   );
 }

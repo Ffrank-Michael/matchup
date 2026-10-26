@@ -12,7 +12,8 @@ import { INK, NotLive, Tile } from "./tile";
 export type Side = "UP" | "DOWN";
 
 const MIN_STAKE = 0.1;
-const QUICK = ["0.25", "0.50", "1"] as const;
+const MAX_STAKE = 10; // beta limit per call, enforced here on the site (the contract itself only has the 0.10 minimum)
+const QUICK = ["1", "5", "10"] as const;
 const URGENT_SECONDS = 60;
 
 /** Keep digits and one dot, at most 6 decimals (USDC has 6). */
@@ -78,18 +79,31 @@ export function YourCall({
   const urgent = secondsLeft !== null && secondsLeft <= URGENT_SECONDS;
   const parsed = amount === "" || amount === "." ? null : Number(amount);
   const tooSmall = parsed !== null && parsed < MIN_STAKE;
+  const tooBig = parsed !== null && parsed > MAX_STAKE;
   const inputId = React.useId();
 
   return (
-    <Tile title={`Your call · ${market.pair}`} accent index={index} className={cn("p-4 sm:p-6", className)}>
+    <Tile
+      title={`Your call · ${market.pair}`}
+      accent
+      action={
+        <span className="rounded-full border px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider" style={{ borderColor: "color-mix(in oklch, black 35%, transparent)" }}>
+          Beta
+        </span>
+      }
+      index={index} className={cn("p-4 sm:p-6", className)}>
+      {/* what you are calling: the NEXT round, not the price at the moment you click */}
+      <h3 className="text-[24px] font-bold leading-tight tracking-[-0.025em]">Next round: UP or DOWN?</h3>
+      <p className="mt-1 text-[13px] leading-snug opacity-80">You call the round that starts when the countdown ends, not the price right now.</p>
+
       {/* countdown */}
-      <div className="flex items-center gap-3">
+      <div className="mt-4 flex items-center gap-3">
         <Ring secondsLeft={secondsLeft} />
         <div className="min-w-0">
-          <p className="font-mono text-[34px] font-semibold leading-none tracking-[-0.04em] tabular-nums" aria-label="calling closes in">
+          <p className="font-mono text-[34px] font-semibold leading-none tracking-[-0.04em] tabular-nums" aria-label="next round starts in">
             {secondsLeft === null ? "--:--" : formatCountdown(secondsLeft)}
           </p>
-          <p className="mt-1 text-[12px] font-medium opacity-75">{urgent ? "Calling closes very soon" : "until calling closes for this round"}</p>
+          <p className="mt-1 text-[12px] font-medium opacity-75">{urgent ? "Next round starts very soon" : "until the next round starts (calling closes)"}</p>
         </div>
       </div>
 
@@ -154,13 +168,14 @@ export function YourCall({
             placeholder="0.00"
             value={amount}
             onChange={(e) => onAmount(cleanAmount(e.target.value))}
-            aria-invalid={tooSmall}
+            aria-invalid={tooSmall || tooBig}
             aria-describedby={`${inputId}-hint`}
             className="min-w-0 flex-1 bg-transparent font-mono text-[40px] font-semibold leading-none tracking-[-0.04em] tabular-nums outline-none placeholder:opacity-30"
           />
         </div>
-        <p id={`${inputId}-hint`} className={cn("mt-1.5 text-[12px]", tooSmall ? "font-semibold" : "opacity-70")}>
-          The smallest call is 0.10 USDC.
+        <p id={`${inputId}-hint`} className={cn("mt-1.5 text-[12px]", tooSmall || tooBig ? "font-semibold" : "opacity-70")}>
+          {tooBig ? `Beta limit: ${MAX_STAKE} USDC per call.` : "Minimum 0.10 USDC"}
+          {!tooBig ? ` · Beta limit ${MAX_STAKE} USDC per call` : null}
         </p>
         <div className="mt-3 flex gap-2">
           {QUICK.map((q) => (
@@ -182,7 +197,7 @@ export function YourCall({
       <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl px-3.5 py-3 text-[13px]" style={{ background: "color-mix(in oklch, black 10%, transparent)" }}>
         <span>
           <span className="font-semibold">Estimated payout</span>
-          <span className="block text-[11px] opacity-70">Changes until calling closes</span>
+          <span className="block text-[11px] opacity-70">Changes until the round starts</span>
         </span>
         <NotLive onAccent className="text-[12px]" />
       </div>
@@ -204,7 +219,7 @@ export function YourCall({
           <span className="font-semibold">Fee:</span> 2% of winnings. If you lose or get refunded, you pay no fee.
         </li>
         <li>
-          <span className="font-semibold">Start price:</span> UP wins if the end price is higher than the start price. The start price is recorded about 2 minutes after calling closes, so nobody can know it in advance.
+          <span className="font-semibold">Start price:</span> UP wins if the end price is higher than the start price. The start price is the first live trade after calling closes (usually within seconds), so nobody can know it in advance. Your call is judged from that start price, not the price when you called.
         </li>
       </ul>
     </Tile>

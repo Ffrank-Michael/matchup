@@ -114,7 +114,7 @@ export function MarketCard({
   /** This round's start price once the contract has recorded it; null before */
   startPrice: number | null;
   onSelect: () => void;
-  /** Phone only: opens the full chart in a sheet from the bottom */
+  /** Opens the full chart in a sheet (from the bottom on a phone, centred on a laptop) */
   onOpenChart: () => void;
   index: number;
 }) {
@@ -181,13 +181,13 @@ export function MarketCard({
         ) : null}
       </button>
 
-      {/* phone only: the full chart. A sibling of the card button, because buttons cannot nest. */}
+      {/* the full chart (sheet on a phone, centred panel on a laptop). A sibling of the card button, because buttons cannot nest. */}
       {selected ? (
         <button
           type="button"
           onClick={onOpenChart}
           aria-label={`Open the full ${market.pair} chart`}
-          className="absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-full border border-border bg-background/70 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
+          className="absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-full border border-border bg-background/70 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:right-3 lg:top-3"
         >
           <ChartIcon />
         </button>

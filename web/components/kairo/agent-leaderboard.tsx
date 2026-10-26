@@ -10,8 +10,6 @@ import { AgentAvatar } from "./agent-avatar";
 import { CallPill } from "./call-pill";
 import { NotLive, Tile } from "./tile";
 
-type Tab = "agent" | "own";
-
 const DOT = {
   won: { colour: "oklch(0.8 0.16 155)", label: "won" },
   lost: { colour: "oklch(0.66 0.2 22)", label: "lost" },
@@ -27,16 +25,16 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function AgentCard({ agent, live, on, onToggle }: { agent: Agent; live?: AgentLive; on: boolean; onToggle: () => void }) {
+export function AgentCard({ agent, live, on, onToggle, compact }: { agent: Agent; live?: AgentLive; on: boolean; onToggle: () => void; compact?: boolean }) {
   const call = live?.call ?? null;
   const last5 = live?.last5;
   return (
     <div
-      className={cn("rounded-3xl border bg-card p-4 transition-colors", on ? "bg-muted/50" : "border-border")}
+      className={cn("rounded-3xl border bg-card transition-colors", compact ? "p-3.5" : "p-4", on ? "bg-muted/50" : "border-border")}
       style={on ? { borderColor: agent.colour } : undefined}
     >
       <div className="flex items-center gap-4">
-        <AgentAvatar agent={agent} call={call} size={76} />
+        <AgentAvatar agent={agent} call={call} size={compact ? 64 : 76} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[12px] text-muted-foreground">Agent {agent.number}</p>
           <h3 className="truncate text-[17px] font-semibold leading-tight tracking-[-0.01em]">{agent.name}</h3>
@@ -47,7 +45,7 @@ function AgentCard({ agent, live, on, onToggle }: { agent: Agent; live?: AgentLi
       </div>
 
       {/* the current call */}
-      <div className="mt-4">
+      <div className={compact ? "mt-3" : "mt-4"}>
         <CallPill call={call} />
         <p className="mt-2 text-[13px] italic leading-snug text-muted-foreground">
           {live?.reason ? <>&ldquo;{live.reason}&rdquo;</> : <span className="not-italic">{agent.how}</span>}
@@ -55,7 +53,7 @@ function AgentCard({ agent, live, on, onToggle }: { agent: Agent; live?: AgentLi
       </div>
 
       {/* numbers */}
-      <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border pt-3">
+      <div className={cn("grid border-t border-border pt-3", compact ? "mt-3 grid-cols-3 gap-x-3" : "mt-4 grid-cols-2 gap-x-4 gap-y-3")}>
         <Stat label="Win rate" value={live?.winRate === undefined ? <NotLive className="justify-start text-[12px] font-normal" /> : `${Math.round(live.winRate * 100)}%`} />
         <Stat
           label="Profit"
@@ -67,7 +65,7 @@ function AgentCard({ agent, live, on, onToggle }: { agent: Agent; live?: AgentLi
             )
           }
         />
-        <div className="col-span-2">
+        <div className={compact ? undefined : "col-span-2"}>
           <p className="text-[11px] text-muted-foreground">Last 5 calls</p>
           {last5 ? (
             <ul className="mt-1.5 flex gap-2" aria-label="Last five results, newest first">
@@ -92,7 +90,8 @@ function AgentCard({ agent, live, on, onToggle }: { agent: Agent; live?: AgentLi
         aria-pressed={on}
         onClick={onToggle}
         className={cn(
-          "mt-4 h-12 w-full rounded-2xl border-2 text-[15px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "w-full rounded-2xl border-2 font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          compact ? "mt-3 h-10 text-[14px]" : "mt-4 h-12 text-[15px]",
           on ? "text-background" : "hover:bg-muted/60",
         )}
         style={on ? { background: agent.colour, borderColor: agent.colour } : { borderColor: agent.colour, color: agent.colour }}
@@ -104,11 +103,12 @@ function AgentCard({ agent, live, on, onToggle }: { agent: Agent; live?: AgentLi
 }
 
 /**
- * "Who's calling?": back one of the four house agents, or make your own call.
- * Each agent's current call, reason and win rate come from the contract, so they say "not live yet".
+ * The four agents as full cards: a leaderboard (phone: one column at the bottom; laptop: a row of four).
+ * Each agent's current call, reason, win rate, profit and last five calls come from the contract, so they say
+ * "not live yet" until it is. It will be ranked by profit once there are results; until then the order is fixed.
  * Picking an agent only remembers the choice; the Your call panel shows it as a chip.
  */
-export function WhosCalling({
+export function AgentLeaderboard({
   backing,
   onBack,
   live = {},
@@ -122,57 +122,44 @@ export function WhosCalling({
   index: number;
   className?: string;
 }) {
-  const [tab, setTab] = React.useState<Tab>("agent");
-
   return (
-    <Tile
-      title={
-        <>
-          <span className="lg:hidden">Agent leaderboard</span>
-          <span className="hidden lg:inline">Who&apos;s calling?</span>
-        </>
-      }
-      index={index}
-      className={cn("p-4 sm:p-5", className)}
-    >
-      <div role="tablist" aria-label="Who is calling" className="hidden grid-cols-2 gap-1 lg:grid rounded-full border border-border bg-muted/40 p-1 text-[13px]">
-        {(
-          [
-            ["agent", "Back an agent"],
-            ["own", "My own call"],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={tab === key}
-            onClick={() => {
-              setTab(key);
-              if (key === "own") onBack(null);
-            }}
-            className={cn(
-              "rounded-full px-3 py-2 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              tab === key ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <ul className={cn("flex flex-col gap-3 lg:mt-3", tab === "own" && "lg:hidden")}>
+    <Tile title="Agent leaderboard" index={index} className={cn("p-4 sm:p-5", className)}>
+      <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         {AGENTS.map((agent) => (
           <li key={agent.key}>
             <AgentCard agent={agent} live={live[agent.key]} on={backing === agent.key} onToggle={() => onBack(backing === agent.key ? null : agent.key)} />
           </li>
         ))}
       </ul>
-      {tab === "own" ? (
-        <p className="mt-3 hidden rounded-2xl lg:block border border-dashed border-border p-4 text-[13px] leading-relaxed text-muted-foreground">
-          You pick UP or DOWN yourself in the <span className="font-medium text-foreground">Your call</span> panel.
-        </p>
-      ) : null}
+    </Tile>
+  );
+}
+
+/**
+ * Laptop: the same agent cards, stacked in the column beside Your call (fills the space the tabs used to leave empty).
+ */
+export function AgentStack({
+  backing,
+  onBack,
+  live = {},
+  index,
+  className,
+}: {
+  backing: AgentKey | null;
+  onBack: (key: AgentKey | null) => void;
+  live?: Partial<Record<AgentKey, AgentLive>>;
+  index: number;
+  className?: string;
+}) {
+  return (
+    <Tile title="Who's calling?" index={index} className={cn("p-4 sm:p-5", className)}>
+      <ul className="flex flex-col gap-3">
+        {AGENTS.map((agent) => (
+          <li key={agent.key}>
+            <AgentCard compact agent={agent} live={live[agent.key]} on={backing === agent.key} onToggle={() => onBack(backing === agent.key ? null : agent.key)} />
+          </li>
+        ))}
+      </ul>
     </Tile>
   );
 }

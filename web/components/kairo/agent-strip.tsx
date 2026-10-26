@@ -9,7 +9,7 @@ import { AgentAvatar } from "./agent-avatar";
 import { CallPill } from "./call-pill";
 
 /**
- * Phone only: the four agents as a compact row of avatars. Tap one to see how it decides (and its reason
+ * The four agents as a compact row of robot heads (phone and laptop alike). Tap one to see how it decides (and its reason
  * for the open round, once the contract is live) and to back it. The full cards are further down, as a leaderboard.
  */
 export function AgentStrip({
@@ -29,7 +29,8 @@ export function AgentStrip({
   const on = agent !== null && backing === agent.key;
 
   return (
-    <section aria-label="Agents" className={cn("rounded-3xl border border-border bg-card p-3", className)}>
+    <section aria-label="Agents" className={cn("rounded-[26px] border border-border bg-card p-3 sm:p-4", className)}>
+      <h2 className="px-1 pb-2 text-[13px] font-medium text-muted-foreground">Who&apos;s calling?</h2>
       <ul className="grid grid-cols-4 gap-1">
         {AGENTS.map((a) => {
           const selected = open === a.key;
@@ -45,8 +46,11 @@ export function AgentStrip({
                   selected ? "bg-muted/60" : "hover:bg-muted/30",
                 )}
               >
-                <AgentAvatar agent={a} call={live[a.key]?.call ?? null} size={52} />
-                <span className="w-full truncate text-center text-[11px] font-medium leading-tight">{a.name}</span>
+                <AgentAvatar agent={a} call={live[a.key]?.call ?? null} size={56} className="lg:size-[68px]" />
+                <span className="w-full truncate text-center text-[11px] font-medium leading-tight sm:text-[12px]">
+                  <span className="sm:hidden">{a.short}</span>
+                  <span className="hidden sm:inline">{a.name}</span>
+                </span>
                 <span
                   aria-hidden
                   className="h-1 w-5 rounded-full transition-opacity"

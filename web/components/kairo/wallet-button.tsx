@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { formatUnits } from "viem";
+import { IS_MAINNET } from "@/lib/network";
 import { useBalance, useConnect, useConnection, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
 
 import { arcTestnet, shortAddress } from "@/lib/arc";
@@ -120,11 +121,15 @@ function ConnectView({ onDone }: { onDone: () => void }) {
         </div>
       ) : null}
 
-      <p className="mt-4 text-[12px] text-muted-foreground">
-        Kairo runs on Arc Testnet. If your wallet does not have it yet, it will ask to add it. Fees are paid in test USDC (free from{" "}
-        <a className="underline underline-offset-2 hover:text-foreground" href="https://faucet.circle.com" target="_blank" rel="noreferrer">faucet.circle.com</a>
-        ).
-      </p>
+      {IS_MAINNET ? (
+        <p className="mt-4 text-[12px] text-muted-foreground">Kairo runs on Arc. If your wallet does not have the network yet, it will ask to add it. Fees are paid in USDC.</p>
+      ) : (
+        <p className="mt-4 text-[12px] text-muted-foreground">
+          Kairo runs on Arc Testnet. If your wallet does not have it yet, it will ask to add it. Fees are paid in test USDC (free from{" "}
+          <a className="underline underline-offset-2 hover:text-foreground" href="https://faucet.circle.com" target="_blank" rel="noreferrer">faucet.circle.com</a>
+          ).
+        </p>
+      )}
     </>
   );
 }

@@ -10,8 +10,8 @@ import { PriceChart } from "./price-chart";
 const CLOSE_DISTANCE = 100; // px dragged down that closes the sheet
 
 /**
- * Phone: the full chart of the selected market in a panel that slides up from the bottom.
- * Close it with the X, by swiping the top of the panel down, by tapping outside it, or with Escape.
+ * The full chart of the selected market: a panel that slides up from the bottom on a phone, a centred panel on a laptop.
+ * Close it with the X, by swiping the top of the panel down (phone), by tapping outside it, or with Escape.
  * Built on the native <dialog>, so focus stays inside while it is open and Escape works by itself.
  */
 export function ChartSheet({
@@ -65,11 +65,11 @@ export function ChartSheet({
         if (e.target === e.currentTarget) onClose();
       }}
       aria-label={`${market.pair} chart`}
-      className="fixed inset-x-0 bottom-0 top-auto m-0 h-auto max-h-none w-full max-w-none bg-transparent p-0 text-foreground backdrop:bg-black/60 lg:hidden"
+      className="fixed inset-x-0 bottom-0 top-auto m-0 h-auto max-h-none w-full max-w-none bg-transparent p-0 text-foreground backdrop:bg-black/60 lg:inset-0 lg:m-auto lg:h-fit lg:w-[min(680px,calc(100vw-4rem))]"
     >
       {open ? (
         <div
-          className="kairo-sheet mx-auto w-full max-w-[560px] rounded-t-[28px] border border-b-0 border-border bg-card pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+          className="kairo-sheet mx-auto w-full max-w-[560px] rounded-t-[28px] border border-b-0 border-border bg-card pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:max-w-none lg:rounded-[28px] lg:border-b lg:pb-6"
           style={drag ? { transform: `translateY(${drag.dy}px)`, transition: "none" } : { transition: "transform 200ms ease-out" }}
         >
           {/* grab area: swipe down from here to close */}

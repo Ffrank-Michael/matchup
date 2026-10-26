@@ -155,39 +155,33 @@
     @apply font-sans;
   }
 }
-/* Agent avatars (components/kairo/agent-avatar.tsx). Each agent acts out its personality in a loop.
-   The default (no animation) is a calm still pose, which is also what reduced-motion users get. */
+/* Agent avatars (components/kairo/agent-avatar.tsx): four robot heads, each visor acts out its agent's personality
+   in a loop. The default (no animation) is a calm still pose, which is also what reduced-motion users get. */
 .kairo-avatar * {
   transform-box: fill-box;
   transform-origin: center;
 }
 
-/* Trend Follower: a wave flowing forward */
+/* Trend Follower: a wave flowing forward across the visor (one wave length = 16 units) */
 @keyframes kairo-wave {
   from {
-    transform: translateX(-32px);
+    transform: translateX(0);
   }
   to {
-    transform: translateX(0);
+    transform: translateX(16px);
   }
 }
 .kairo-wave {
-  animation: kairo-wave 2.4s linear infinite;
+  animation: kairo-wave 1.8s linear infinite;
 }
 
-/* Contrarian: a crowd drifting one way, one bright dot the other way */
-@keyframes kairo-drift-right {
-  0% {
-    transform: translateX(-26px);
-    opacity: 0;
+/* Contrarian: a row of small arrows flowing right, one bigger arrow going the opposite way */
+@keyframes kairo-row-right {
+  from {
+    transform: translateX(0);
   }
-  20%,
-  80% {
-    opacity: 0.9;
-  }
-  100% {
-    transform: translateX(26px);
-    opacity: 0;
+  to {
+    transform: translateX(9px);
   }
 }
 @keyframes kairo-drift-left {
@@ -204,11 +198,11 @@
     opacity: 0;
   }
 }
-.kairo-drift-right {
-  animation: kairo-drift-right 3.2s linear infinite;
+.kairo-row-right {
+  animation: kairo-row-right 0.9s linear infinite;
 }
 .kairo-drift-left {
-  animation: kairo-drift-left 3.2s linear infinite;
+  animation: kairo-drift-left 2.6s linear infinite;
 }
 
 /* Streak Hunter: three bars rise one after another, then a crosshair locks onto the third */
@@ -257,13 +251,10 @@
 @keyframes kairo-lock {
   0%,
   46% {
-    transform: scale(2.4);
+    transform: scale(2.2);
     opacity: 0;
   }
-  62% {
-    transform: scale(1);
-    opacity: 1;
-  }
+  62%,
   90% {
     transform: scale(1);
     opacity: 1;
@@ -292,33 +283,57 @@
   animation: kairo-lock 4.4s ease-out infinite;
 }
 
-/* Coin Flipper: a coin flipping in 3D (squashing to an edge and back, with a little hop) */
-@keyframes kairo-flip {
-  0% {
-    transform: translateY(0) scaleX(1);
-  }
-  25% {
-    transform: translateY(-5px) scaleX(0.04);
+/* Coin Flipper: a coin with two different faces, flipping end over end with a hop */
+@keyframes kairo-hop {
+  0%,
+  100% {
+    transform: translateY(0);
   }
   50% {
-    transform: translateY(-8px) scaleX(-1);
+    transform: translateY(-7px);
   }
+}
+@keyframes kairo-face-a {
+  0% {
+    transform: scaleX(1);
+  }
+  25%,
   75% {
-    transform: translateY(-5px) scaleX(0.04);
+    transform: scaleX(0);
   }
   100% {
-    transform: translateY(0) scaleX(1);
+    transform: scaleX(1);
   }
 }
-.kairo-flip {
-  animation: kairo-flip 2.2s ease-in-out infinite;
+@keyframes kairo-face-b {
+  0%,
+  25% {
+    transform: scaleX(0);
+  }
+  50% {
+    transform: scaleX(1);
+  }
+  75%,
+  100% {
+    transform: scaleX(0);
+  }
+}
+.kairo-hop {
+  animation: kairo-hop 1.6s ease-in-out infinite;
+}
+.kairo-face-a {
+  animation: kairo-face-a 1.6s ease-in-out infinite;
+}
+.kairo-face-b {
+  transform: scaleX(0);
+  animation: kairo-face-b 1.6s ease-in-out infinite;
 }
 
-/* The ring around an avatar once the agent has made its call */
+/* The glow around a head once the agent has made its call */
 @keyframes kairo-ring {
   0%,
   100% {
-    opacity: 0.75;
+    opacity: 0.8;
   }
   50% {
     opacity: 1;
@@ -330,13 +345,15 @@
 
 @media (prefers-reduced-motion: reduce) {
   .kairo-wave,
-  .kairo-drift-right,
+  .kairo-row-right,
   .kairo-drift-left,
   .kairo-bar-1,
   .kairo-bar-2,
   .kairo-bar-3,
   .kairo-lock,
-  .kairo-flip,
+  .kairo-hop,
+  .kairo-face-a,
+  .kairo-face-b,
   .kairo-ring-on {
     animation: none;
   }
