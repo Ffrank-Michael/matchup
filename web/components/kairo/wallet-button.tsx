@@ -6,6 +6,7 @@ import { IS_MAINNET } from "@/lib/network";
 import { useBalance, useConnect, useConnection, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
 
 import { chipAddress } from "@/lib/arc";
+import { APPROVAL_NOTICE, DEFAULT_APPROVAL_USDC, usdc, useRevokeApproval, useUsdc } from "@/onchain";
 import { activeChain as arcTestnet } from "@/onchain/wagmiConfig";
 import { cn } from "@/lib/utils";
 
@@ -155,6 +156,53 @@ function ConnectView({ onDone }: { onDone: () => void }) {
   );
 }
 
+/** The one-time permission ("spending limit"): how much Kairo may take from the wallet. Change it or remove it here. */
+function SpendingLimit() {
+  const wallet = useUsdc();
+  const approval = useRevokeApproval();
+  const [value, setValue] = React.useState(String(DEFAULT_APPROVAL_USDC));
+  const busy = approval.status === "wallet" || approval.status === "confirming";
+  const left = wallet.allowanceRaw;
+  return (
+    <div className="mt-3 rounded-2xl border border-border px-4 py-3 text-[13px]">
+      <p className="flex items-center justify-between gap-3">
+        <span className="text-muted-foreground">Spending limit</span>
+        <span className="font-mono font-semibold tabular-nums">{left === null ? "…" : left > 0n ? `${usdc(left)} left` : "None set"}</span>
+      </p>
+      <p className="mt-1 text-[12px] leading-snug text-muted-foreground">{APPROVAL_NOTICE}</p>
+      <div className="mt-3 flex items-center gap-2">
+        <span className="flex h-10 min-w-0 flex-1 items-center gap-1 rounded-xl border border-border px-3">
+          <span className="font-mono text-muted-foreground">$</span>
+          <input
+            inputMode="decimal"
+            autoComplete="off"
+            value={value}
+            onChange={(e) => setValue(e.target.value.replace(/[^0-9.]/g, "").slice(0, 10))}
+            aria-label="Spending limit in USDC"
+            className="w-full min-w-0 bg-transparent font-mono tabular-nums outline-none"
+          />
+        </span>
+        <button
+          type="button"
+          disabled={busy || value === "" || value === "."}
+          onClick={() => void approval.setLimit(value)}
+          className="h-10 rounded-xl bg-foreground px-4 text-[13px] font-semibold text-background disabled:opacity-50"
+        >
+          Change
+        </button>
+      </div>
+      {left !== null && left > 0n ? (
+        <button type="button" disabled={busy} onClick={() => void approval.revoke()} className="mt-2 text-[12px] font-medium underline underline-offset-2 disabled:opacity-50">
+          Remove permission
+        </button>
+      ) : null}
+      <p className="mt-2 text-[11px] text-muted-foreground" role="status">
+        {busy ? "Confirm in your wallet…" : approval.status === "failed" && approval.errorMessage ? approval.errorMessage : approval.status === "done" ? "Done." : ""}
+      </p>
+    </div>
+  );
+}
+
 function AccountView({ address, wrongNetwork, onDone }: { address: `0x${string}`; wrongNetwork: boolean; onDone: () => void }) {
   const { mutate: disconnect } = useDisconnect();
   const { mutate: switchChain, isPending: switching, error: switchError } = useSwitchChain();
@@ -209,6 +257,8 @@ function AccountView({ address, wrongNetwork, onDone }: { address: `0x${string}`
           </span>
         </p>
       )}
+
+      {wrongNetwork ? null : <SpendingLimit />}
 
       <button
         type="button"

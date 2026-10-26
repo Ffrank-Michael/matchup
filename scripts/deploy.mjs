@@ -134,7 +134,7 @@ async function main() {
     }
     console.log(`  arena PredictionArena(usdc ${usdc}, owner ${owner})${opt('--arena') ? ` -> already deployed at ${opt('--arena')}, used as it is` : ''}`);
     for (const coin of COIN_KEYS) console.log(`  relay ${COINS[coin].pair}: "${relayDescription(coin, SET_NAME)}", band ${COINS[coin].bandBps} bps, pusher ${opt('--pusher') || owner}`);
-    for (const m of SET.markets) console.log(`  market "${marketName(m)}": round ${m.round}s, offset ${m.offset}s, min stake ${MIN_STAKE} (0.10 USDC), feed = the ${m.coin.toUpperCase()} relay, feedB = none`);
+    for (const m of SET.markets) console.log(`  market "${marketName(m)}": round ${m.round}s, offset ${m.offset}s, min stake ${MIN_STAKE} (0.50 USDC), feed = the ${m.coin.toUpperCase()} relay, feedB = none`);
     return;
   }
 
@@ -223,7 +223,7 @@ async function main() {
       address: st.arena.address, abi: art.arena.abi, functionName: 'createMarket',
       args: [marketName(m), st.feeds[m.coin].address, zeroAddress, m.round, m.offset, MIN_STAKE],
     }));
-    st.markets.push({ id: i, name: marketName(m), coin: m.coin, round: m.round, offset: m.offset, feed: st.feeds[m.coin].address, tx: hash, block: Number(rc.blockNumber) });
+    st.markets.push({ id: i, name: marketName(m), coin: m.coin, round: m.round, offset: m.offset, feed: st.feeds[m.coin].address, minStake: Number(MIN_STAKE), tx: hash, block: Number(rc.blockNumber) });
     saveState(st);
     console.log(`  market id ${i}`);
   }
@@ -285,8 +285,8 @@ async function verify(art, st) {
     check((await read(A, art.arena.abi, 'marketName', [BigInt(i)])) === marketName(m), `market ${i} is named ${marketName(m)}`);
     check(getAddress(mk[0]) === getAddress(st.feeds[m.coin].address), `market ${i} uses the ${m.coin.toUpperCase()} relay`);
     check(getAddress(mk[1]) === zeroAddress, `market ${i} has no second feed`);
-    check(Number(mk[2]) === m.round && Number(mk[3]) === m.offset && mk[4] === MIN_STAKE && mk[5] === false,
-      `market ${i}: ${m.round / 60}-minute rounds (${marketName(m)}), offset ${m.offset}s, min stake 0.10 USDC, not paused`);
+    check(Number(mk[2]) === m.round && Number(mk[3]) === m.offset && mk[4] === BigInt(st.markets[i].minStake ?? 100_000) && mk[5] === false,
+      `market ${i}: ${m.round / 60}-minute rounds (${marketName(m)}), offset ${m.offset}s, min stake ${Number(mk[4]) / 1e6} USDC, not paused`);
   }
 
   if (bad) fail(`${bad} check(s) failed. Do not use this deployment until they are understood.`);

@@ -1,11 +1,11 @@
-import { INK, NotLive } from "./tile";
+import { INK } from "./tile";
 
-/** An agent's call for the open round as a big lime UP or lilac DOWN pill; "not live yet" while unknown. */
+/** An agent's call for the open round as a big lime UP or lilac DOWN pill; "Hasn't called yet" while it has not. */
 export function CallPill({ call }: { call: "UP" | "DOWN" | null }) {
   if (!call) {
     return (
       <span className="inline-flex h-11 items-center rounded-full border border-dashed border-border px-4">
-        <NotLive className="text-[12px]" />
+        <span className="text-[12px] text-muted-foreground">Hasn&apos;t called yet</span>
       </span>
     );
   }

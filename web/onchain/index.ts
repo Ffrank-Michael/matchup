@@ -18,3 +18,6 @@ export * from "./useAllRounds";
 export * from "./useLiveCalls";
 export * from "./payout";
 export * from "./useRoundCalls";
+export * from "./explorerLogs";
+export * from "./useSettlements";
+export * from "./useAgentStats";

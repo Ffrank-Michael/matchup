@@ -7,7 +7,7 @@ import { HOUR, type Candle, type Point } from "@/lib/price-feed";
 import { cn } from "@/lib/utils";
 import { WINNING_TEXT, winningSide } from "@/lib/winning";
 
-import { INK, NotLive } from "./tile";
+import { INK } from "./tile";
 
 // The full chart of the selected market (phone: opens in a sheet from the bottom).
 // Line: the last hour of real Bitfinex trades, ending at the live price.
@@ -150,7 +150,7 @@ export function PriceChart({
         <span className="flex items-center gap-2">
           <span className="h-0 w-5 border-t-2 border-dashed border-muted-foreground" aria-hidden />
           Start price
-          {startPrice !== null ? <span className="font-mono text-foreground">{formatUsd(startPrice)}</span> : <NotLive className="text-[11px]" />}
+          {startPrice !== null ? <span className="font-mono text-foreground">{formatUsd(startPrice)}</span> : <span className="text-[11px]">after the round starts</span>}
         </span>
       </div>
 

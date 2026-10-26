@@ -27,6 +27,8 @@ export type Market = {
   roundSeconds: number;
   /** Seconds after each round-length boundary at which this market locks */
   lockOffset: number;
+  /** The price relay this market reads (its address on the chain) */
+  feed: string;
 };
 
 /** "5m", "10m", "1h": how a round length is written on the buttons. */
@@ -36,7 +38,7 @@ export function frameLabel(roundSeconds: number) {
 
 export const MARKETS: Market[] = deployment.markets.flatMap((m) => {
   const coin = COINS.find((c) => m.name.startsWith(`${c.pair} `));
-  return coin ? [{ id: m.id, name: m.name, key: coin.key, pair: coin.pair, roundSeconds: m.round, lockOffset: m.offset }] : [];
+  return coin ? [{ id: m.id, name: m.name, key: coin.key, pair: coin.pair, roundSeconds: m.round, lockOffset: m.offset, feed: m.feed }] : [];
 });
 
 /** The time frames that exist, shortest first (from the deployment). */

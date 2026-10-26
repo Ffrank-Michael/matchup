@@ -4,7 +4,7 @@
 //   mainnet   : Arc MAINNET. Each coin's guard is Chainlink's own proxy on Arc (checked on chain before anything is deployed).
 // One GuardedRelayFeed per coin serves both of that coin's markets (docs/SUBMISSION.md, "Mainnet plan v3").
 // Band: how far a pushed price may be from the guard's latest answer, in basis points (100 = 1%).
-export const MIN_STAKE = 100_000n; // 0.10 USDC, the contract minimum on every market
+export const MIN_STAKE = 500_000n; // 0.50 USDC on every NEW market (the first twelve rehearsal markets were created with 0.10 and keep it)
 export const FEED_DECIMALS = 8;
 export const MAX_GUARD_AGE_SECONDS = 26 * 3600; // the relay's own limit (MAX_GUARD_AGE in GuardedRelayFeed.sol)
 

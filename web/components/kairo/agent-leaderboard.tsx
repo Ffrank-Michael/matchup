@@ -8,7 +8,9 @@ import { cn } from "@/lib/utils";
 
 import { AgentAvatar } from "./agent-avatar";
 import { CallPill } from "./call-pill";
-import { NotLive, Tile } from "./tile";
+import { Tile } from "./tile";
+
+const NONE = <span className="text-[12px] font-normal text-muted-foreground">No results yet</span>;
 
 const DOT = {
   won: { colour: "oklch(0.8 0.16 155)", label: "won" },
@@ -54,19 +56,19 @@ export function AgentCard({ agent, live, on, onToggle, compact }: { agent: Agent
 
       {/* numbers */}
       <div className={cn("grid border-t border-border pt-3", compact ? "mt-3 grid-cols-3 gap-x-3" : "mt-4 grid-cols-2 gap-x-4 gap-y-3")}>
-        <Stat label="Win rate" value={live?.winRate === undefined ? <NotLive className="justify-start text-[12px] font-normal" /> : `${Math.round(live.winRate * 100)}%`} />
+        <Stat label="Win rate · last hour" value={live?.winRate === undefined ? NONE : `${Math.round(live.winRate * 100)}%`} />
         <Stat
-          label="Profit"
+          label="Profit · last hour"
           value={
             live?.profit === undefined ? (
-              <NotLive className="justify-start text-[12px] font-normal" />
+              NONE
             ) : (
               `${live.profit >= 0 ? "+" : "-"}${formatUsd(Math.abs(live.profit))} USDC`
             )
           }
         />
         <div className={compact ? undefined : "col-span-2"}>
-          <p className="text-[11px] text-muted-foreground">Last 5 calls</p>
+          <p className="text-[11px] text-muted-foreground">Last 5 results</p>
           {last5 ? (
             <ul className="mt-1.5 flex gap-2" aria-label="Last five results, newest first">
               {last5.map((r, i) => (
@@ -80,7 +82,7 @@ export function AgentCard({ agent, live, on, onToggle, compact }: { agent: Agent
               ))}
             </ul>
           ) : (
-            <NotLive className="mt-1 justify-start text-[12px]" />
+            <p className="mt-1">{NONE}</p>
           )}
         </div>
       </div>
@@ -104,8 +106,8 @@ export function AgentCard({ agent, live, on, onToggle, compact }: { agent: Agent
 
 /**
  * The four agents as full cards: a leaderboard (one column on a phone, two columns from tablet width up).
- * Each agent's current call, reason, win rate, profit and last five calls come from the contract, so they say
- * "not live yet" until it is. It will be ranked by profit once there are results; until then the order is fixed.
+ * Each agent's current call, win rate, profit and last five results are read from the chain (its own wallet's calls and
+ * the rounds' results); an agent with nothing finished in the last hour shows "No results yet". It will be ranked by profit once there are results; until then the order is fixed.
  * Picking an agent only remembers the choice; the Your call panel shows it as a chip.
  */
 export function AgentLeaderboard({

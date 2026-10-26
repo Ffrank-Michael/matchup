@@ -5,12 +5,14 @@ import * as React from "react";
 import { formatCountdown, formatUsd, frameWords, MARKETS, type Market } from "@/lib/markets";
 import { lastPrice, type Candle, type Point } from "@/lib/price-feed";
 import { whoIs, whoName } from "@/lib/players";
+import { refundReasonText } from "@/lib/refund-reason";
 import { useStartPrice } from "@/lib/use-start-price";
 import { cn } from "@/lib/utils";
 import { winningSide } from "@/lib/winning";
-import { settledPayout, txLink, usdc, useClaim, useRoundCalls, type MyPosition, type Round } from "@/onchain";
+import { settledPayout, txLink, usdc, useCallHistory, useClaim, usePricePush, usePricePushes, useRoundCalls, useSettlementFor, type MyPosition, type Round } from "@/onchain";
 
 import { AgentAvatar } from "./agent-avatar";
+import { PriceProof } from "./price-proof";
 import { RoundChart } from "./round-chart";
 import { INK } from "./tile";
 
@@ -51,8 +53,8 @@ function useRoundSeries(candles: Candle[] | null, price: number | null, nowMs: n
     for (const c of candles ?? []) {
       if (c.t + 60_000 <= fromMs || c.t > toMs) continue;
       if (c.t <= fromMs) out.push([fromMs, c.open]); // the price when the round locked, as of the minute it locked in
-      const at = Math.min(c.t + 59_999, toMs);
-      if (at > fromMs && at < firstSample && (nowMs === null || at < nowMs)) out.push([at, c.close]);
+      const at = c.t + 59_999; // the minute's last trade; a minute that closes after the round ended is not part of it
+      if (at <= toMs && at > fromMs && at < firstSample && (nowMs === null || at < nowMs)) out.push([at, c.close]);
     }
     for (const p of mine) if (p[0] <= toMs) out.push(p);
     return out;
@@ -120,12 +122,18 @@ export function WatchSheet({
   const mineCalls = (calls ?? []).filter((c) => me && c.player.toLowerCase() === me.toLowerCase());
   const mySide: "UP" | "DOWN" | null = mineCalls.length ? mineCalls[0].side : position ? (position.up > 0n ? "UP" : position.down > 0n ? "DOWN" : null) : null;
   const myAmount = mineCalls.length ? mineCalls.reduce((s, c) => s + c.amount, 0n) : position ? position.up + position.down : 0n;
-  const myTx = mineCalls.length ? mineCalls[0].txHash : null;
+  const history = useCallHistory(w ? w.marketId : null, w ? w.roundIndex : null, me);
+  const myTx = history?.callTx ?? (mineCalls.length ? mineCalls[0].txHash : null);
 
   // ── the round's story
   // the contract records the start price when it settles the round; until then the site finds the same trade the runner uses
   const startPrice = useStartPrice(market?.key ?? null, lock, nowSec, price8(round?.startPrice ?? null));
   const endPrice = price8(round?.endPrice ?? null);
+  // what the chain recorded: the prices (with the transactions that recorded them) and, for a refund, the reason
+  const { settlement } = useSettlementFor(open && w ? w.marketId : null, open && w ? w.roundIndex : null);
+  const pushes = usePricePushes(market ? [market.feed] : []);
+  const startPush = usePricePush(market?.feed ?? null, settlement && settlement.startRoundId > 0n ? settlement.startRoundId : null, pushes);
+  const endPush = usePricePush(market?.feed ?? null, settlement && settlement.endRoundId > 0n ? settlement.endRoundId : null, pushes);
   const shownPrice = endPrice ?? livePrice;
   const lead = winningSide(shownPrice, startPrice);
   const settled = round?.state === "up" || round?.state === "down";
@@ -136,6 +144,8 @@ export function WatchSheet({
   const loserTotal = round ? (winner === "UP" ? round.downTotal : round.upTotal) : 0n;
   const won = settled && mySide !== null && mySide === winner;
   const payout = won ? settledPayout(myAmount, winnerTotal, loserTotal) : 0n;
+  // this caller's share of the 2% fee: the fee is taken from the losing side, in proportion to the winners' stakes
+  const feeShare = won && winnerTotal > 0n ? (((loserTotal * 200n) / 10_000n) * myAmount) / winnerTotal : 0n;
   const canClaim = position && position.claimableKind !== "none" && !position.claimed && position.claimableAmount > 0n;
 
   // ── everyone in the round: one line per wallet
@@ -224,7 +234,7 @@ export function WatchSheet({
               {/* the headline: what is happening to your call right now, or how the round ended */}
               {finished ? (
                 <div className="rounded-3xl p-4" style={{ background: refunded ? "var(--color-muted)" : sideColour(winner ?? "UP"), color: refunded ? undefined : INK }}>
-                  <p className="text-[13px] font-semibold opacity-80">{refunded ? "Round refunded" : `Ended ${winner}${mySide ? (won ? " ✓" : "") : ""}`}</p>
+                  <p className="text-[13px] font-semibold opacity-80">{refunded ? `Round refunded · ${refundReasonText(settlement?.reason)}` : `Ended ${winner}${mySide ? (won ? " ✓" : "") : ""}`}</p>
                   <p className="mt-1 text-[28px] font-bold leading-tight tracking-[-0.03em]">
                     {mySide === null
                       ? settled
@@ -309,8 +319,47 @@ export function WatchSheet({
                       <SidePill side={mySide} /> {usdc(myAmount)}
                     </span>
                   </Row>
-                  <Row label="Start price">{startPrice !== null ? formatUsd(startPrice) : before ? "At the start of the round" : "Recording…"}</Row>
-                  <Row label={endPrice !== null ? "End price" : "Current price"}>{shownPrice !== null ? formatUsd(shownPrice) : "…"}</Row>
+                  <Row label="Start price">
+                    {startPush ? <PriceProof coin={market.key} price={settlement?.startPrice ?? startPrice} push={startPush} /> : startPrice !== null ? formatUsd(startPrice) : before ? "At the start of the round" : "Recording…"}
+                  </Row>
+                  <Row label={finished || endPrice !== null ? "End price" : "Current price"}>
+                    {endPush ? <PriceProof coin={market.key} price={settlement?.endPrice ?? endPrice} push={endPush} /> : shownPrice !== null ? formatUsd(shownPrice) : "…"}
+                  </Row>
+                  <Row label="Result">
+                    {refunded ? (
+                      <span>
+                        Refunded
+                        <span className="block text-[11px] font-normal text-muted-foreground">{refundReasonText(settlement?.reason)}</span>
+                      </span>
+                    ) : settled ? (
+                      won ? (
+                        "Won"
+                      ) : (
+                        "Lost"
+                      )
+                    ) : before ? (
+                      "Not started"
+                    ) : running ? (
+                      "Running"
+                    ) : (
+                      "Waiting for the result"
+                    )}
+                  </Row>
+                  {finished ? (
+                    <>
+                      <Row label="Paid out">
+                        {history?.paidOut !== null && history?.paidOut !== undefined
+                          ? usdc(history.paidOut)
+                          : position && position.claimableAmount > 0n
+                            ? `${usdc(position.claimableAmount)} waiting to be claimed`
+                            : refunded || won
+                              ? "…"
+                              : "$0.00"}
+                      </Row>
+                      <Row label="Fee">{won ? `${usdc(feeShare)} (2% of winnings)` : "$0.00 (no fee)"}</Row>
+                    </>
+                  ) : null}
+                  {history?.callTime ? <Row label="Called at">{new Date(history.callTime * 1000).toLocaleString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, day: "numeric", month: "short" })}</Row> : null}
                   {before ? (
                     <Row label="Starts in">{nowSec !== null && lock !== null ? formatCountdown(Math.max(0, lock - nowSec)) : "…"}</Row>
                   ) : (
@@ -395,11 +444,18 @@ export function WatchSheet({
                 </ul>
               )}
 
-              {myTx ? (
-                <p className="mt-5 text-center text-[11px] text-muted-foreground">
-                  <a href={txLink(myTx) ?? undefined} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">
-                    View on explorer
-                  </a>
+              {myTx || history?.claimTx ? (
+                <p className="mt-5 flex justify-center gap-4 text-center text-[11px] text-muted-foreground">
+                  {history?.claimTx ? (
+                    <a href={txLink(history.claimTx) ?? undefined} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">
+                      Claim transaction
+                    </a>
+                  ) : null}
+                  {myTx ? (
+                    <a href={txLink(myTx) ?? undefined} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">
+                      Call transaction
+                    </a>
+                  ) : null}
                 </p>
               ) : null}
             </>

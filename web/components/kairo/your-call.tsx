@@ -7,14 +7,13 @@ import { useConnection } from "wagmi";
 import type { Agent } from "@/lib/agents";
 import { formatCountdown, frameWords, type Market } from "@/lib/markets";
 import { cn } from "@/lib/utils";
-import { APPROVAL_NOTICE, BETA_LIMIT_USDC, DEFAULT_APPROVAL_USDC, estimatePayout, STATUS_TEXT, txLink, useMakeCall, usdc, useRevokeApproval, useUsdc, useWalletStatus } from "@/onchain";
+import { APPROVAL_NOTICE, BETA_LIMIT_USDC, DEFAULT_APPROVAL_USDC, estimatePayout, STATUS_TEXT, txLink, useMakeCall, usdc, useUsdc, useWalletStatus } from "@/onchain";
 
 import { AgentAvatar } from "./agent-avatar";
 import { INK, Tile } from "./tile";
 
 export type Side = "UP" | "DOWN";
 
-const MIN_STAKE = 0.1;
 const MAX_STAKE = BETA_LIMIT_USDC; // beta limit: 10 USDC per wallet in each round, enforced on the site (the contract itself only has the 0.10 minimum)
 const QUICK = ["1", "5", "10"] as const;
 const URGENT_SECONDS = 60;
@@ -87,7 +86,8 @@ export function YourCall({
   className?: string;
 }) {
   const parsed = amount === "" || amount === "." ? null : Number(amount);
-  const tooSmall = parsed !== null && parsed < MIN_STAKE;
+  const minStake = chain ? Number(chain.minStake) / 1e6 : 0.1; // the market's own minimum, read from the contract
+  const tooSmall = parsed !== null && parsed < minStake;
   const tooBig = parsed !== null && parsed > MAX_STAKE;
   const inputId = React.useId();
   const { address } = useConnection();
@@ -95,10 +95,6 @@ export function YourCall({
   const { isWrongNetwork: wrongNetwork } = useWalletStatus();
   const call = useMakeCall();
   const wallet = useUsdc();
-  const approval = useRevokeApproval();
-  const revoking = approval.status === "wallet" || approval.status === "confirming";
-  const [editing, setEditing] = React.useState(false);
-  const [limit, setLimit] = React.useState(String(DEFAULT_APPROVAL_USDC));
   const [permission, setPermission] = React.useState(String(DEFAULT_APPROVAL_USDC));
 
   // the round the last call was for: when it goes through, the watch sheet opens on it
@@ -235,7 +231,7 @@ export function YourCall({
           />
         </div>
         <p id={`${inputId}-hint`} className={cn("mt-1.5 text-[12px]", tooSmall || tooBig ? "font-semibold" : "opacity-70")}>
-          {tooBig ? `Beta limit: ${MAX_STAKE} USDC per round.` : tooSmall ? "The smallest call is 0.10 USDC." : `Minimum 0.10 USDC · Beta limit ${MAX_STAKE} USDC per round`}
+          {tooBig ? `Beta limit: ${MAX_STAKE} USDC per round.` : tooSmall ? `The smallest call is $${minStake.toFixed(2)}.` : `Minimum $${minStake.toFixed(2)} · Beta limit ${MAX_STAKE} USDC per round`}
         </p>
         <div className="mt-3 flex gap-2">
           {QUICK.map((q) => (
@@ -342,58 +338,6 @@ export function YourCall({
           How it works →
         </Link>
       </p>
-
-      {/* the spending limit (the one-time permission): shown when there is one; Change opens the editor, which also removes it */}
-      {connected && wallet.allowanceRaw !== null && wallet.allowanceRaw > 0n ? (
-        <div className="mt-2 text-center text-[12px]">
-          <p className="opacity-80">
-            Spending limit: {usdc(wallet.allowanceRaw)} left ·{" "}
-            <button type="button" onClick={() => setEditing((v) => !v)} aria-expanded={editing} className="font-semibold underline underline-offset-2">
-              Change
-            </button>
-          </p>
-          {editing ? (
-            <div className="mt-2 rounded-2xl p-3 text-left" style={{ background: "color-mix(in oklch, black 10%, transparent)" }}>
-              <p className="text-[12px] leading-snug">{APPROVAL_NOTICE}</p>
-              <label className="mt-2 flex items-center gap-2 text-[12px] font-semibold">
-                Spending limit
-                <span className="flex items-center gap-1 rounded-xl border-2 px-2 py-1" style={{ borderColor: "color-mix(in oklch, black 25%, transparent)" }}>
-                  <span className="font-mono opacity-60">$</span>
-                  <input
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={limit}
-                    onChange={(e) => setLimit(cleanAmount(e.target.value))}
-                    aria-label="Spending limit in USDC"
-                    className="w-16 bg-transparent font-mono tabular-nums outline-none"
-                  />
-                </span>
-              </label>
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  disabled={revoking || limit === "" || limit === "."}
-                  onClick={() => void approval.setLimit(limit)}
-                  className="h-10 flex-1 rounded-xl text-[13px] font-bold disabled:opacity-50"
-                  style={{ background: INK, color: "var(--color-up)" }}
-                >
-                  Save limit
-                </button>
-                <button
-                  type="button"
-                  disabled={revoking}
-                  onClick={() => void approval.revoke()}
-                  className="h-10 flex-1 rounded-xl border-2 text-[13px] font-bold disabled:opacity-50"
-                  style={{ borderColor: "color-mix(in oklch, black 30%, transparent)" }}
-                >
-                  Remove permission
-                </button>
-              </div>
-              <p className="mt-2 text-[11px] opacity-70">{revoking ? "Confirm in your wallet…" : approval.status === "failed" && approval.errorMessage ? approval.errorMessage : "Your wallet will ask you to confirm."}</p>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
     </Tile>
   );
 }

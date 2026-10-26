@@ -9,7 +9,7 @@ import { COINS, DEFAULT_FRAME, marketFor, secondsToNextLock, TIME_FRAMES, type M
 import { hourPoints, lastPrice, usePriceFeed } from "@/lib/price-feed";
 import { useNowSeconds } from "@/lib/use-now";
 import { useStartPrice } from "@/lib/use-start-price";
-import { useAllRounds, useMarkets, useMyPositions } from "@/onchain";
+import { useAgentStats, useAllRounds, useMarkets, useMyPositions } from "@/onchain";
 
 import { AgentLeaderboard } from "./agent-leaderboard";
 import { AgentStrip } from "./agent-strip";
@@ -28,7 +28,7 @@ import { YourCalls } from "./your-calls";
 // Live calls in the left column beside Your call (both columns end at the same height), then Your calls beside the
 // leaderboard. The full chart opens from the selected card (a sheet from the bottom on a phone, a centred panel on a laptop).
 // Only the prices are real data right now: one Bitfinex feed (lib/price-feed.ts) supplies every number.
-// Everything about rounds, money and agents says "not live yet" until the contract is deployed.
+// Rounds, money and the agents' records are read from the contract; prices come from Bitfinex.
 
 export function KairoHome() {
   const [selected, setSelected] = React.useState<MarketKey>("BTC");
@@ -56,6 +56,8 @@ export function KairoHome() {
   const chainOf = (id: number) => chainMarkets?.find((c) => c.id === id) ?? null;
   // The start price of the round running now (the one before the next bettable round), once the contract has recorded it.
   const selectedChain = chainOf(market.id);
+  // each agent's record and its call for the selected market's open round, read from the chain
+  const agentLive = useAgentStats(roundsByMarket, (id) => chainOf(id)?.nextRound ?? null, market.id);
   // The contract records a round's start price when it settles it; while the round runs the site finds the same trade the runner uses.
   const runningRound = selectedChain ? roundsByMarket?.[market.id]?.find((x) => x.roundIndex === selectedChain.nextRound - 1) : undefined;
   const startPrice = useStartPrice(market.key, runningRound?.lockTimeSec ?? null, now, runningRound && runningRound.startPrice !== null ? runningRound.startPrice / 1e8 : null);
@@ -116,8 +118,8 @@ export function KairoHome() {
             The wrapper is "contents" on a phone, so its tiles take part in the one-column order. */}
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <div className="contents lg:flex lg:flex-col lg:gap-3">
-            <AgentStrip backing={backing} onBack={setBacking} className="order-1 lg:order-none" />
-            <LiveCalls market={market} onOpen={openWatch} index={6} className="order-3 min-h-[200px] lg:order-none lg:flex-1" />
+            <AgentStrip backing={backing} onBack={setBacking} live={agentLive} className="order-1 lg:order-none" />
+            <LiveCalls market={market} nowSec={now} onOpen={openWatch} index={6} className="order-3 min-h-[200px] lg:order-none lg:flex-1" />
           </div>
           <YourCall
             frames={TIME_FRAMES}
@@ -137,7 +139,7 @@ export function KairoHome() {
             className="order-2 lg:order-none"
           />
           <YourCalls positions={positions} roundsByMarket={roundsByMarket} onOpen={openWatch} index={7} className="order-4 min-h-[200px] lg:order-none" />
-          <AgentLeaderboard backing={backing} onBack={setBacking} index={8} className="order-5 lg:order-none" />
+          <AgentLeaderboard backing={backing} onBack={setBacking} live={agentLive} index={8} className="order-5 lg:order-none" />
         </div>
       </div>
 

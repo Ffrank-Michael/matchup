@@ -58,8 +58,8 @@ test('Chainlink proxies are valid, different addresses', () => {
   assert.equal(CHAINLINK_MAINNET.sol, '0x2d04D354f5fDaE3De723df475745B0a9B4edf90C');
 });
 
-test('market settings: minimum stake 0.10 USDC, 8 decimals, relay age limit 26 hours', () => {
-  assert.equal(MIN_STAKE, 100_000n);
+test('market settings: minimum stake 0.50 USDC, 8 decimals, relay age limit 26 hours', () => {
+  assert.equal(MIN_STAKE, 500_000n);
   assert.equal(FEED_DECIMALS, 8);
   assert.equal(MAX_GUARD_AGE_SECONDS, 93_600);
 });

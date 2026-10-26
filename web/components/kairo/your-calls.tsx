@@ -4,9 +4,12 @@ import * as React from "react";
 import { useConnection } from "wagmi";
 
 import { MARKETS } from "@/lib/markets";
-import { claimLabel, CLAIM_STATUS_TEXT, txLink, usdc, useClaim, type MyPosition, type Round } from "@/onchain";
+import { refundReasonText } from "@/lib/refund-reason";
+import { claimLabel, CLAIM_STATUS_TEXT, pushKey, settledPayout, settlementKey, txLink, usdc, useClaim, usePricePushes, useSettlements, type MyPosition, type PricePush, type Round } from "@/onchain";
 
-import { NotLive, Tile } from "./tile";
+import { PriceProof } from "./price-proof";
+
+import { Tile } from "./tile";
 
 const clock = (unixSec: number) => new Date(unixSec * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 const INK = "oklch(0.24 0.06 135)";
@@ -41,6 +44,8 @@ export function YourCalls({
   const { address } = useConnection();
   const { claim, claimAll, status, txHash, errorMessage, reset } = useClaim();
   const busy = status === "claim-wallet" || status === "claim-confirming";
+  const settlements = useSettlements();
+  const pushes = usePricePushes(MARKETS.map((m) => m.feed));
 
   const rows = React.useMemo(() => {
     const list = (positions ?? []).map((p) => ({ p, round: roundsByMarket?.[p.marketId]?.find((r) => r.roundIndex === p.roundIndex) }));
@@ -73,7 +78,7 @@ export function YourCalls({
         </div>
       ) : positions === null ? (
         <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border p-6">
-          <NotLive />
+          <span className="font-mono text-[12px] text-muted-foreground">loading…</span>
         </div>
       ) : rows.length === 0 ? (
         <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border p-6 text-center text-[13px] text-muted-foreground">
@@ -86,6 +91,14 @@ export function YourCalls({
             const market = MARKETS.find((m) => m.id === p.marketId);
             const side = p.up > 0n ? "UP" : "DOWN";
             const mine = p.up > 0n ? p.up : p.down;
+            const s = settlements?.get(settlementKey(p.marketId, p.roundIndex));
+            const push = (id: bigint | undefined): PricePush | null => (market && id && id > 0n ? (pushes?.get(pushKey(market.feed, id)) ?? null) : null);
+            // what the call earned or cost, from the round's totals (the same sum as the contract's claim)
+            const winnerTotal = round ? (round.state === "up" ? round.upTotal : round.downTotal) : 0n;
+            const loserTotal = round ? (round.state === "up" ? round.downTotal : round.upTotal) : 0n;
+            const decided = round?.state === "up" || round?.state === "down";
+            const wonIt = decided && round?.state === (side === "UP" ? "up" : "down");
+            const delta = !decided ? null : wonIt ? settledPayout(mine, winnerTotal, loserTotal) - mine : -mine;
             return (
               <li key={`${p.marketId}-${p.roundIndex}`} className="flex items-center justify-between gap-3 py-2.5 text-[13px]">
                 <button type="button" onClick={() => onOpen(p.marketId, p.roundIndex)} className="min-w-0 flex-1 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -98,7 +111,16 @@ export function YourCalls({
                   <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
                     {market?.name ?? `Market ${p.marketId}`}
                     {round ? ` · ${clock(round.lockTimeSec)} to ${clock(round.endTimeSec)}` : ""} · {d.text}
+                    {delta !== null ? <span className={delta > 0n ? " font-semibold text-up" : " font-semibold"}>{` · ${delta > 0n ? "won" : "lost"} ${usdc(delta < 0n ? -delta : delta)}`}</span> : null}
+                    {round?.state === "refunded" ? ` · ${refundReasonText(s?.reason)}` : ""}
                   </span>
+                  {market && s && (s.startPrice !== null || s.endPrice !== null) ? (
+                    <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+                      <PriceProof coin={market.key} price={s.startPrice} push={push(s.startRoundId)} detail={false} />
+                      <span aria-hidden>→</span>
+                      <PriceProof coin={market.key} price={s.endPrice} push={push(s.endRoundId)} detail={false} />
+                    </span>
+                  ) : null}
                 </button>
                 {d.tone === "claim" ? (
                   <button
