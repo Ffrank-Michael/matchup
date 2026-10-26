@@ -24,11 +24,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install Slither and solc 0.8.28
+      - name: Install Slither and solc 0.8.28 (official static binary)
         run: |
-          pip install slither-analyzer==0.10.4 solc-select==1.0.4
-          solc-select install 0.8.28
-          solc-select use 0.8.28
+          pip install slither-analyzer==0.10.4
+          curl -fsSL -o solc https://github.com/ethereum/solidity/releases/download/v0.8.28/solc-static-linux
+          chmod +x solc
+          sudo mv solc /usr/local/bin/solc
+          solc --version
       - name: Run Slither on the contract and its test price feed
         shell: bash
         run: |
