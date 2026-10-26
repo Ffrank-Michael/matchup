@@ -440,9 +440,9 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     ///                               When this reaches winnerSideTotal, winner-dust
     ///                               (Dist - sum_bonuses) moves to fees.
     ///         bonusPaid           – cumulative winner bonus already paid.
-    ///         loserMatchedClaimed – cumulative loser-side matched stake (floor).
+    ///         loserMatchedClaimed – cumulative loser-side matched stake (rounded up).
     ///                               When loserStakeClaimed reaches loserSideTotal,
-    ///                               loser-dust (M - loserMatchedClaimed) moves to fees.
+    ///                               loser-dust (loserMatchedClaimed - M) moves to fees.
     ///         loserStakeClaimed   – cumulative loser-side stake already claimed
     ///                               (used to detect the last loser for dust sweep).
     struct PayoutProgress {
@@ -1120,7 +1120,7 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     //                       (so bonus pool never over-commits)
     //    Bigger side lost → ceil ensures sum(matched) ≥ M
     //                       (so winners' full Dist is funded)
-    //    Residual dust (at most 1 per round) → feesAccrued via RoundDustToFees.
+    //    Residual dust (a few micro-USDC per round) → feesAccrued via RoundDustToFees.
     // =========================================================
 
     // ------------------------------------------------------------------
@@ -1221,18 +1221,11 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
         bool loserOnBigger = upWon ? (D > U) : (U > D);
         if (!loserOnBigger) return (0, 0); // smaller-side loser: fully matched, nothing to return
 
-        // Bigger-side loser: use floor so sum(matched) ≤ M.
-        // The residual (M - sum(matched)) is swept to feesAccrued when all losers claim.
-        uint256 lMatched = loserStake * M / T; // floor
-        uint256 unmatched = loserStake - lMatched;
-        payout       = unmatched; // may be 0 if stake rounds to 0
-        // Encode loserMatched in the upper bits of matchedWinner with a sentinel.
-        // We repurpose matchedWinner=0 to mean "loser claim"; the caller uses
-        // a separate path to track loser-side dust. We pass lMatched via a flag:
-        // set matchedWinner to a magic value that signals "loser path" with lMatched baked in.
-        // Actually, simpler: use a new return value. But changing the signature is bigger.
-        // SIMPLEST: matchedWinner = 0 always for losers; track loserMatched in _claimOne.
-        matchedWinner  = 0; // loser flag; caller re-derives lMatched from round storage
+        // Bigger-side loser: matched is rounded UP, so sum(matched) >= M and the
+        // winners' full pool is always funded. The caller tracks the surplus.
+        (, uint256 unmatched) = _matchedFor(loserStake, M, T, true, false);
+        payout        = unmatched; // 0 when the whole stake rounds up to matched
+        matchedWinner = 0;         // marks "loser claim" for the caller
     }
 
     // ------------------------------------------------------------------
@@ -1283,14 +1276,15 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
         uint256 T = U > D ? U : D;
         bool upWon = (r.state == RoundState.SettledUp);
         uint256 loserStake = upWon ? uint256(pos.down) : uint256(pos.up);
-        uint256 lMatched = loserStake * M / T; // floor
+        (uint256 lMatched, ) = _matchedFor(loserStake, M, T, true, false); // rounded UP
 
         pp.loserMatchedClaimed += SafeCast.toUint128(lMatched);
         pp.loserStakeClaimed   += SafeCast.toUint128(loserStake);
 
         uint256 loserSideTotal = upWon ? D : U;
         if (uint256(pp.loserStakeClaimed) == loserSideTotal) {
-            uint256 loserDust = M - uint256(pp.loserMatchedClaimed);
+            // sum(matched, rounded up) >= M: the surplus is money the contract keeps.
+            uint256 loserDust = uint256(pp.loserMatchedClaimed) - M;
             if (loserDust > 0) {
                 feesAccrued      += loserDust;
                 totalPlayerFunds -= loserDust;
@@ -1464,9 +1458,9 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
         if (loserStake == 0) return 0;
         bool loserOnBigger = upWon ? (D > U) : (U > D);
         if (!loserOnBigger) return 0; // smaller side: fully matched, nothing back
-        // Bigger-side loser: floor matching (same formula as _computePayout).
-        uint256 lMatched = loserStake * M / T; // floor
-        return loserStake - lMatched;
+        // Bigger-side loser: matched is rounded UP (same helper as _computePayout).
+        (, uint256 unmatched) = _matchedFor(loserStake, M, T, true, false);
+        return unmatched;
     }
 
     /// @notice How much of a player's stake was matched (and how much was not)
@@ -1516,8 +1510,7 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
             // Smaller-side loser: fully matched.
             return (loserStake, 0);
         }
-        // Bigger-side loser: floor matching (consistent with _computePayout).
-        uint256 lM = loserStake * M / T; // floor
-        return (lM, loserStake - lM);
+        // Bigger-side loser: matched is rounded UP (consistent with _computePayout).
+        return _matchedFor(loserStake, M, T, true, false);
     }
 }
