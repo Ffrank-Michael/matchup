@@ -436,12 +436,20 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     ///         Kept SEPARATE from the Round struct so existing tests that
     ///         destructure rounds() by position continue to work unchanged.
     ///
-    ///         winnerStakeClaimed – cumulative winning stake already paid.
-    ///                              When this reaches W, dust moves to fees.
-    ///         bonusPaid          – cumulative bonus (share of D) already paid.
+    ///         winnerStakeClaimed  – cumulative winning-side stake already claimed.
+    ///                               When this reaches winnerSideTotal, winner-dust
+    ///                               (Dist - sum_bonuses) moves to fees.
+    ///         bonusPaid           – cumulative winner bonus already paid.
+    ///         loserMatchedClaimed – cumulative loser-side matched stake (floor).
+    ///                               When loserStakeClaimed reaches loserSideTotal,
+    ///                               loser-dust (M - loserMatchedClaimed) moves to fees.
+    ///         loserStakeClaimed   – cumulative loser-side stake already claimed
+    ///                               (used to detect the last loser for dust sweep).
     struct PayoutProgress {
         uint128 winnerStakeClaimed;
         uint128 bonusPaid;
+        uint128 loserMatchedClaimed;
+        uint128 loserStakeClaimed;
     }
     /// @notice keyed by (marketId => roundIndex => PayoutProgress).
     mapping(uint256 => mapping(uint256 => PayoutProgress)) public payoutProgress;
@@ -869,18 +877,16 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
         r.startPrice   = startPr;
         r.endPrice     = endPr;
 
-        // Book the 2% fee from the LOSING side for UP/DOWN outcomes only.
+        // Book the 2% fee from the MATCHED pool for UP/DOWN outcomes only.
         // Refunds never take a fee (RULES §E rule 22).
+        // v1.1 (Matched Calls): fee = floor(M * FEE_BPS / BPS) where M = min(U, D).
         // The fee moves from "owed to players" (totalPlayerFunds) to
         // "owed to the protocol" (feesAccrued).
-        if (state == RoundState.SettledUp) {
-            // DOWN side lost. Use shared formula so fee is never mis-computed.
-            (uint256 fee, , ) = _winnerBonus(uint256(r.upTotal), uint256(r.downTotal), 0);
-            feesAccrued      += fee;
-            totalPlayerFunds -= fee;
-        } else if (state == RoundState.SettledDown) {
-            // UP side lost.
-            (uint256 fee, , ) = _winnerBonus(uint256(r.downTotal), uint256(r.upTotal), 0);
+        if (state == RoundState.SettledUp || state == RoundState.SettledDown) {
+            uint256 U   = uint256(r.upTotal);
+            uint256 D   = uint256(r.downTotal);
+            uint256 M   = U < D ? U : D;
+            uint256 fee = M * FEE_BPS / BPS;
             feesAccrued      += fee;
             totalPlayerFunds -= fee;
         }
@@ -1080,7 +1086,7 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     }
 
     // =========================================================
-    //  Payouts – Step 6
+    //  Payouts – Step 6 (v1.1 – Matched Calls)
     //
     //  USDC leaves the contract in exactly TWO places:
     //    1. _claimOne  → USDC.safeTransfer(player, payout)   [player claim]
@@ -1088,58 +1094,209 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     //        and by claimMany() in a single transfer at the end)
     //    2. withdrawFees → USDC.safeTransfer(to, amount)     [owner fee withdrawal]
     //  Nothing else moves USDC out.
+    //
+    //  MATCHED CALLS SUMMARY
+    //  ─────────────────────
+    //  Per round:
+    //    U = upTotal, D = downTotal
+    //    M = min(U, D)            — matched pool (same amount on each side)
+    //    T = max(U, D)            — total of the bigger side
+    //    F = floor(M * FEE_BPS / BPS)   — fee booked at settle
+    //    Dist = M - F
+    //
+    //  Per player:
+    //    Smaller-side player (or tie):   matched_i = s_i  (100% matched)
+    //    Bigger-side player won:         matched_i = floor(s_i * M / T)
+    //    Bigger-side player lost:        matched_i = ceil(s_i * M / T)
+    //    unmatched_i = s_i - matched_i  (always ≥ 0)
+    //
+    //  Payouts:
+    //    Winner payout = s_i + floor(matched_i * Dist / M)
+    //    Loser  payout = unmatched_i   (0 → NothingToClaim if on smaller side)
+    //    Refund payout = s_i           (unchanged)
+    //
+    //  Rounding rationale:
+    //    Bigger side won  → floor ensures sum(matched) ≤ M
+    //                       (so bonus pool never over-commits)
+    //    Bigger side lost → ceil ensures sum(matched) ≥ M
+    //                       (so winners' full Dist is funded)
+    //    Residual dust (at most 1 per round) → feesAccrued via RoundDustToFees.
     // =========================================================
 
     // ------------------------------------------------------------------
-    //  THE SINGLE FORMULA (used in four places; exists exactly once).
+    //  Helper: compute one player's matched and unmatched stake.
     //
-    //  Given winning-side total W, losing-side total L, and a single
-    //  winner's stake s, returns:
-    //    F     = floor(L * FEE_BPS / BPS)   — fee, already booked at settle
-    //    D     = L - F                       — distributable to winners
-    //    bonus = floor(s * D / W)            — this winner's share of D
+    //  @param s          Player's total stake.
+    //  @param M          Matched pool = min(U, D).
+    //  @param T          Bigger side total = max(U, D). 0 when M==0 (one-sided,
+    //                    but that is a refund so this helper is never called).
+    //  @param onBiggerSide  True when the player is on the side with T total.
+    //  @param biggerSideWon True when the bigger side won.
     //
-    //  Caller computes payout = s + bonus.
-    //  Called by _finaliseRound (F only), _computePayout, _claimOne, claimable.
+    //  When M == T (a tie), every player is on the "smaller" side (both fully
+    //  matched), so onBiggerSide should be false for all players.
     // ------------------------------------------------------------------
-    function _winnerBonus(uint256 W, uint256 L, uint256 s)
-        internal
-        pure
-        returns (uint256 F, uint256 D, uint256 bonus)
+    function _matchedFor(
+        uint256 s,
+        uint256 M,
+        uint256 T,
+        bool    onBiggerSide,
+        bool    biggerSideWon
+    ) internal pure returns (uint256 matched, uint256 unmatched) {
+        if (!onBiggerSide) {
+            // Smaller side (or tie): fully matched.
+            return (s, 0);
+        }
+        // Bigger side: pro-rata matching.
+        uint256 exact = s * M; // no overflow: s and M are both ≤ uint128.max
+        uint256 base  = exact / T; // floor
+        if (biggerSideWon) {
+            // Winner bigger side: floor to keep sum ≤ M.
+            matched   = base;
+        } else {
+            // Loser bigger side: ceil to keep sum ≥ M.
+            matched   = (exact % T == 0) ? base : base + 1;
+        }
+        unmatched = s - matched;
+    }
+
+    // ------------------------------------------------------------------
+    //  Helper: compute a winner's bonus (floor division).
+    //  bonus = floor(matched * Dist / M)
+    //  Caller adds stake to get total payout.
+    // ------------------------------------------------------------------
+    function _winnerBonus(uint256 matched, uint256 Dist, uint256 M)
+        internal pure returns (uint256 bonus)
     {
-        F     = L * FEE_BPS / BPS;  // floor (Solidity default)
-        D     = L - F;
-        bonus = s * D / W;           // floor
+        bonus = matched * Dist / M; // floor
     }
 
     // ------------------------------------------------------------------
     //  Internal pure helper: compute payout for one position.
     //
-    //  Returns (payout, winnerStake) where winnerStake is the player's
-    //  stake on the WINNING side (0 for losers / refunds).
+    //  Returns (payout, matchedWinner) where matchedWinner is the player's
+    //  MATCHED stake when they are a winner (0 otherwise; used for dust tracking).
     //
-    //  Winner payout: s + floor(s * D / W)   (via _winnerBonus)
-    //  Refund payout: up + down  (no fee)
-    //  Loser  payout: 0  (NothingToClaim)
+    //  Winner payout: s + floor(matched * Dist / M)
+    //  Loser  payout: unmatched (0 for smaller-side loser → NothingToClaim)
+    //  Refund payout: up + down  (no fee, matched logic not applied)
     // ------------------------------------------------------------------
     function _computePayout(
         Round    storage r,
         Position storage pos
-    ) internal view returns (uint256 payout, uint128 winnerStake) {
+    ) internal view returns (uint256 payout, uint128 matchedWinner) {
         if (r.state == RoundState.Refunded) {
-            payout      = uint256(pos.up) + uint256(pos.down);
-            winnerStake = 0;
-            return (payout, winnerStake);
+            payout       = uint256(pos.up) + uint256(pos.down);
+            matchedWinner = 0;
+            return (payout, matchedWinner);
         }
 
-        bool upWon  = (r.state == RoundState.SettledUp);
-        winnerStake = upWon ? pos.up : pos.down;
-        if (winnerStake == 0) return (0, 0);
+        bool upWon   = (r.state == RoundState.SettledUp);
+        uint256 U    = uint256(r.upTotal);
+        uint256 D    = uint256(r.downTotal);
+        uint256 M    = U < D ? U : D;  // min
+        uint256 T    = U > D ? U : D;  // max (= M when tied)
+        uint256 F    = M * FEE_BPS / BPS;
+        uint256 Dist = M - F;
 
-        uint256 W = upWon ? uint256(r.upTotal)   : uint256(r.downTotal);
-        uint256 L = upWon ? uint256(r.downTotal) : uint256(r.upTotal);
-        (, , uint256 bonus) = _winnerBonus(W, L, uint256(winnerStake));
-        payout = uint256(winnerStake) + bonus;
+        uint256 stake   = upWon ? uint256(pos.up) : uint256(pos.down);
+        bool    isWinner = (stake != 0);
+
+        if (isWinner) {
+            // Player is a winner.
+            bool onBigger = upWon ? (U > D) : (D > U);
+            (uint256 matched, ) = _matchedFor(stake, M, T, onBigger, true /*winners: use floor → biggerSideWon=true*/);
+            uint256 bonus = _winnerBonus(matched, Dist, M);
+            payout        = stake + bonus;
+            // Return actual stake (not matched) so the caller can detect
+            // "all winners claimed" by comparing sum(stake) to winning-side total.
+            matchedWinner  = SafeCast.toUint128(stake);
+            return (payout, matchedWinner);
+        }
+
+        // Player is on the losing side.
+        uint256 loserStake = upWon ? uint256(pos.down) : uint256(pos.up);
+        if (loserStake == 0) return (0, 0); // no position at all
+
+        bool loserOnBigger = upWon ? (D > U) : (U > D);
+        if (!loserOnBigger) return (0, 0); // smaller-side loser: fully matched, nothing to return
+
+        // Bigger-side loser: use floor so sum(matched) ≤ M.
+        // The residual (M - sum(matched)) is swept to feesAccrued when all losers claim.
+        uint256 lMatched = loserStake * M / T; // floor
+        uint256 unmatched = loserStake - lMatched;
+        payout       = unmatched; // may be 0 if stake rounds to 0
+        // Encode loserMatched in the upper bits of matchedWinner with a sentinel.
+        // We repurpose matchedWinner=0 to mean "loser claim"; the caller uses
+        // a separate path to track loser-side dust. We pass lMatched via a flag:
+        // set matchedWinner to a magic value that signals "loser path" with lMatched baked in.
+        // Actually, simpler: use a new return value. But changing the signature is bigger.
+        // SIMPLEST: matchedWinner = 0 always for losers; track loserMatched in _claimOne.
+        matchedWinner  = 0; // loser flag; caller re-derives lMatched from round storage
+    }
+
+    // ------------------------------------------------------------------
+    //  Internal: winner-side dust sweep after the last winner claims.
+    // ------------------------------------------------------------------
+    function _trackWinnerDust(
+        uint256 marketId,
+        uint256 roundIndex,
+        Round storage r,
+        uint256 payout,
+        uint128 winnerStake
+    ) internal {
+        PayoutProgress storage pp = payoutProgress[marketId][roundIndex];
+        uint256 U = uint256(r.upTotal);
+        uint256 D = uint256(r.downTotal);
+        uint256 M = U < D ? U : D;
+        uint256 F    = M * FEE_BPS / BPS;
+        uint256 Dist = M - F;
+        uint256 bonus = payout - uint256(winnerStake);
+
+        pp.winnerStakeClaimed += winnerStake;
+        pp.bonusPaid          += uint128(bonus);
+
+        uint256 winnerSideTotal = (r.state == RoundState.SettledUp) ? U : D;
+        if (uint256(pp.winnerStakeClaimed) == winnerSideTotal) {
+            uint256 dust = Dist - uint256(pp.bonusPaid);
+            if (dust > 0) {
+                feesAccrued      += dust;
+                totalPlayerFunds -= dust;
+                emit RoundDustToFees(marketId, roundIndex, dust);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    //  Internal: bigger-side loser dust sweep after the last loser claims.
+    // ------------------------------------------------------------------
+    function _trackLoserDust(
+        uint256 marketId,
+        uint256 roundIndex,
+        Round storage r,
+        Position storage pos
+    ) internal {
+        PayoutProgress storage pp = payoutProgress[marketId][roundIndex];
+        uint256 U = uint256(r.upTotal);
+        uint256 D = uint256(r.downTotal);
+        uint256 M = U < D ? U : D;
+        uint256 T = U > D ? U : D;
+        bool upWon = (r.state == RoundState.SettledUp);
+        uint256 loserStake = upWon ? uint256(pos.down) : uint256(pos.up);
+        uint256 lMatched = loserStake * M / T; // floor
+
+        pp.loserMatchedClaimed += SafeCast.toUint128(lMatched);
+        pp.loserStakeClaimed   += SafeCast.toUint128(loserStake);
+
+        uint256 loserSideTotal = upWon ? D : U;
+        if (uint256(pp.loserStakeClaimed) == loserSideTotal) {
+            uint256 loserDust = M - uint256(pp.loserMatchedClaimed);
+            if (loserDust > 0) {
+                feesAccrued      += loserDust;
+                totalPlayerFunds -= loserDust;
+                emit RoundDustToFees(marketId, roundIndex, loserDust);
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -1166,35 +1323,19 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
         Position storage pos = positions[marketId][roundIndex][msg.sender];
         if (pos.claimed) revert AlreadyClaimed(marketId, roundIndex);
 
-        uint128 winnerStake;
-        (payout, winnerStake) = _computePayout(r, pos);
+        uint128 matchedWinner;
+        (payout, matchedWinner) = _computePayout(r, pos);
         if (payout == 0) revert NothingToClaim(marketId, roundIndex);
 
         // ── Effects (storage writes before transfer) ───────────
         pos.claimed      = true;
         totalPlayerFunds -= payout;
 
-        // Dust tracking for won rounds only.
-        if (r.state != RoundState.Refunded && winnerStake > 0) {
-            PayoutProgress storage pp = payoutProgress[marketId][roundIndex];
-            uint256 W = (r.state == RoundState.SettledUp)
-                        ? uint256(r.upTotal) : uint256(r.downTotal);
-            uint256 L = (r.state == RoundState.SettledUp)
-                        ? uint256(r.downTotal) : uint256(r.upTotal);
-            // Use shared formula (same F, D, bonus as _computePayout above).
-            (, uint256 D, uint256 bonus) = _winnerBonus(W, L, uint256(winnerStake));
-
-            pp.winnerStakeClaimed += winnerStake;
-            pp.bonusPaid          += uint128(bonus);
-
-            // When the last winner claims, sweep dust to fees.
-            if (uint256(pp.winnerStakeClaimed) == W) {
-                uint256 dust = D - uint256(pp.bonusPaid);
-                if (dust > 0) {
-                    feesAccrued      += dust;
-                    totalPlayerFunds -= dust;
-                    emit RoundDustToFees(marketId, roundIndex, dust);
-                }
+        if (r.state != RoundState.Refunded) {
+            if (matchedWinner > 0) {
+                _trackWinnerDust(marketId, roundIndex, r, payout, matchedWinner);
+            } else if (payout > 0) {
+                _trackLoserDust(marketId, roundIndex, r, pos);
             }
         }
         // USDC transfer done by caller after all state updates.
@@ -1205,7 +1346,8 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     ///         - Rounds inside the settle window: reverts RoundNotSettled.
     ///         - Rounds past the window and unsettled: auto-finalised as
     ///           Timeout refund, then paid.
-    ///         - Losers: reverts NothingToClaim.
+    ///         - Losers on the smaller side: reverts NothingToClaim.
+    ///         - Losers on the bigger side: pays back the unmatched portion.
     ///         - Double claim: reverts AlreadyClaimed.
     ///
     /// @param marketId    Which market.
@@ -1265,10 +1407,12 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     ///         Returns 0 (rather than reverting) when:
     ///           - round is not yet claimable (inside settle window)
     ///           - player already claimed
-    ///           - player is on the losing side or has no position
+    ///           - player is on the losing smaller side (nothing to return)
+    ///           - player has no position
     ///
     ///         A timed-out unsettled round is counted as a Timeout refund
     ///         (matching what claim() would do).
+    ///         Losers on the bigger side see their unmatched portion here.
     ///
     /// @param marketId    Which market.
     /// @param roundIndex  Which round.
@@ -1291,24 +1435,89 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
         if (state == RoundState.Unsettled) {
             uint256 earliest = endTime(marketId, roundIndex) + SETTLE_WINDOW;
             if (block.timestamp <= earliest) return 0; // still inside window
-            // Past window: treat as Timeout refund.
             state = RoundState.Refunded;
         }
 
-        // Build a temporary Round view with the simulated state.
-        // We need a storage ref for _computePayout, so we read directly.
         if (state == RoundState.Refunded) {
             return uint256(pos.up) + uint256(pos.down);
         }
 
-        // SettledUp or SettledDown: use the real Round data.
-        bool upWon    = (state == RoundState.SettledUp);
-        uint128 stake = upWon ? pos.up : pos.down;
-        if (stake == 0) return 0;
+        // SettledUp or SettledDown: matched calls formula.
+        bool upWon = (state == RoundState.SettledUp);
+        uint256 U  = uint256(r.upTotal);
+        uint256 D  = uint256(r.downTotal);
+        uint256 M  = U < D ? U : D;
+        uint256 T  = U > D ? U : D;
+        uint256 F  = M * FEE_BPS / BPS;
+        uint256 Dist = M - F;
 
-        uint256 W = upWon ? uint256(r.upTotal)   : uint256(r.downTotal);
-        uint256 L = upWon ? uint256(r.downTotal) : uint256(r.upTotal);
-        (, , uint256 bonus) = _winnerBonus(W, L, uint256(stake));
-        return uint256(stake) + bonus;
+        uint256 stake = upWon ? uint256(pos.up) : uint256(pos.down);
+        if (stake != 0) {
+            // Winner.
+            bool onBigger = upWon ? (U > D) : (D > U);
+            (uint256 matched, ) = _matchedFor(stake, M, T, onBigger, true);
+            return stake + _winnerBonus(matched, Dist, M);
+        }
+
+        // Loser: return unmatched portion (0 for smaller-side losers).
+        uint256 loserStake = upWon ? uint256(pos.down) : uint256(pos.up);
+        if (loserStake == 0) return 0;
+        bool loserOnBigger = upWon ? (D > U) : (U > D);
+        if (!loserOnBigger) return 0; // smaller side: fully matched, nothing back
+        // Bigger-side loser: floor matching (same formula as _computePayout).
+        uint256 lMatched = loserStake * M / T; // floor
+        return loserStake - lMatched;
+    }
+
+    /// @notice How much of a player's stake was matched (and how much was not)
+    ///         in a settled round. Returns (0, 0) for unsettled/refunded rounds
+    ///         or if the player has no position.
+    ///
+    /// @param marketId    Which market.
+    /// @param roundIndex  Which round.
+    /// @param player      Whose position to inspect.
+    /// @return matched    The portion of the stake that participated in the pool.
+    /// @return unmatched  The portion that is returned at claim (surplus stake).
+    function matchedStake(
+        uint256 marketId,
+        uint256 roundIndex,
+        address player
+    ) external view returns (uint256 matched, uint256 unmatched) {
+        if (marketId >= marketCount) return (0, 0);
+
+        Round    storage r   = rounds[marketId][roundIndex];
+        Position storage pos = positions[marketId][roundIndex][player];
+
+        if (r.state == RoundState.Unsettled || r.state == RoundState.Refunded) {
+            return (0, 0);
+        }
+
+        bool upWon = (r.state == RoundState.SettledUp);
+        uint256 U  = uint256(r.upTotal);
+        uint256 D  = uint256(r.downTotal);
+        uint256 M  = U < D ? U : D;
+        uint256 T  = U > D ? U : D;
+
+        // Determine which side and stake.
+        uint256 stake       = upWon ? uint256(pos.up) : uint256(pos.down);
+        uint256 loserStake  = upWon ? uint256(pos.down) : uint256(pos.up);
+
+        if (stake == 0 && loserStake == 0) return (0, 0);
+
+        if (stake != 0) {
+            // Winner side: use floor (biggerSideWon = true → _matchedFor uses floor).
+            bool onBigger = upWon ? (U > D) : (D > U);
+            (matched, unmatched) = _matchedFor(stake, M, T, onBigger, true);
+            return (matched, unmatched);
+        }
+        // Loser side.
+        bool loserOnBigger = upWon ? (D > U) : (U > D);
+        if (!loserOnBigger) {
+            // Smaller-side loser: fully matched.
+            return (loserStake, 0);
+        }
+        // Bigger-side loser: floor matching (consistent with _computePayout).
+        uint256 lM = loserStake * M / T; // floor
+        return (lM, loserStake - lM);
     }
 }

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 // =============================================================
-//  Kairo Markets – Stateful invariant test (Step 6 v3)
+//  Kairo Markets – Stateful invariant test (Step 6 v3, v1.1 Matched Calls)
 //
 //  KEY FIX (v3): the handler now records every feed update it
 //  pushes (real id + timestamp), so settleRound and fullCycle
@@ -12,7 +12,7 @@ pragma solidity ^0.8.24;
 //
 //  Three markets (BTC/ETH/SOL), three independent feeds.
 //  Handler has FULL ghost bookkeeping independent of the
-//  contract's counters.
+//  contract's counters using v1.1 matched calls formula.
 //
 //  Invariants asserted after EVERY handler call:
 //
@@ -158,9 +158,20 @@ contract ClaimInvariantHandler is Test {
         } catch {}
     }
 
-    /// Compute floor(L * 200 / 10_000) – written independently of contract code.
-    function _fee(uint256 L) internal pure returns (uint256) {
-        return L * 200 / 10_000;
+    /// Compute fee = floor(M * FEE_BPS / BPS) where M = min(U, D).
+    /// Written independently of contract code.
+    function _fee(uint256 U, uint256 D) internal pure returns (uint256) {
+        uint256 M = U < D ? U : D;
+        return M * 200 / 10_000;
+    }
+
+    /// Compute matched stake for one player (ghost version of _matchedFor / contract logic).
+    /// Both winner and loser bigger sides use floor; smaller sides are fully matched.
+    function _ghostMatched(
+        uint256 s, uint256 M, uint256 T, bool onBigger, bool /*biggerSideWon*/
+    ) internal pure returns (uint256 matched) {
+        if (!onBigger) return s; // smaller side: fully matched
+        return s * M / T; // floor for both winner-bigger and loser-bigger
     }
 
     /// Find S* and E* for a round from the recorded update list.
@@ -240,17 +251,45 @@ contract ClaimInvariantHandler is Test {
         }
     }
 
+    /// Winner's expected payout from matched calls formula.
+    function _winnerPayout(uint256 wStake, uint256 M, uint256 T, bool onBigger) internal pure returns (uint256) {
+        uint256 F    = M * 200 / 10_000;
+        uint256 Dist = M - F;
+        uint256 matched = _ghostMatched(wStake, M, T, onBigger, true);
+        return wStake + (M == 0 ? 0 : matched * Dist / M);
+    }
+
+    /// Loser's expected payout (unmatched portion) from matched calls formula.
+    function _loserPayout(uint256 lStake, uint256 M, uint256 T, bool loserOnBigger) internal pure returns (uint256) {
+        uint256 lMatched = _ghostMatched(lStake, M, T, loserOnBigger, false);
+        return lStake - lMatched;
+    }
+
+    function _owedOneSettled(
+        uint128 pUp, uint128 pDown,
+        bool upWon,
+        uint256 U, uint256 D
+    ) internal pure returns (uint256) {
+        uint256 M = U < D ? U : D;
+        uint256 T = U > D ? U : D;
+        uint256 winStake = upWon ? uint256(pUp) : uint256(pDown);
+        if (winStake != 0) {
+            return _winnerPayout(winStake, M, T, upWon ? (U > D) : (D > U));
+        }
+        uint256 loseStake = upWon ? uint256(pDown) : uint256(pUp);
+        if (loseStake == 0) return 0;
+        return _loserPayout(loseStake, M, T, upWon ? (D > U) : (U > D));
+    }
+
     function _owedSettled(
-        uint256 mid, uint256 rnd, bool upWon, uint256 W, uint256 D
+        uint256 mid, uint256 rnd, bool upWon, uint256 U, uint256 D
     ) internal view returns (uint256 owed) {
         for (uint256 p = 0; p < N_PLAYERS; p++) {
             address who = players[p];
             if (!ghostPos[mid][rnd][who].hasBet) continue;
             (uint128 pUp, uint128 pDown, bool claimed) = arena.positions(mid, rnd, who);
             if (claimed) continue;
-            uint128 stake = upWon ? pUp : pDown;
-            if (stake == 0) continue;
-            owed += uint256(stake) + uint256(stake) * D / W;
+            owed += _owedOneSettled(pUp, pDown, upWon, U, D);
         }
     }
 
@@ -270,45 +309,85 @@ contract ClaimInvariantHandler is Test {
                 continue;
             }
             bool upWon = (state == PredictionArena.RoundState.SettledUp);
-            uint256 W  = upWon ? uint256(upT) : uint256(dnT);
-            uint256 L  = upWon ? uint256(dnT) : uint256(upT);
-            uint256 D  = L - _fee(L);
-            owed += _owedSettled(mid, rnd, upWon, W, D);
+            owed += _owedSettled(mid, rnd, upWon, uint256(upT), uint256(dnT));
         }
     }
 
+    /// Compute ghost unassigned dust for one settled round:
+    /// dust = Dist - sum(floor(matched_i * Dist / M)) for ALL winners (claimed or not),
+    /// but only if at least one winner hasn't claimed yet (once all claim, dust is in feesAccrued).
+    struct DustCtx { uint256 M; uint256 T; bool upWon; bool biggerWon; }
+
     function _dustParams(
-        uint256 mid, uint256 rnd, bool upWon, uint256 W, uint256 D
-    ) internal view returns (uint256 totalBonuses, bool anyUnclaimed) {
+        uint256 mid, uint256 rnd, bool upWon, uint256 U, uint256 D
+    ) internal view returns (uint256 totalBonuses, bool anyWinnerUnclaimed) {
+        DustCtx memory ctx;
+        ctx.M = U < D ? U : D;
+        ctx.T = U > D ? U : D;
+        ctx.upWon = upWon;
+        ctx.biggerWon = upWon ? (U > D) : (D > U);
+        return _dustParamsLoop(mid, rnd, ctx);
+    }
+
+    function _dustParamsLoop(
+        uint256 mid, uint256 rnd, DustCtx memory ctx
+    ) internal view returns (uint256 totalBonuses, bool anyWinnerUnclaimed) {
+        uint256 M    = ctx.M;
+        uint256 Dist = M - M * 200 / 10_000;
         for (uint256 p = 0; p < N_PLAYERS; p++) {
-            address who = players[p];
-            if (!ghostPos[mid][rnd][who].hasBet) continue;
-            (uint128 pUp, uint128 pDown, bool claimed) = arena.positions(mid, rnd, who);
-            uint128 stake = upWon ? pUp : pDown;
-            if (stake == 0) continue;
-            totalBonuses += uint256(stake) * D / W;
-            if (!claimed) anyUnclaimed = true;
+            if (!ghostPos[mid][rnd][players[p]].hasBet) continue;
+            (uint128 pU, uint128 pD, bool clmd) = arena.positions(mid, rnd, players[p]);
+            uint256 ws = ctx.upWon ? uint256(pU) : uint256(pD);
+            if (ws == 0) continue;
+            totalBonuses += M == 0 ? 0 : _ghostMatched(ws, M, ctx.T, ctx.biggerWon, true) * Dist / M;
+            if (!clmd) anyWinnerUnclaimed = true;
         }
     }
 
     function ghostUnassignedDust() public view returns (uint256 dust) {
         for (uint256 i = 0; i < touchedRounds.length; i++) {
-            uint256 mid = touchedRounds[i].mid;
-            uint256 rnd = touchedRounds[i].rnd;
-            (uint128 upT, uint128 dnT, , , , ,
-             PredictionArena.RoundState state) = arena.rounds(mid, rnd);
-
-            if (state == PredictionArena.RoundState.Unsettled ||
-                state == PredictionArena.RoundState.Refunded) continue;
-
-            bool upWon = (state == PredictionArena.RoundState.SettledUp);
-            uint256 W  = upWon ? uint256(upT) : uint256(dnT);
-            uint256 L  = upWon ? uint256(dnT) : uint256(upT);
-            uint256 D  = L - _fee(L);
-
-            (uint256 tb, bool anyU) = _dustParams(mid, rnd, upWon, W, D);
-            if (anyU) dust += D - tb;
+            dust += _roundDust(touchedRounds[i].mid, touchedRounds[i].rnd);
         }
+    }
+
+    function _roundDust(uint256 mid, uint256 rnd) internal view returns (uint256 dust) {
+        (uint128 upT, uint128 dnT, , , , ,
+         PredictionArena.RoundState state) = arena.rounds(mid, rnd);
+        if (state == PredictionArena.RoundState.Unsettled ||
+            state == PredictionArena.RoundState.Refunded) return 0;
+
+        bool upWon = (state == PredictionArena.RoundState.SettledUp);
+        uint256 U  = uint256(upT);
+        uint256 D  = uint256(dnT);
+        uint256 M  = U < D ? U : D;
+
+        (uint256 tb, bool anyWinU) = _dustParams(mid, rnd, upWon, U, D);
+        if (anyWinU) dust += M - M * 200 / 10_000 - tb; // Dist - tb
+
+        bool loserOnBigger = upWon ? (D > U) : (U > D);
+        if (loserOnBigger) {
+            dust += _loserSideDust(mid, rnd, upWon, M, U > D ? U : D);
+        }
+    }
+
+    /// Loser-side dust: M - sum(floor(loserStake * M / T)) for unclaimed losers on the bigger side.
+    /// Only applies when the loser side is the bigger side.
+    function _loserSideDust(
+        uint256 mid, uint256 rnd, bool upWon,
+        uint256 M, uint256 T
+    ) internal view returns (uint256) {
+        uint256 sumLoserMatched;
+        bool anyLoserUnclaimed;
+        for (uint256 p = 0; p < N_PLAYERS; p++) {
+            if (!ghostPos[mid][rnd][players[p]].hasBet) continue;
+            (uint128 pU, uint128 pD, bool clmd) = arena.positions(mid, rnd, players[p]);
+            uint256 loseStake = upWon ? uint256(pD) : uint256(pU);
+            if (loseStake == 0) continue;
+            sumLoserMatched += loseStake * M / T; // floor
+            if (!clmd) anyLoserUnclaimed = true;
+        }
+        if (!anyLoserUnclaimed) return 0;
+        return M - sumLoserMatched;
     }
 
     // ── Handler actions ───────────────────────────────────────
@@ -801,48 +880,69 @@ contract ClaimInvariantTest is Test {
     }
 
     /// BTC round 1: UP bettors p0 100_003 and p1 200_011, DOWN bettors p2 130_007
-    /// and p3 170_003.  seed 14 => UP wins; p1, p2, p3 try to claim (p0 does not).
-    ///   Losing side L = 300_010, fee = floor(L*2%) = 6_000, D = 294_010, W = 300_014.
-    ///   p1 bonus = floor(200_011*294_010/300_014) = 196_008  => payout 396_019
-    ///   p0 bonus = floor(100_003*294_010/300_014) =  98_001  => payout 198_004
-    ///   dust = 294_010 - 196_008 - 98_001 = 1, moved to fees by the LAST winner's claim.
+    /// and p3 170_003.  seed 14 => UP wins (seed%2==0); p1,p2,p3 try to claim (p0 skipped).
+    ///
+    ///   U=300_014, D=300_010; M=300_010; T=300_014
+    ///   F=floor(300_010*200/10_000)=6_000; Dist=294_010
+    ///   UP bigger side (won, floor):
+    ///     p1 matched=floor(200_011*300_010/300_014)=200_008; bonus=floor(200_008*294_010/300_010)=196_007; payout=396_018
+    ///     p0 matched=floor(100_003*300_010/300_014)=100_001; bonus=floor(100_001*294_010/300_010)=98_001;  payout=198_002
+    ///   DOWN smaller side (lost, fully matched, unmatched=0): NothingToClaim (p2,p3)
+    ///
+    ///   Sum bonuses = 196_007+98_001 = 294_008; dust = Dist-sum = 2.
+    ///   dust swept when p0 claims (last winner): feesAccrued = 6_000+2 = 6_002.
+    ///
+    ///   NOTE: p0's payout = stake + bonus = 100_003 + 98_001 = 198_004 (stake 100_003, bonus 98_001)
+    ///   Wait: matched=100_001, bonus=floor(100_001*294_010/300_010).
+    ///   100_001*294_010=29_401_294_010; /300_010 floor = 98_001 (rem 14_000). payout=198_002? No:
+    ///   stake=100_003, matched=100_001, bonus=floor(100_001*294_010/300_010)=98_001, payout=100_003+98_001=198_004. ✓
     function test_handlerCoverage_upWin_exactNumbers() public {
         handler.fullCycle(0, 14);
         _checkAll();
         assertEq(handler.settledUp(), 1, "one UP win settled");
-        assertEq(arena.feesAccrued(), 6_000, "fee = 2% of the losing side only");
-        assertEq(usdc.balanceOf(handler.players(1)), 396_019, "p1 payout");
-        assertEq(usdc.balanceOf(handler.players(2)), 0, "loser p2 gets nothing");
-        assertEq(usdc.balanceOf(handler.players(3)), 0, "loser p3 gets nothing");
+        assertEq(arena.feesAccrued(), 6_000, "fee booked at settle");
+        // p1 (UP winner) got paid; p2,p3 (DOWN smaller side losers) get nothing.
+        assertEq(usdc.balanceOf(handler.players(1)), 396_018, "p1 payout");
+        assertEq(usdc.balanceOf(handler.players(2)), 0, "smaller-side loser p2 gets nothing");
+        assertEq(usdc.balanceOf(handler.players(3)), 0, "smaller-side loser p3 gets nothing");
         assertEq(arena.feesAccrued(), 6_000, "no dust yet: p0 has not claimed");
 
         handler.claimForPlayer(0, 0, 1);
         _checkAll();
-        assertEq(usdc.balanceOf(handler.players(0)), 198_004, "p0 payout");
-        assertEq(arena.feesAccrued(), 6_001, "dust (1) moved to fees at the last claim");
+        assertEq(usdc.balanceOf(handler.players(0)), 198_004, "p0 payout (stake 100_003 + bonus 98_001)");
+        assertEq(arena.feesAccrued(), 6_002, "dust (2) moved to fees when last winner (p0) claims");
         assertGe(handler.dustEventsSeen(), 1, "dust event seen");
         assertEq(handler.reasonSeen(0), 1, "the win was logged with reason None");
         assertEq(arena.totalPlayerFunds(), 0, "everything owed has been paid");
-        assertEq(usdc.balanceOf(address(arena)), 6_001, "only fees remain in the contract");
+        assertEq(usdc.balanceOf(address(arena)), 6_002, "only fees remain in the contract");
     }
 
     /// ETH round 1 (needs t >= 1200 so round 1 is the next one): same bets, DOWN wins.
-    ///   L = 300_014, fee = floor(L*2%) = 6_000, D = 294_014, W = 300_010.
-    ///   p2 bonus = floor(130_007*294_014/300_010) = 127_408 => payout 257_415
-    ///   p3 bonus = floor(170_003*294_014/300_010) = 166_605 => payout 336_608
-    ///   dust = 294_014 - 127_408 - 166_605 = 1.
+    ///   U=300_014, D=300_010; M=300_010; T=300_014
+    ///   F=6_000; Dist=294_010
+    ///   DOWN smaller side (won, fully matched):
+    ///     p2 matched=130_007; bonus=floor(130_007*294_010/300_010)=127_406; payout=257_413
+    ///     p3 matched=170_003; bonus=floor(170_003*294_010/300_010)=166_603; payout=336_606
+    ///   UP bigger side (lost, floor):
+    ///     p0 floor(100_003*300_010/300_014)=100_001; unmatched=2; payout=2
+    ///     p1 floor(200_011*300_010/300_014)=200_008; unmatched=3; payout=3
+    ///   Winner dust=1 (after p2+p3 both claim); loserDust=1 (300_010-300_009=1).
+    ///   feesAccrued = 6_000+1+1 = 6_002.
+    ///   All four players claim (seed 15=0b1111).
     function test_handlerCoverage_downWin_exactNumbers() public {
         vm.warp(1300);
         handler.fullCycle(1, 15);
         _checkAll();
         assertEq(handler.settledDown(), 1, "one DOWN win settled");
-        assertEq(usdc.balanceOf(handler.players(2)), 257_415, "p2 payout");
-        assertEq(usdc.balanceOf(handler.players(3)), 336_608, "p3 payout");
-        assertEq(usdc.balanceOf(handler.players(0)), 0, "loser p0 gets nothing");
-        assertEq(usdc.balanceOf(handler.players(1)), 0, "loser p1 gets nothing");
-        assertEq(arena.feesAccrued(), 6_001, "fee 6_000 + dust 1");
+        assertEq(usdc.balanceOf(handler.players(2)), 257_413, "p2 payout");
+        assertEq(usdc.balanceOf(handler.players(3)), 336_606, "p3 payout");
+        // p0 and p1 are bigger-side losers; unmatched (floor) = stake - floor(stake*M/T).
+        assertEq(usdc.balanceOf(handler.players(0)), 2, "p0 (bigger-side loser): unmatched=100_003-100_001=2");
+        assertEq(usdc.balanceOf(handler.players(1)), 3, "p1 (bigger-side loser): unmatched=200_011-200_008=3");
+        // feesAccrued = fee(6_000) + winner-dust(1) + loser-dust(1) = 6_002.
+        assertEq(arena.feesAccrued(), 6_002, "fee 6_000 + winner dust 1 + loser dust 1");
         assertEq(arena.totalPlayerFunds(), 0, "everything owed has been paid");
-        assertEq(usdc.balanceOf(address(arena)), 6_001, "only fees remain in the contract");
+        assertEq(usdc.balanceOf(address(arena)), 6_002, "only fees remain in the contract");
     }
 
     /// One refund round for each of the six refund reasons on BTC, then everyone claims.
@@ -867,6 +967,9 @@ contract ClaimInvariantTest is Test {
     }
 
     /// Two UP-win rounds leave p0 with two unclaimed wins; p0 claims both in ONE transaction.
+    /// seed=14 → UP wins; p1,p2,p3 try to claim after each cycle (p0 doesn't).
+    /// After each cycle p1 (winner) claims; DOWN players (smaller side) get nothing.
+    /// p0 claimMany across both rounds triggers dust-sweep for each: feesAccrued = 2*6_002.
     function test_handlerCoverage_claimMany() public {
         handler.fullCycle(0, 14);   // BTC round 1
         handler.fullCycle(0, 14);   // BTC round 3 (time has moved on)
@@ -875,7 +978,7 @@ contract ClaimInvariantTest is Test {
         _checkAll();
         assertEq(handler.claimManyOk(), 1, "one claimMany call succeeded");
         assertEq(usdc.balanceOf(handler.players(0)), 2 * 198_004, "p0 got both payouts");
-        assertEq(arena.feesAccrued(), 2 * 6_001, "two fees plus two dust units");
+        assertEq(arena.feesAccrued(), 2 * 6_002, "fee 6_000 + dust 2 = 6_002 per round, two rounds");
         assertEq(arena.totalPlayerFunds(), 0, "everything owed has been paid");
     }
 }

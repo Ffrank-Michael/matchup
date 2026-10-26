@@ -2,16 +2,18 @@
 pragma solidity ^0.8.24;
 
 // =============================================================
-//  Kairo Markets – Claim / Payout tests (Step 6)
+//  Kairo Markets – Claim / Payout tests (Step 6, v1.1 Matched Calls)
 //
 //  Covers:
 //   - Happy paths (UP wins, DOWN wins, 3+ players, unequal bets)
+//   - Bigger-side loser receives unmatched stake back
 //   - All refund reasons pay exact stake, no fee
 //   - Once-only, stranger, wrong-time guards
 //   - Dust: last-winner trigger, no-sweep, conservation
 //   - Order independence (3-winner permutations)
 //   - claimMany: batching, single transfer, mixed rounds, all reverts
 //   - withdrawFees guard (FeesWouldTouchPlayerFunds)
+//   - matchedStake() view correctness
 //   - Stateful invariant test via Foundry invariant() + handler
 // =============================================================
 
@@ -123,24 +125,31 @@ contract ClaimTest is ClaimBase {
     // =========================================================
     //  Happy path – UP wins, 3 players UP, 2 DOWN
     //
-    //  UP bettors:   alice 600_000, bob 400_000, carol 200_000  → W = 1_200_000
-    //  DOWN bettors: dave  750_000, settler 250_000             → L = 1_000_000
-    //  F  = floor(1_000_000 * 200 / 10_000) = 20_000
-    //  D  = 1_000_000 - 20_000 = 980_000
+    //  UP bettors:   alice 600_000, bob 400_000, carol 200_000  → U = 1_200_000
+    //  DOWN bettors: dave  750_000, settler 250_000             → D = 1_000_000
+    //  M = min(U, D) = 1_000_000   T = max(U, D) = 1_200_000
+    //  F = floor(M * 200 / 10_000) = 20_000
+    //  Dist = M - F = 980_000
     //
-    //  Alice  payout = 600_000 + floor(600_000 * 980_000 / 1_200_000)
-    //               = 600_000 + floor(490_000) = 1_090_000
-    //  Bob    payout = 400_000 + floor(400_000 * 980_000 / 1_200_000)
-    //               = 400_000 + floor(326_666.6̄) = 726_666
-    //  Carol  payout = 200_000 + floor(200_000 * 980_000 / 1_200_000)
-    //               = 200_000 + floor(163_333.3̄) = 363_333
+    //  UP side (winners, bigger side → floor(s * M / T)):
+    //    Alice  matched = floor(600_000 * 1_000_000 / 1_200_000) = 500_000
+    //           bonus   = floor(500_000 * 980_000 / 1_000_000)  = 490_000
+    //           payout  = 600_000 + 490_000 = 1_090_000
+    //    Bob    matched = floor(400_000 * 1_000_000 / 1_200_000) = 333_333
+    //           bonus   = floor(333_333 * 980_000 / 1_000_000)  = 326_666
+    //           payout  = 400_000 + 326_666 = 726_666
+    //    Carol  matched = floor(200_000 * 1_000_000 / 1_200_000) = 166_666
+    //           bonus   = floor(166_666 * 980_000 / 1_000_000)  = 163_332
+    //           payout  = 200_000 + 163_332 = 363_332
     //
-    //  Sum of bonuses paid = 490_000 + 326_666 + 163_333 = 979_999
-    //  D - sum(bonuses) = 980_000 - 979_999 = 1  → dust = 1
+    //  DOWN side (losers, smaller side → fully matched, unmatched = 0 → NothingToClaim)
     //
-    //  Total out to players = 1_090_000 + 726_666 + 363_333 = 2_179_999
-    //  feesAccrued after all claims = 20_000 (fee) + 1 (dust) = 20_001
-    //  Contract balance after all = 2_200_000 - 2_179_999 = 20_001  ✓
+    //  Sum matched_UP = 500_000 + 333_333 + 166_666 = 999_999 ≤ M ✓
+    //  Sum bonuses    = 490_000 + 326_666 + 163_332 = 979_998
+    //  dust = Dist - sum(bonuses) = 980_000 - 979_998 = 2
+    //  feesAccrued after all claims = 20_000 + 2 = 20_002
+    //  Total out to players = 1_090_000 + 726_666 + 363_332 = 2_179_998
+    //  Conservation: 2_179_998 + 20_002 = 2_200_000 ✓
     // =========================================================
 
     uint128 constant UP_ALICE  = 600_000;
@@ -193,9 +202,10 @@ contract ClaimTest is ClaimBase {
     function test_upWins_carolPayout() public {
         _setupUpWins();
         uint256 p = _claim(carol, btcId, 1);
-        // 200_000 + floor(200_000 * 980_000 / 1_200_000)
-        // = 200_000 + 163_333 = 363_333
-        assertEq(p, 363_333, "carol payout");
+        // matched = floor(200_000 * 1_000_000 / 1_200_000) = 166_666
+        // bonus   = floor(166_666 * 980_000 / 1_000_000)  = 163_332
+        // payout  = 200_000 + 163_332 = 363_332
+        assertEq(p, 363_332, "carol payout");
     }
 
     function test_upWins_loserReverts() public {
@@ -216,16 +226,16 @@ contract ClaimTest is ClaimBase {
         _claim(bob,   btcId, 1);
         _claim(carol, btcId, 1);
 
-        // feesAccrued = fee(20_000) + dust(1) = 20_001
-        assertEq(arena.feesAccrued(), 20_001, "feesAccrued after all claims");
+        // feesAccrued = fee(20_000) + dust(2) = 20_002
+        assertEq(arena.feesAccrued(), 20_002, "feesAccrued after all claims");
         // Contract balance == feesAccrued (all player money out)
-        assertEq(usdc.balanceOf(address(arena)), 20_001, "balance == feesAccrued");
+        assertEq(usdc.balanceOf(address(arena)), 20_002, "balance == feesAccrued");
         // totalPlayerFunds should now be 0
         assertEq(arena.totalPlayerFunds(), 0, "totalPlayerFunds == 0");
         // Sum of payouts == totalIn - feesAccrued
         assertEq(
-            1_090_000 + 726_666 + 363_333,
-            totalIn - 20_001,
+            1_090_000 + 726_666 + 363_332,
+            totalIn - 20_002,
             "payout + fees == total"
         );
     }
@@ -233,25 +243,26 @@ contract ClaimTest is ClaimBase {
     // =========================================================
     //  Happy path – DOWN wins, 3 players
     //
-    //  UP:   alice 500_000, bob 500_000             → W (DOWN perspective) below
-    //  DOWN: carol 300_000, dave 200_000, alice N/A → L (UP) = 1_000_000
+    //  UP:  alice 1_000_000                           → U = 1_000_000
+    //  DOWN: bob 300_000, carol 200_000, dave 100_000 → D = 600_000
     //
-    //  Wait – easier to use fresh players:
-    //  UP:  alice 1_000_000                         → L = 1_000_000
-    //  DOWN: bob 300_000, carol 200_000, dave 100_000 → W = 600_000
+    //  M = min(1_000_000, 600_000) = 600_000   T = 1_000_000
+    //  F = floor(600_000 * 200 / 10_000) = 12_000
+    //  Dist = 588_000
     //
-    //  F = floor(1_000_000 * 200 / 10_000) = 20_000
-    //  D = 980_000
+    //  DOWN side (winners, smaller side → fully matched):
+    //    Bob   matched=300_000, bonus=floor(300_000*588_000/600_000)=294_000, payout=594_000
+    //    Carol matched=200_000, bonus=floor(200_000*588_000/600_000)=196_000, payout=396_000
+    //    Dave  matched=100_000, bonus=floor(100_000*588_000/600_000)=98_000,  payout=198_000
     //
-    //  Bob   payout = 300_000 + floor(300_000 * 980_000 / 600_000)
-    //              = 300_000 + 490_000 = 790_000
-    //  Carol payout = 200_000 + floor(200_000 * 980_000 / 600_000)
-    //              = 200_000 + 326_666 = 526_666
-    //  Dave  payout = 100_000 + floor(100_000 * 980_000 / 600_000)
-    //              = 100_000 + 163_333 = 263_333
+    //  UP side (loser, bigger side → ceil(s * M / T)):
+    //    Alice matched = ceil(1_000_000 * 600_000 / 1_000_000) = 600_000
+    //          unmatched = 400_000 → payout = 400_000
     //
-    //  Sum bonuses = 490_000 + 326_666 + 163_333 = 979_999  → dust = 1
-    //  feesAccrued = 20_000 + 1 = 20_001
+    //  Sum bonuses = 294_000 + 196_000 + 98_000 = 588_000 → dust = 0
+    //  feesAccrued = 12_000
+    //  Total paid  = 594_000 + 396_000 + 198_000 + 400_000 = 1_588_000
+    //  Conservation: 1_588_000 + 12_000 = 1_600_000 ✓
     // =========================================================
 
     function _setupDownWins()
@@ -281,28 +292,30 @@ contract ClaimTest is ClaimBase {
     function test_downWins_bobPayout() public {
         _setupDownWins();
         uint256 p = _claim(bob, ethId, 1);
-        assertEq(p, 790_000, "bob payout DOWN wins");
+        // matched=300_000 (smaller side), bonus=floor(300_000*588_000/600_000)=294_000
+        assertEq(p, 594_000, "bob payout DOWN wins");
     }
 
     function test_downWins_carolPayout() public {
         _setupDownWins();
         uint256 p = _claim(carol, ethId, 1);
-        assertEq(p, 526_666, "carol payout DOWN wins");
+        // matched=200_000, bonus=196_000, payout=396_000
+        assertEq(p, 396_000, "carol payout DOWN wins");
     }
 
     function test_downWins_davePayout() public {
         _setupDownWins();
         uint256 p = _claim(dave, ethId, 1);
-        assertEq(p, 263_333, "dave payout DOWN wins");
+        // matched=100_000, bonus=98_000, payout=198_000
+        assertEq(p, 198_000, "dave payout DOWN wins");
     }
 
-    function test_downWins_loserReverts() public {
+    /// Under matched calls, alice (UP, bigger side that lost) gets back
+    /// her unmatched portion: stake - ceil(stake * M / T) = 1_000_000 - 600_000 = 400_000.
+    function test_downWins_biggerSideLoser_getsUnmatched() public {
         _setupDownWins();
-        vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(PredictionArena.NothingToClaim.selector, ethId, 1)
-        );
-        arena.claim(ethId, 1);
+        uint256 p = _claim(alice, ethId, 1);
+        assertEq(p, 400_000, "bigger-side loser gets unmatched stake back");
     }
 
     function test_downWins_conservation() public {
@@ -310,9 +323,19 @@ contract ClaimTest is ClaimBase {
         _claim(bob,   ethId, 1);
         _claim(carol, ethId, 1);
         _claim(dave,  ethId, 1);
-        assertEq(arena.feesAccrued(), 20_001);
-        assertEq(usdc.balanceOf(address(arena)), 20_001);
+        _claim(alice, ethId, 1); // bigger-side loser
+        // dust = 0; fee = 12_000
+        assertEq(arena.feesAccrued(), 12_000);
+        assertEq(usdc.balanceOf(address(arena)), 12_000);
         assertEq(arena.totalPlayerFunds(), 0);
+    }
+
+    /// claimable() must agree with claim() for the bigger-side loser.
+    function test_downWins_claimable_biggerSideLoser() public {
+        _setupDownWins();
+        uint256 preview = arena.claimable(ethId, 1, alice);
+        uint256 actual  = _claim(alice, ethId, 1);
+        assertEq(preview, actual, "claimable matches claim for bigger-side loser");
     }
 
     // =========================================================
@@ -1054,5 +1077,147 @@ contract ClaimTest is ClaimBase {
         vm.warp(deadline + 1);
         assertEq(arena.claimable(btcId, 1, alice), MIN, "timed out one second later");
         assertEq(arena.claimable(btcId, 1, bob),   MIN, "timed out one second later");
+    }
+
+    // =========================================================
+    //  matchedStake() view
+    // =========================================================
+
+    /// Worked example: UP 10 USDC / DOWN 6 USDC, UP wins (spec §3 example).
+    ///   U=10_000_000, D=6_000_000; M=6_000_000; F=120_000; Dist=5_880_000.
+    ///   UP winner (bigger, floor): matched=floor(10M*6M/10M)=6_000_000; unmatched=4_000_000.
+    ///   DOWN loser (smaller): matched=6_000_000; unmatched=0.
+    function test_matchedStake_workedExampleUpWins() public {
+        // Use a market with minStake=1 for flexibility.
+        vm.prank(owner);
+        arena.createMarket("WE", address(feed), address(0), ROUND, 0, 1);
+        uint256 wId = arena.marketCount() - 1;
+
+        vm.warp(1);
+        _bet(alice, wId, 1, true,  10_000_000);
+        _bet(bob,   wId, 1, false,  6_000_000);
+
+        uint256 lt = _lock(wId, 1); uint256 et = _end(wId, 1);
+        vm.warp(lt - 2); vm.prank(owner); feed.setPrice(100e8);
+        vm.warp(lt + 1); vm.prank(owner); feed.setPrice(100e8);
+        vm.warp(et - 1); vm.prank(owner); feed.setPrice(105e8);
+        vm.warp(et + 1);
+        uint80 s = (uint80(1)<<64)|2; uint80 e = (uint80(1)<<64)|3;
+        vm.prank(settler); arena.settle(wId, 1, s, e);
+
+        // Alice (UP winner, bigger side): matched=6_000_000, unmatched=4_000_000.
+        (uint256 m, uint256 u) = arena.matchedStake(wId, 1, alice);
+        assertEq(m, 6_000_000, "alice matched");
+        assertEq(u, 4_000_000, "alice unmatched");
+
+        // Bob (DOWN loser, smaller side): matched=6_000_000, unmatched=0.
+        (uint256 m2, uint256 u2) = arena.matchedStake(wId, 1, bob);
+        assertEq(m2, 6_000_000, "bob matched");
+        assertEq(u2, 0,         "bob unmatched");
+    }
+
+    /// Worked example: UP 10 / DOWN 6, DOWN wins.
+    ///   UP=10M loser (bigger, ceil): matched=ceil(10M*6M/10M)=6M; unmatched=4M.
+    ///   DOWN=6M winner (smaller): matched=6M; unmatched=0.
+    function test_matchedStake_workedExampleDownWins() public {
+        vm.prank(owner);
+        arena.createMarket("WD", address(feed), address(0), ROUND, 0, 1);
+        uint256 wId = arena.marketCount() - 1;
+
+        vm.warp(1);
+        _bet(alice, wId, 1, true,  10_000_000);
+        _bet(bob,   wId, 1, false,  6_000_000);
+
+        uint256 lt = _lock(wId, 1); uint256 et = _end(wId, 1);
+        vm.warp(lt - 2); vm.prank(owner); feed.setPrice(100e8);
+        vm.warp(lt + 1); vm.prank(owner); feed.setPrice(100e8);
+        vm.warp(et - 1); vm.prank(owner); feed.setPrice(95e8); // DOWN wins
+        vm.warp(et + 1);
+        uint80 s = (uint80(1)<<64)|2; uint80 e = (uint80(1)<<64)|3;
+        vm.prank(settler); arena.settle(wId, 1, s, e);
+
+        // Alice (UP loser, bigger side): matched=ceil(10M*6M/10M)=6M; unmatched=4M.
+        (uint256 m, uint256 u) = arena.matchedStake(wId, 1, alice);
+        assertEq(m, 6_000_000, "alice matched (loser bigger side)");
+        assertEq(u, 4_000_000, "alice unmatched");
+
+        // Bob (DOWN winner, smaller side): matched=6M; unmatched=0.
+        (uint256 m2, uint256 u2) = arena.matchedStake(wId, 1, bob);
+        assertEq(m2, 6_000_000, "bob matched (winner smaller side)");
+        assertEq(u2, 0,         "bob unmatched");
+    }
+
+    /// A tie (U == D): every player is fully matched on both sides.
+    function test_matchedStake_tie() public {
+        vm.warp(1);
+        _bet(alice, btcId, 1, true,  MIN);
+        _bet(bob,   btcId, 1, false, MIN);
+
+        uint256 lt = _lock(btcId, 1); uint256 et = _end(btcId, 1);
+        vm.warp(lt - 2); vm.prank(owner); feed.setPrice(100e8);
+        vm.warp(lt + 1); vm.prank(owner); feed.setPrice(100e8);
+        vm.warp(et - 1); vm.prank(owner); feed.setPrice(101e8);
+        vm.warp(et + 1);
+        vm.prank(settler); arena.settle(btcId, 1, (uint80(1)<<64)|2, (uint80(1)<<64)|3);
+
+        // Both sides have MIN; M=MIN; both fully matched.
+        (uint256 m, uint256 u) = arena.matchedStake(btcId, 1, alice);
+        assertEq(m, MIN, "alice matched (tie)");
+        assertEq(u, 0,   "alice unmatched (tie)");
+
+        (uint256 m2, uint256 u2) = arena.matchedStake(btcId, 1, bob);
+        assertEq(m2, MIN, "bob matched (tie)");
+        assertEq(u2, 0,   "bob unmatched (tie)");
+    }
+
+    /// matchedStake returns (0,0) for unsettled and refunded rounds.
+    function test_matchedStake_zeroForRefundedAndUnsettled() public {
+        vm.warp(1);
+        _bet(alice, btcId, 1, true,  MIN);
+        _bet(bob,   btcId, 1, false, MIN);
+
+        // Unsettled
+        (uint256 m, uint256 u) = arena.matchedStake(btcId, 1, alice);
+        assertEq(m, 0); assertEq(u, 0);
+
+        // Refund (one-sided via settle)
+        uint256 et = _end(btcId, 1);
+        vm.warp(et + 1);
+        vm.prank(settler); arena.settle(btcId, 1, 0, 0); // OneSided refund
+        (m, u) = arena.matchedStake(btcId, 1, alice);
+        assertEq(m, 0); assertEq(u, 0);
+    }
+
+    // =========================================================
+    //  Bigger-side loser claims on UP wins (spec requirement)
+    // =========================================================
+
+    /// UP 10 / DOWN 6, UP wins. Bigger-side loser is the one-sided UP bettor
+    /// BUT wait – UP won means DOWN lost. DOWN (6M) is the smaller side,
+    /// so DOWN losers have NothingToClaim. No bigger-side loser on the DOWN side.
+    /// In this setup the UP side won and is the bigger side – they are winners.
+    /// Only the winning bigger side and the losing smaller side exist.
+    /// This test verifies smaller-side loser still reverts NothingToClaim.
+    function test_upWins_smallerSideLoserReverts() public {
+        _setupUpWins();
+        // dave is DOWN (smaller side, loser): unmatched=0 → NothingToClaim.
+        vm.prank(dave);
+        vm.expectRevert(
+            abi.encodeWithSelector(PredictionArena.NothingToClaim.selector, btcId, 1)
+        );
+        arena.claim(btcId, 1);
+    }
+
+    /// When UP is bigger and UP wins: the unmatched UP stake is returned to each winner
+    /// via the payout formula (payout = stake + bonus, where stake includes unmatched).
+    function test_upWins_winnerUnmatchedIncludedInPayout() public {
+        _setupUpWins();
+        // Alice: matched=500_000, unmatched=100_000.
+        // Alice's payout should be stake(600_000) + bonus(490_000) = 1_090_000,
+        // which naturally returns her unmatched 100_000 as part of her stake.
+        (uint256 m, uint256 u) = arena.matchedStake(btcId, 1, alice);
+        assertEq(m, 500_000, "alice matched");
+        assertEq(u, 100_000, "alice unmatched (returned in payout)");
+        assertEq(arena.claimable(btcId, 1, alice), 1_090_000);
     }
 }

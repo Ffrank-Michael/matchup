@@ -20,9 +20,9 @@ pragma solidity ^0.8.24;
 //  Time starts at T0 = 1_800_000_000, which is a multiple of 600 (3_000_000 * 600),
 //  so T0 is an exact "x:x0:00" mark, like a real 10-minute boundary.
 //
-//  Worked numbers (by hand), 300_000 UP vs 200_000 DOWN, UP wins:
-//     fee = floor(200_000 * 200 / 10_000) = 4_000, bonus pool = 196_000
-//     UP bettor payout = 300_000 + 196_000 = 496_000
+//  Worked numbers (v1.1 matched calls, by hand), 300_000 UP vs 200_000 DOWN, UP wins:
+//     M=min(300_000,200_000)=200_000; fee=floor(200_000*200/10_000)=4_000; Dist=196_000
+//     alice (UP bigger, won): matched=floor(300_000*200_000/300_000)=200_000; bonus=196_000; payout=496_000
 //
 //  The GASREPORT lines are measurements for the cost estimate (run with -vv).
 // =============================================================
@@ -231,9 +231,14 @@ contract TenMinuteRoundsTest is Test {
         (uint80 s, , uint80 e) = _threePushes(0, k, 100e8, 105e8, 99e8);
         _settle(0, k, s, e);
         assertEq(uint8(_state(0, k)), uint8(PredictionArena.RoundState.SettledDown));
-        // DOWN side 200_000 wins; losing side is 300_000: fee = 6_000, bonus pool 294_000
-        assertEq(arena.feesAccrued(), 6_000);
-        assertEq(_claim(dave, 0, k), 200_000 + 294_000);
+        // v1.1 matched calls: DOWN 200_000 wins (smaller side, fully matched).
+        // M = min(300_000, 200_000) = 200_000; F = floor(200_000 * 200 / 10_000) = 4_000; Dist = 196_000.
+        // dave bonus = floor(200_000 * 196_000 / 200_000) = 196_000; payout = 396_000.
+        // alice (UP loser, bigger side): matched = ceil(300_000 * 200_000 / 300_000) = 200_000; unmatched = 100_000.
+        assertEq(arena.feesAccrued(), 4_000);
+        assertEq(_claim(dave, 0, k), 396_000);
+        // alice gets back her unmatched 100_000.
+        assertEq(_claim(alice, 0, k), 100_000, "bigger-side loser gets unmatched back");
     }
 
     function test_tenMin_judgedFromTheLockPrice_notFromTheMomentOfTheBet() public {
@@ -445,9 +450,15 @@ contract TenMinuteRoundsTest is Test {
         assertEq(uint8(_state(0, ks[0])), uint8(PredictionArena.RoundState.SettledUp));
         assertEq(uint8(_state(1, ks[1])), uint8(PredictionArena.RoundState.SettledUp));   // ETH: price rose, dave (UP) wins
         assertEq(uint8(_state(2, ks[2])), uint8(PredictionArena.RoundState.SettledDown)); // SOL: price fell, dave (DOWN) wins
+        // BTC: alice 300_000 UP wins vs dave 200_000 DOWN. M=200_000; bigger UP won.
+        // alice matched=200_000; bonus=196_000; payout=496_000 (unchanged).
         assertEq(_claim(alice, 0, ks[0]), 496_000);
-        assertEq(_claim(dave,  1, ks[1]), 200_000 + 294_000);
-        assertEq(_claim(dave,  2, ks[2]), 200_000 + 294_000);
+        // ETH: dave 200_000 UP wins vs alice 300_000 DOWN. M=200_000 (UP=smaller side, fully matched).
+        // dave bonus=floor(200_000*196_000/200_000)=196_000; payout=396_000.
+        assertEq(_claim(dave,  1, ks[1]), 396_000);
+        // SOL: dave 200_000 DOWN wins vs alice 300_000 UP. M=200_000 (DOWN=smaller side, fully matched).
+        // dave bonus=196_000; payout=396_000.
+        assertEq(_claim(dave,  2, ks[2]), 396_000);
     }
 
     // =========================================================

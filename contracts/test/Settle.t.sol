@@ -1631,9 +1631,9 @@ contract SettleTest is Test {
         (,,,,,, PredictionArena.RoundState state) = arena.rounds(ethId, 1);
         assertEq(uint8(state), uint8(PredictionArena.RoundState.SettledDown));
 
-        // fee = upTotal * 200 / 10_000 = 1_000_000 * 200 / 10_000 = 20_000
-        assertEq(arena.feesAccrued(), 20_000,
-            "fee should be 2% of UP total (1_000_000), not DOWN total");
+        // fee = min(UP, DOWN) * 200 / 10_000 = 250_000 * 200 / 10_000 = 5_000
+        assertEq(arena.feesAccrued(), 5_000,
+            "fee should be 2% of min(UP, DOWN) = 2% of 250_000");
     }
 
     /// Rounding: losing total = 33 (< 10_000 / 200 = 50) → fee rounds DOWN to 0.
