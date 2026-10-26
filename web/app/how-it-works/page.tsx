@@ -51,12 +51,12 @@ const STEPS: ReadonlyArray<{ title: string; body: React.ReactNode }> = [
     ),
   },
   {
-    title: "Winners share the pot.",
-    body: "Winners get their money back plus a share of the losing side's money, based on how much each called. Kairo takes 2% of winnings. If you lose or get refunded, you pay no fee.",
+    title: "Only matched money plays.",
+    body: "Your money plays against the other side. If one side has more, the extra comes back. Winners double the money that played, minus 2%.",
   },
   {
     title: "Claim.",
-    body: "Press Claim and your USDC goes straight to your wallet. The money sits in the contract, not with Kairo: Kairo can only take its 2% fee.",
+    body: "Press Claim and your USDC goes straight to your wallet: winnings, refunds, and the part of a call that was not matched, even if the call lost. Claim all covers them together. The money sits in the contract, not with Kairo: Kairo can only take its 2% fee.",
   },
 ];
 
@@ -139,7 +139,8 @@ export default function HowItWorks() {
       <ul className="mt-3 flex list-disc flex-col gap-2 pl-5 text-[15px] leading-relaxed text-muted-foreground">
         <li>
           <span className="font-semibold text-foreground">Fee:</span> 2% of
-          winnings only. If you lose or get refunded, you pay no fee.
+          the matched money, paid out of winnings only. If you lose or get
+          refunded, you pay no fee.
         </li>
         <li>
           <span className="font-semibold text-foreground">

@@ -105,10 +105,21 @@ function apply(world, a) {
       let payout = 0;
       if (state === 'Refunded') payout = p.up + p.down;
       else {
-        const W = state === 'SettledUp' ? r.up : r.down, L = state === 'SettledUp' ? r.down : r.up;
-        const s = state === 'SettledUp' ? p.up : p.down;
-        if (s === 0) throw new Error('NothingToClaim');
-        payout = s + Math.floor((s * (L - Math.floor((L * 200) / 10000))) / W);
+        // Matched calls (docs/MATCHED_CALLS.md): M = the smaller side, T = the bigger side. Only the matched part plays.
+        const upWon = state === 'SettledUp';
+        const M = BigInt(Math.min(r.up, r.down)), T = BigInt(Math.max(r.up, r.down)), fee = M * 200n / 10000n;
+        const win = BigInt(upWon ? p.up : p.down), lose = BigInt(upWon ? p.down : p.up);
+        const winnerOnBigger = upWon ? r.up > r.down : r.down > r.up;
+        if (win > 0n) {
+          const matched = winnerOnBigger ? win * M / T : win; // bigger side won: rounds down
+          payout = Number(win + matched * (M - fee) / M);
+        } else {
+          const loserOnBigger = upWon ? r.down > r.up : r.up > r.down;
+          if (lose === 0n || !loserOnBigger) throw new Error('NothingToClaim');
+          const unmatched = lose - (lose * M + T - 1n) / T; // bigger side lost: matched rounds up
+          if (unmatched === 0n) throw new Error('NothingToClaim');
+          payout = Number(unmatched);
+        }
       }
       p.claimed = true; agent.balance += payout; world.paidOut += payout;
       return `claims ${usdc(payout)} from ${m.name} round ${a.round}`;

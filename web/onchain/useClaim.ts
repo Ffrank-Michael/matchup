@@ -27,7 +27,8 @@ export const CLAIM_STATUS_TEXT: Record<ClaimStatus, string> = {
 };
 
 /** The button text for a position. */
-export const claimLabel = (kind: ClaimableKind) => (kind === "win" ? "Claim your winnings" : "Get your money back");
+export const claimLabel = (kind: ClaimableKind) =>
+  kind === "win" ? "Claim your winnings" : kind === "partial" ? "Get back" : "Get your money back";
 
 export interface ClaimTarget {
   marketId: number;

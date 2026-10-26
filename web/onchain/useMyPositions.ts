@@ -46,7 +46,8 @@ const SETTLE_WINDOW_SEC = 3_600;
 export type ClaimableKind =
   | "win"     // round settled in the player's favour
   | "refund"  // round refunded (any reason, including timeout)
-  | "none";   // loser, no position, or already claimed
+  | "partial" // lost, but part of the stake was not matched and comes back (matched calls)
+  | "none";   // lost with nothing coming back, no position, or already claimed
 
 export interface MyPosition {
   marketId: number;
@@ -168,11 +169,13 @@ export function useMyPositions(
         const round = roundsForMarket.find((r) => r.roundIndex === q.roundIndex);
         if (!round) continue;
 
-        const kind = classifyKind({ up: upRaw, down: downRaw, claimed }, round, now);
+        let kind = classifyKind({ up: upRaw, down: downRaw, claimed }, round, now);
         const claimableAmount =
           claimResult.status === "success"
             ? (claimResult.result as bigint)
             : 0n;
+        // matched calls: a lost call on the bigger side still has its unmatched part to claim (claimable() says how much)
+        if (kind === "none" && !claimed && claimableAmount > 0n && (round.state === "up" || round.state === "down")) kind = "partial";
 
         positions.push({
           marketId: q.marketId,

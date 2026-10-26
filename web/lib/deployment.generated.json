@@ -1,7 +1,7 @@
 {
   "network": "arc-testnet",
   "chainId": 5042002,
-  "arena": "0xec52762e8f91b2380d39cf2d03101412a8a3530c",
+  "arena": "0xc4f9032673b14d66eded44d1a9d939c42d027a02",
   "markets": [
     {
       "id": 0,

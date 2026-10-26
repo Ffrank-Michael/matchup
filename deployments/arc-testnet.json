@@ -46,9 +46,9 @@
     }
   },
   "arena": {
-    "address": "0xec52762e8f91b2380d39cf2d03101412a8a3530c",
-    "tx": "0x90220df4bcf0bef2bc8b953c5e935acb61c879872e5b2ee5bbfea8dc0372e15b",
-    "block": 69173496
+    "address": "0xc4f9032673b14d66eded44d1a9d939c42d027a02",
+    "tx": "0xaa3b1f3eaa947eab4df8a587d0ba8f0bbeabec4d04ea89135b40063a7ca04ac2",
+    "block": 69207742
   },
   "markets": [
     {
@@ -58,8 +58,9 @@
       "round": 300,
       "offset": 0,
       "feed": "0xbedb9f42fec4640fe77372f169e7a5be96fd3910",
-      "tx": "0x21a2a72b2983d9a433b88ebc5393b84289e89c7c9e1191898865a0a69a46957c",
-      "block": 69173517
+      "minStake": 500000,
+      "tx": "0x93a40dc2de2f09944246cc8121d35c4401f8634d89ef5f78ca1d460cac0612f9",
+      "block": 69207746
     },
     {
       "id": 1,
@@ -68,8 +69,9 @@
       "round": 300,
       "offset": 100,
       "feed": "0x0078011b069e45b60ad547d71b638a149b027f22",
-      "tx": "0x172e686332b631dd90101cd28435abd8fc6e012e45274625adc1bef8876d3392",
-      "block": 69173527
+      "minStake": 500000,
+      "tx": "0x72c881b9360eb6c8f5a1915d6a8d900c277ab72dc4c24d5f6a1bec3f0d3aa07c",
+      "block": 69207749
     },
     {
       "id": 2,
@@ -78,8 +80,9 @@
       "round": 300,
       "offset": 200,
       "feed": "0x5e036746221c450b6adc8c9c40bf12b8ebe86563",
-      "tx": "0x6011c88ae9cd2f22dd86ba16fac994d3a2fc833ac67367420135133b44520579",
-      "block": 69173530
+      "minStake": 500000,
+      "tx": "0x23e82f599dfd0bb7405b7e6b9abe03ee02990685a808dec5ddb389275cdb0013",
+      "block": 69207752
     },
     {
       "id": 3,
@@ -88,8 +91,9 @@
       "round": 600,
       "offset": 0,
       "feed": "0xbedb9f42fec4640fe77372f169e7a5be96fd3910",
-      "tx": "0xba9efc18449554c6f159035f395c78d3a548071cd81a35212db5839075715696",
-      "block": 69173531
+      "minStake": 500000,
+      "tx": "0x26cdd325e28a13cc8566365b4e6d31c413725a8ca8da74380911e0b0ebb02b67",
+      "block": 69207754
     },
     {
       "id": 4,
@@ -98,8 +102,9 @@
       "round": 600,
       "offset": 100,
       "feed": "0x0078011b069e45b60ad547d71b638a149b027f22",
-      "tx": "0xf1c0eb2ec1f89825dba1c9144e65e28ea6cfe6b8e3e87eeda9b503982939197e",
-      "block": 69173538
+      "minStake": 500000,
+      "tx": "0x81b82013202a4f46076a199a4ae28a5fb79a0222bbd8ebf8b578211a4f7090e6",
+      "block": 69207757
     },
     {
       "id": 5,
@@ -108,8 +113,9 @@
       "round": 600,
       "offset": 200,
       "feed": "0x5e036746221c450b6adc8c9c40bf12b8ebe86563",
-      "tx": "0x2f7e355cd04f9dcc9836f574b545775104e8afcc3dc49e704514500e2f58d20c",
-      "block": 69173548
+      "minStake": 500000,
+      "tx": "0x4d61bae1253f9f74c247d3d1ea33738e6175b1126d9fcf40c173010a119ce372",
+      "block": 69207761
     },
     {
       "id": 6,
@@ -118,8 +124,9 @@
       "round": 1800,
       "offset": 0,
       "feed": "0xbedb9f42fec4640fe77372f169e7a5be96fd3910",
-      "tx": "0x0d18db58e9327aa8d152ee6e135764ab02234fb9dd144a377cb5cbcb41e72310",
-      "block": 69182201
+      "minStake": 500000,
+      "tx": "0xdf24fed4744d7ae108c1172695dce61b97968ec8e57fabaffc1c5619fea2c7f8",
+      "block": 69207775
     },
     {
       "id": 7,
@@ -128,8 +135,9 @@
       "round": 1800,
       "offset": 100,
       "feed": "0x0078011b069e45b60ad547d71b638a149b027f22",
-      "tx": "0x30535845168f2bef6844326cb702595f8df1a63ea028e404742b7d9463a5863c",
-      "block": 69182204
+      "minStake": 500000,
+      "tx": "0x455f8c926849f795d8e65f8eab9f786210e3b64867194c9742f786efce64cb39",
+      "block": 69207779
     },
     {
       "id": 8,
@@ -138,8 +146,9 @@
       "round": 1800,
       "offset": 200,
       "feed": "0x5e036746221c450b6adc8c9c40bf12b8ebe86563",
-      "tx": "0x47ee2c5a1d9d1b520f83879d5219150270f6961663ea237628f4e35da6071590",
-      "block": 69182218
+      "minStake": 500000,
+      "tx": "0x57fff928e1829aec07d52443f442a28f2be2d9317cb531b95e9a823a7588b9e4",
+      "block": 69207782
     },
     {
       "id": 9,
@@ -148,8 +157,9 @@
       "round": 3600,
       "offset": 0,
       "feed": "0xbedb9f42fec4640fe77372f169e7a5be96fd3910",
-      "tx": "0xa655b94e1cda98741fd09fa82e32821552a711ba5569a5f24c5f1c92c2ad8c9d",
-      "block": 69182221
+      "minStake": 500000,
+      "tx": "0x7ad0fdf65b54dc2ed5d0e9f268309dd5a36275068fc20f2bb884efeb243f5c59",
+      "block": 69207786
     },
     {
       "id": 10,
@@ -158,8 +168,9 @@
       "round": 3600,
       "offset": 100,
       "feed": "0x0078011b069e45b60ad547d71b638a149b027f22",
-      "tx": "0x045c876344a6da1caf8d39021cca6dac65b49ce8a636c158fec6cf5552b3db5f",
-      "block": 69182224
+      "minStake": 500000,
+      "tx": "0x35e8fa3f38cba4df7352a8fe7a1448511d6ce068301e227db5cd9048e7aac5fc",
+      "block": 69207789
     },
     {
       "id": 11,
@@ -168,9 +179,11 @@
       "round": 3600,
       "offset": 200,
       "feed": "0x5e036746221c450b6adc8c9c40bf12b8ebe86563",
-      "tx": "0x7a2b5efd055b9935de6dc2c7fe88a3d3a7b75fcd230bee0f7d5f0af6459b0711",
-      "block": 69182225
+      "minStake": 500000,
+      "tx": "0x9ab53f5e8bc05e6560883f7bb5859e5be321096319348c57c96f5842ad90bb1d",
+      "block": 69207793
     }
   ],
-  "deployedAt": "2026-10-26T09:18:34.335Z"
+  "previousArena": "0xec52762e8f91b2380d39cf2d03101412a8a3530c",
+  "deployedAt": "2026-10-26T15:54:42.958Z"
 }

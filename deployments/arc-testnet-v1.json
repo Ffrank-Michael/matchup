@@ -1,0 +1,176 @@
+{
+  "network": "arc-testnet",
+  "set": "rehearsal",
+  "chainId": 5042002,
+  "usdc": "0x3600000000000000000000000000000000000000",
+  "owner": "0x2879eF357fB51e28095145D9dBC6CF9be6212663",
+  "pusher": "0x2879eF357fB51e28095145D9dBC6CF9be6212663",
+  "guards": {
+    "btc": {
+      "address": "0x1d9dff093702d516b71317fa40532476b601dbb8",
+      "tx": "0x5a029bdc6fc3ab73dde0c4b9c86f2fc39598cf17af37a7f2b0f641d7b94e7591",
+      "block": 69173440,
+      "kind": "test stand-in",
+      "seeded": true
+    },
+    "eth": {
+      "address": "0xf2b8852c17e140d3a130d159e98b2205855349fa",
+      "tx": "0x8314ee7c76361d78cd6f5e6733227eb2cea55919916781f335b516202c5bde5b",
+      "block": 69173445,
+      "kind": "test stand-in",
+      "seeded": true
+    },
+    "sol": {
+      "address": "0x433d105172d62e56dbeaa02d5a11c8d8bee73592",
+      "tx": "0xa5df492e0adbdde65e75bcd002eb398e2268357a9a2b83230beb165262d0d670",
+      "block": 69173447,
+      "kind": "test stand-in",
+      "seeded": true
+    }
+  },
+  "feeds": {
+    "btc": {
+      "address": "0xbedb9f42fec4640fe77372f169e7a5be96fd3910",
+      "tx": "0xeae3c259c1dfe49a5b9191239ff2f95188485a518f4e0460bd57e6f3272b2bb3",
+      "block": 69173503
+    },
+    "eth": {
+      "address": "0x0078011b069e45b60ad547d71b638a149b027f22",
+      "tx": "0x3fe0140df102ea9d093da6ac870f105487d37629d9af390475aed6da1d989828",
+      "block": 69173507
+    },
+    "sol": {
+      "address": "0x5e036746221c450b6adc8c9c40bf12b8ebe86563",
+      "tx": "0xc399a463c31957944a09490a2997ce6d2860ebaca7f5fae5038c78df06b6f40c",
+      "block": 69173510
+    }
+  },
+  "arena": {
+    "address": "0xec52762e8f91b2380d39cf2d03101412a8a3530c",
+    "tx": "0x90220df4bcf0bef2bc8b953c5e935acb61c879872e5b2ee5bbfea8dc0372e15b",
+    "block": 69173496
+  },
+  "markets": [
+    {
+      "id": 0,
+      "name": "BTC/USD 5m",
+      "coin": "btc",
+      "round": 300,
+      "offset": 0,
+      "feed": "0xbedb9f42fec4640fe77372f169e7a5be96fd3910",
+      "tx": "0x21a2a72b2983d9a433b88ebc5393b84289e89c7c9e1191898865a0a69a46957c",
+      "block": 69173517
+    },
+    {
+      "id": 1,
+      "name": "ETH/USD 5m",
+      "coin": "eth",
+      "round": 300,
+      "offset": 100,
+      "feed": "0x0078011b069e45b60ad547d71b638a149b027f22",
+      "tx": "0x172e686332b631dd90101cd28435abd8fc6e012e45274625adc1bef8876d3392",
+      "block": 69173527
+    },
+    {
+      "id": 2,
+      "name": "SOL/USD 5m",
+      "coin": "sol",
+      "round": 300,
+      "offset": 200,
+      "feed": "0x5e036746221c450b6adc8c9c40bf12b8ebe86563",
+      "tx": "0x6011c88ae9cd2f22dd86ba16fac994d3a2fc833ac67367420135133b44520579",
+      "block": 69173530
+    },
+    {
+      "id": 3,
+      "name": "BTC/USD 10m",
+      "coin": "btc",
+      "round": 600,
+      "offset": 0,
+      "feed": "0xbedb9f42fec4640fe77372f169e7a5be96fd3910",
+      "tx": "0xba9efc18449554c6f159035f395c78d3a548071cd81a35212db5839075715696",
+      "block": 69173531
+    },
+    {
+      "id": 4,
+      "name": "ETH/USD 10m",
+      "coin": "eth",
+      "round": 600,
+      "offset": 100,
+      "feed": "0x0078011b069e45b60ad547d71b638a149b027f22",
+      "tx": "0xf1c0eb2ec1f89825dba1c9144e65e28ea6cfe6b8e3e87eeda9b503982939197e",
+      "block": 69173538
+    },
+    {
+      "id": 5,
+      "name": "SOL/USD 10m",
+      "coin": "sol",
+      "round": 600,
+      "offset": 200,
+      "feed": "0x5e036746221c450b6adc8c9c40bf12b8ebe86563",
+      "tx": "0x2f7e355cd04f9dcc9836f574b545775104e8afcc3dc49e704514500e2f58d20c",
+      "block": 69173548
+    },
+    {
+      "id": 6,
+      "name": "BTC/USD 30m",
+      "coin": "btc",
+      "round": 1800,
+      "offset": 0,
+      "feed": "0xbedb9f42fec4640fe77372f169e7a5be96fd3910",
+      "tx": "0x0d18db58e9327aa8d152ee6e135764ab02234fb9dd144a377cb5cbcb41e72310",
+      "block": 69182201
+    },
+    {
+      "id": 7,
+      "name": "ETH/USD 30m",
+      "coin": "eth",
+      "round": 1800,
+      "offset": 100,
+      "feed": "0x0078011b069e45b60ad547d71b638a149b027f22",
+      "tx": "0x30535845168f2bef6844326cb702595f8df1a63ea028e404742b7d9463a5863c",
+      "block": 69182204
+    },
+    {
+      "id": 8,
+      "name": "SOL/USD 30m",
+      "coin": "sol",
+      "round": 1800,
+      "offset": 200,
+      "feed": "0x5e036746221c450b6adc8c9c40bf12b8ebe86563",
+      "tx": "0x47ee2c5a1d9d1b520f83879d5219150270f6961663ea237628f4e35da6071590",
+      "block": 69182218
+    },
+    {
+      "id": 9,
+      "name": "BTC/USD 1h",
+      "coin": "btc",
+      "round": 3600,
+      "offset": 0,
+      "feed": "0xbedb9f42fec4640fe77372f169e7a5be96fd3910",
+      "tx": "0xa655b94e1cda98741fd09fa82e32821552a711ba5569a5f24c5f1c92c2ad8c9d",
+      "block": 69182221
+    },
+    {
+      "id": 10,
+      "name": "ETH/USD 1h",
+      "coin": "eth",
+      "round": 3600,
+      "offset": 100,
+      "feed": "0x0078011b069e45b60ad547d71b638a149b027f22",
+      "tx": "0x045c876344a6da1caf8d39021cca6dac65b49ce8a636c158fec6cf5552b3db5f",
+      "block": 69182224
+    },
+    {
+      "id": 11,
+      "name": "SOL/USD 1h",
+      "coin": "sol",
+      "round": 3600,
+      "offset": 200,
+      "feed": "0x5e036746221c450b6adc8c9c40bf12b8ebe86563",
+      "tx": "0x7a2b5efd055b9935de6dc2c7fe88a3d3a7b75fcd230bee0f7d5f0af6459b0711",
+      "block": 69182225
+    }
+  ],
+  "deployedAt": "2026-10-26T09:18:34.335Z"
+}

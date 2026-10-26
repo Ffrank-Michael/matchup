@@ -43,6 +43,8 @@ function describe(
     };
   if (p.claimableKind === "win") return { text: "Won", tone: "claim" };
   if (p.claimableKind === "refund") return { text: "Refunded", tone: "claim" };
+  // matched calls: lost, but the unmatched part of the stake is waiting to be claimed
+  if (p.claimableKind === "partial") return { text: "Lost", tone: "claim" };
   if (round.state === "up" || round.state === "down")
     return { text: "Lost", tone: "lost" };
   return {
@@ -155,24 +157,13 @@ export function YourCalls({
             const mine = p.up > 0n ? p.up : p.down;
             const s = settlements?.get(settlementKey(p.marketId, p.roundIndex));
             // what the call earned or cost, from the round's totals (the same sum as the contract's claim)
-            const winnerTotal = round
-              ? round.state === "up"
-                ? round.upTotal
-                : round.downTotal
-              : 0n;
-            const loserTotal = round
-              ? round.state === "up"
-                ? round.downTotal
-                : round.upTotal
-              : 0n;
+            const myTotal = round ? (side === "UP" ? round.upTotal : round.downTotal) : 0n;
+            const otherTotal = round ? (side === "UP" ? round.downTotal : round.upTotal) : 0n;
             const decided = round?.state === "up" || round?.state === "down";
             const wonIt =
               decided && round?.state === (side === "UP" ? "up" : "down");
-            const delta = !decided
-              ? null
-              : wonIt
-                ? settledPayout(mine, winnerTotal, loserTotal) - mine
-                : -mine;
+            // matched calls: a win adds the matched share of the pot, a loss costs only the matched part of the stake
+            const delta = !decided ? null : settledPayout(mine, myTotal, otherTotal, wonIt) - mine;
             return (
               <li
                 key={`${p.marketId}-${p.roundIndex}`}
@@ -224,7 +215,7 @@ export function YourCalls({
                           ? ` · ${clock(round.lockTimeSec)} to ${clock(round.endTimeSec)}`
                           : ""}{" "}
                         · {d.text}
-                        {delta !== null ? (
+                        {delta !== null && delta !== 0n ? (
                           <span
                             className={
                               delta > 0n

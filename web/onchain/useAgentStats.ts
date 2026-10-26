@@ -47,12 +47,11 @@ export function useAgentStats(roundsByMarket: Record<number, Round[]> | null, ne
         if (f.round.state === "refunded") continue;
         decided++;
         const won = f.round.state === (f.side === "UP" ? "up" : "down");
-        const winnerTotal = f.round.state === "up" ? f.round.upTotal : f.round.downTotal;
-        const loserTotal = f.round.state === "up" ? f.round.downTotal : f.round.upTotal;
-        if (won) {
-          wins++;
-          profit += settledPayout(f.stake, winnerTotal, loserTotal) - f.stake;
-        } else profit -= f.stake;
+        const mine = f.side === "UP" ? f.round.upTotal : f.round.downTotal;
+        const other = f.side === "UP" ? f.round.downTotal : f.round.upTotal;
+        if (won) wins++;
+        // matched calls: a win gains the matched share of the pot; a loss costs only the matched part of the stake
+        profit += settledPayout(f.stake, mine, other, won) - f.stake;
       }
       if (decided > 0) {
         live.winRate = wins / decided;

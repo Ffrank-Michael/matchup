@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { CFG } from './config.mjs';
-import { planTick, tickDelay, lookbackFor, lockTime, endTime } from './plan.mjs';
+import { planTick, tickDelay, lookbackFor, lockTime, endTime, unmatchedBack } from './plan.mjs';
 import { findSettleIds } from './settleIds.mjs';
 import { createWalk } from './priceWalk.mjs';
 import { simulate, createWorld, mulberry32 } from './simulate.mjs';
@@ -331,6 +331,26 @@ test('claims a win, a refund, and a timed-out round; leaves losses and claimed r
   assert.equal(claims(6610, { 10: R('SettledUp') }, { '0:10': pos(100_000, 0, true) }).length, 0); // already claimed
   assert.equal(claims(6610, { 10: R('Unsettled') }, { '0:10': pos(100_000, 0) }).length, 0);       // still inside the window
   assert.equal(claims(10201, { 10: R('Unsettled') }, { '0:10': pos(100_000, 0) }).length, 1);      // timed out: refund
+});
+
+test('matched calls: a lost call on the bigger side claims its unmatched part; a smaller-side loser does not', () => {
+  const pos = (up, down) => ({ up, down, claimed: false });
+  // UP 300_000 vs DOWN 200_000, DOWN wins: the UP side is bigger and lost. 100_000 UP: matched ceil(100_000 * 200_000 / 300_000) = 66_667, 33_333 comes back.
+  assert.equal(unmatchedBack(R('SettledDown'), pos(100_000, 0)), 33_333n);
+  assert.equal(claims(6610, { 10: R('SettledDown') }, { '0:10': pos(100_000, 0) }).length, 1);
+  // UP wins: the DOWN side is the smaller one, fully matched, nothing comes back.
+  assert.equal(unmatchedBack(R('SettledUp'), pos(0, 100_000)), 0n);
+  assert.equal(claims(6610, { 10: R('SettledUp') }, { '0:10': pos(0, 100_000) }).length, 0);
+  // A tie: nothing unmatched on either side.
+  assert.equal(unmatchedBack(R('SettledDown', 200_000, 200_000), pos(100_000, 0)), 0n);
+  // Refunds and unsettled rounds are not this rule's business.
+  assert.equal(unmatchedBack(R('Refunded'), pos(100_000, 0)), 0n);
+  assert.equal(unmatchedBack(R('Unsettled'), pos(100_000, 0)), 0n);
+  // Rounds up: 3 and 2 UP lose to 4 DOWN (T = 5, M = 4): ceil(2.4) = 3 and ceil(1.6) = 2, so nothing comes back.
+  assert.equal(unmatchedBack(R('SettledDown', 5, 4), pos(3, 0)), 0n);
+  assert.equal(unmatchedBack(R('SettledDown', 5, 4), pos(2, 0)), 0n);
+  // Big numbers stay exact (stake * M is beyond 2^53).
+  assert.equal(unmatchedBack(R('SettledDown', 9_000_000_000_000, 8_000_000_000_001), pos(9_000_000_000_000, 0)), 9_000_000_000_000n - (9_000_000_000_000n * 8_000_000_000_001n + 8_999_999_999_999n) / 9_000_000_000_000n);
 });
 
 // ---------------------------------------------------------------- helpers

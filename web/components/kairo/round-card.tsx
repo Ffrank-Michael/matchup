@@ -160,12 +160,10 @@ function RoundCard({
       ? round.upTotal
       : round.downTotal
     : 0n;
-  const loserTotal = round
-    ? winner === "UP"
-      ? round.downTotal
-      : round.upTotal
-    : 0n;
-  const fee = settled && winnerTotal > 0n ? (loserTotal * 200n) / 10_000n : 0n;
+  // matched calls: M is the smaller side. Only M from each side plays; the extra on the bigger side comes back.
+  const matchedM = round ? (round.upTotal < round.downTotal ? round.upTotal : round.downTotal) : 0n;
+  const biggerTotal = round ? (round.upTotal > round.downTotal ? round.upTotal : round.downTotal) : 0n;
+  const fee = settled && matchedM > 0n ? (matchedM * 200n) / 10_000n : 0n;
   const total = round ? round.upTotal + round.downTotal : 0n;
 
   const people = React.useMemo(() => {
@@ -317,13 +315,23 @@ function RoundCard({
                 <Row label="Total in this round">{usdc(total)}</Row>
                 <Row label="On UP">{usdc(round.upTotal)}</Row>
                 <Row label="On DOWN">{usdc(round.downTotal)}</Row>
+                {settled ? (
+                  <Row label="Matched">
+                    {`${usdc(matchedM)} on each side`}
+                    {biggerTotal > matchedM ? (
+                      <span className="block text-[11px] font-normal text-muted-foreground">
+                        {`${usdc(biggerTotal - matchedM)} was not matched and came back`}
+                      </span>
+                    ) : null}
+                  </Row>
+                ) : null}
                 <Row label="Fee">
                   {settled
-                    ? `${usdc(fee)} (2% of winnings)`
+                    ? `${usdc(fee)} (2% of the matched ${usdc(matchedM)})`
                     : "$0.00 (no fee on a refund)"}
                 </Row>
                 {settled ? (
-                  <Row label="Paid to winners">{usdc(total - fee)}</Row>
+                  <Row label="Paid to winners">{usdc(winnerTotal + matchedM - fee)}</Row>
                 ) : null}
               </dl>
 
@@ -349,10 +357,12 @@ function RoundCard({
                       : refunded
                         ? "refunded"
                         : null;
+                    // matched calls: a win adds the matched share of the pot; a loss costs only the matched part of the stake
+                    const mineTotal = p.side === "UP" ? round.upTotal : round.downTotal;
+                    const otherTotal = p.side === "UP" ? round.downTotal : round.upTotal;
                     const delta =
-                      result === "won"
-                        ? settledPayout(p.amount, winnerTotal, loserTotal) -
-                          p.amount
+                      result === "won" || result === "lost"
+                        ? settledPayout(p.amount, mineTotal, otherTotal, result === "won") - p.amount
                         : 0n;
                     return (
                       <li
@@ -412,7 +422,7 @@ function RoundCard({
                               {result === "won"
                                 ? `✓ Won ${usdc(delta)}`
                                 : result === "lost"
-                                  ? "✗ Lost"
+                                  ? `✗ Lost ${usdc(-delta)}`
                                   : "Refunded"}
                             </span>
                           ) : null}

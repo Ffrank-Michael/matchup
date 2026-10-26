@@ -7,7 +7,7 @@ import { useConnection } from "wagmi";
 import type { Agent } from "@/lib/agents";
 import { formatCountdown, frameWords, type Market } from "@/lib/markets";
 import { cn } from "@/lib/utils";
-import { APPROVAL_NOTICE, BETA_LIMIT_USDC, DEFAULT_APPROVAL_USDC, estimatePayout, STATUS_TEXT, txLink, useMakeCall, usdc, useUsdc, useWalletStatus } from "@/onchain";
+import { BETA_LIMIT_USDC, estimatePayout, STATUS_TEXT, useMakeCall, usdc, useWalletStatus } from "@/onchain";
 
 import { AgentAvatar } from "./agent-avatar";
 import { INK, Tile } from "./tile";
@@ -94,8 +94,6 @@ export function YourCall({
   const connected = !!address;
   const { isWrongNetwork: wrongNetwork } = useWalletStatus();
   const call = useMakeCall();
-  const wallet = useUsdc();
-  const [permission, setPermission] = React.useState(String(DEFAULT_APPROVAL_USDC));
 
   // the round the last call was for: when it goes through, the watch sheet opens on it
   const [sent, setSent] = React.useState<{ marketId: number; roundIndex: number } | null>(null);
@@ -105,7 +103,6 @@ export function YourCall({
   }, [status, sent, onCalled]);
   const busy = ["checking", "approve-wallet", "approve-confirming", "call-wallet", "call-confirming"].includes(call.status);
   const amountRaw = parsed !== null && !tooSmall && !tooBig && Number.isFinite(parsed) ? BigInt(Math.round(parsed * 1_000_000)) : null;
-  const needsPermission = connected && amountRaw !== null && wallet.allowanceRaw !== null && wallet.allowanceRaw < amountRaw;
   const canConfirm = connected && !wrongNetwork && !busy && !!chain && !chain.paused && !!side && amountRaw !== null && amountRaw >= chain.minStake;
   const estimate = chain && side && amountRaw !== null ? estimatePayout(side, amountRaw, chain.upTotal, chain.downTotal) : null;
   const confirmLabel = !chain
@@ -249,47 +246,23 @@ export function YourCall({
         </div>
       </div>
 
-      {/* money on the round and the estimate (from the contract) */}
+      {/* money on the round and what a win adds: two lines (from the contract's numbers) */}
       {chain ? (
-        <div className="mt-5 rounded-2xl px-3.5 py-3 text-[13px]" style={{ background: "color-mix(in oklch, black 10%, transparent)" }}>
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="font-semibold">Total in this round</span>
-            <span className="font-mono text-[18px] font-semibold tabular-nums">{usdc(chain.upTotal + chain.downTotal)}</span>
-          </div>
-          <div className="mt-1 flex items-center gap-4 font-mono text-[12px] tabular-nums opacity-80">
-            <span>▲ UP {usdc(chain.upTotal)}</span>
-            <span>▼ DOWN {usdc(chain.downTotal)}</span>
-          </div>
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <span>
-              <span className="font-semibold">Estimated payout</span>
-              <span className="block text-[11px] opacity-70">Changes until the round starts</span>
-            </span>
-            <span className="text-right font-mono font-semibold tabular-nums">
-              {estimate ? (estimate.kind === "win" ? usdc(estimate.payout) : <span className="font-sans text-[12px] font-medium">Your money back for now</span>) : "—"}
-            </span>
-          </div>
-        </div>
-      ) : null}
-
-      {/* before the one-time permission is asked for: say what it is */}
-      {needsPermission && call.status === "idle" ? (
-        <div className="mt-4 rounded-2xl p-3 text-[12px] leading-snug" style={{ background: "color-mix(in oklch, black 10%, transparent)" }}>
-          <p>{APPROVAL_NOTICE}</p>
-          <label className="mt-2 flex items-center gap-2 font-semibold">
-            Permission amount
-            <span className="flex items-center gap-1 rounded-xl border-2 px-2 py-1" style={{ borderColor: "color-mix(in oklch, black 25%, transparent)" }}>
-              <span className="font-mono opacity-60">$</span>
-              <input
-                inputMode="decimal"
-                autoComplete="off"
-                value={permission}
-                onChange={(e) => setPermission(cleanAmount(e.target.value))}
-                aria-label="Permission amount in USDC"
-                className="w-16 bg-transparent font-mono tabular-nums outline-none"
-              />
-            </span>
-          </label>
+        <div className="mt-5 rounded-2xl px-3.5 py-3 text-[13px] leading-snug" style={{ background: "color-mix(in oklch, black 10%, transparent)" }}>
+          <p className="flex flex-wrap items-baseline gap-x-2">
+            <span className="font-semibold">In this round:</span>
+            <span className="font-mono tabular-nums">▲ {usdc(chain.upTotal)} · ▼ {usdc(chain.downTotal)}</span>
+          </p>
+          <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2">
+            {estimate?.kind === "refund" ? (
+              <span className="font-medium">No one on the other side yet. Your money comes back if it stays that way.</span>
+            ) : (
+              <>
+                <span className="font-semibold">If you win:</span>
+                <span className="font-mono font-semibold tabular-nums">{estimate ? `+${usdc(estimate.bonus)}` : "—"}</span>
+              </>
+            )}
+          </p>
         </div>
       ) : null}
 
@@ -300,7 +273,7 @@ export function YourCall({
         onClick={() => {
           if (side && chain) {
             setSent({ marketId: market.id, roundIndex: chain.nextRound });
-            void call.makeCall({ marketId: market.id, round: chain.nextRound, side, amountUsdc: amount, approvalUsdc: permission });
+            void call.makeCall({ marketId: market.id, round: chain.nextRound, side, amountUsdc: amount });
           }
         }}
         className="mt-4 flex min-h-14 w-full items-center justify-center rounded-2xl px-3 py-2 text-center text-[16px] font-bold leading-tight transition-opacity disabled:cursor-not-allowed"
@@ -309,15 +282,10 @@ export function YourCall({
         {busy ? STATUS_TEXT[call.status].replace("…", "") : confirmLabel}
       </button>
 
-      {call.status !== "idle" ? (
+      {call.status === "done" || call.status === "failed" ? (
         <div className="mt-2 text-center text-[12px] leading-snug" role="status">
           <p className="font-semibold">{call.status === "failed" ? (call.errorMessage ?? STATUS_TEXT.failed) : STATUS_TEXT[call.status]}</p>
           {call.errorTechnical && call.status === "failed" ? <p className="mt-0.5 break-words text-[11px] opacity-60">{call.errorTechnical}</p> : null}
-          {call.approveTxHash ? (
-            <a href={txLink(call.approveTxHash) ?? undefined} target="_blank" rel="noreferrer" className="mr-3 underline underline-offset-2">
-              Permission
-            </a>
-          ) : null}
           {call.status === "done" && sent ? (
             <button type="button" onClick={() => onCalled(sent.marketId, sent.roundIndex)} className="underline underline-offset-2">
               View your call
@@ -333,7 +301,7 @@ export function YourCall({
 
       {/* the rule, in one line */}
       <p className="mt-4 text-center text-[11px] leading-snug opacity-80">
-        2% fee on winnings only · Money back if no one is on the other side ·{" "}
+        2% fee on the matched money · Money back if no one is on the other side ·{" "}
         <Link href="/how-it-works" className="font-semibold underline underline-offset-2">
           How it works →
         </Link>

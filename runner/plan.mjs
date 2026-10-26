@@ -85,6 +85,22 @@ function planBet(m, k, agent, cfg, actions, decisions, candles) {
  *   'end'  : the round has its start price and the end price is not in yet, from endMargin seconds before the end
  * Also used by the runner to tick faster while a price is due.
  */
+/**
+ * Matched calls: a caller on the BIGGER side who lost still gets the unmatched part of the stake back at claim.
+ * Same maths as the contract: the loser's matched part is ceil(stake * M / T) (M = smaller side, T = bigger side),
+ * so what comes back is stake - ceil(stake * M / T). BigInt, because stake * M can pass 2^53. Zero for anyone else.
+ */
+export function unmatchedBack(r, p) {
+  if (r.state !== 'SettledUp' && r.state !== 'SettledDown') return 0n;
+  const upWon = r.state === 'SettledUp';
+  const stake = BigInt(upWon ? p.down : p.up);
+  const U = BigInt(r.up), D = BigInt(r.down);
+  const biggerLost = upWon ? D > U : U > D;
+  if (stake === 0n || !biggerLost) return 0n;
+  const M = U < D ? U : D, T = U > D ? U : D;
+  return stake - (stake * M + T - 1n) / T;
+}
+
 export function priceDue(m, now, cfg) {
   const k = m.nextRound;
   if (k < 1) return null;
@@ -173,7 +189,7 @@ export function planTick(snap, cfg, decided = new Set()) {
         if (!p || !r || p.claimed || p.up + p.down === 0) continue;
         const wins = (r.state === 'SettledUp' && p.up > 0) || (r.state === 'SettledDown' && p.down > 0);
         const refund = r.state === 'Refunded' || (r.state === 'Unsettled' && now > endTime(m, j) + cfg.settleWindow);
-        if (wins || refund) actions.push({ type: 'claim', agent: a.key, market: m.id, marketName: m.name, round: j });
+        if (wins || refund || unmatchedBack(r, p) > 0n) actions.push({ type: 'claim', agent: a.key, market: m.id, marketName: m.name, round: j });
       }
     }
   }

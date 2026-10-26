@@ -50,7 +50,7 @@ export type MakeCallStatus = "idle" | "checking" | "approve-wallet" | "approve-c
 export const STATUS_TEXT: Record<MakeCallStatus, string> = {
   idle: "",
   checking: "Checking your call…",
-  "approve-wallet": `${APPROVAL_NOTICE} Confirm in your wallet.`,
+  "approve-wallet": "Confirm in your wallet.",
   "approve-confirming": "Waiting for the approval to confirm…",
   "call-wallet": "Confirm your call in your wallet.",
   "call-confirming": "Waiting for your call to confirm…",

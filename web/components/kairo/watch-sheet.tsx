@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { winningSide } from "@/lib/winning";
 import {
   settledPayout,
+  settledSplit,
   txLink,
   usdc,
   useCallHistory,
@@ -30,6 +31,7 @@ import {
 } from "@/onchain";
 
 import { AgentAvatar } from "./agent-avatar";
+import { MatchedLine } from "./matched-line";
 import { PriceProof } from "./price-proof";
 import { RoundBadge, roundStatusOf } from "./round-badge";
 import { RoundChart } from "./round-chart";
@@ -272,23 +274,18 @@ export function WatchSheet({
   const finished = settled || refunded;
   const winner =
     round?.state === "up" ? "UP" : round?.state === "down" ? "DOWN" : null;
-  const winnerTotal = round
-    ? winner === "UP"
-      ? round.upTotal
-      : round.downTotal
-    : 0n;
-  const loserTotal = round
-    ? winner === "UP"
-      ? round.downTotal
-      : round.upTotal
-    : 0n;
   const won = settled && mySide !== null && mySide === winner;
-  const payout = won ? settledPayout(myAmount, winnerTotal, loserTotal) : 0n;
-  // this caller's share of the 2% fee: the fee is taken from the losing side, in proportion to the winners' stakes
+  // matched calls: the two sides' totals as I see them (mine / the other side), and how much of my stake is matched
+  const myTotal = round && mySide ? (mySide === "UP" ? round.upTotal : round.downTotal) : 0n;
+  const otherTotal = round && mySide ? (mySide === "UP" ? round.downTotal : round.upTotal) : 0n;
+  const matchedM = myTotal < otherTotal ? myTotal : otherTotal;
+  const split = mySide ? settledSplit(myAmount, myTotal, otherTotal, won) : { matched: 0n, unmatched: 0n };
+  const payout = settled && mySide ? settledPayout(myAmount, myTotal, otherTotal, won) : 0n;
+  // this caller's share of the 2% fee (2% of the matched pool), in proportion to the matched part of the stake
   const feeShare =
-    won && winnerTotal > 0n
-      ? (((loserTotal * 200n) / 10_000n) * myAmount) / winnerTotal
-      : 0n;
+    won && matchedM > 0n ? (((matchedM * 200n) / 10_000n) * split.matched) / matchedM : 0n;
+  const matchedText = (s: { matched: bigint; unmatched: bigint }) =>
+    `${usdc(s.matched)} of your ${usdc(myAmount)}${s.unmatched > 0n ? ` · ${usdc(s.unmatched)} comes back` : ""}`;
   const canClaim =
     position &&
     position.claimableKind !== "none" &&
@@ -502,7 +499,9 @@ export function WatchSheet({
                         ? `You get your ${usdc(myAmount)} back`
                         : won
                           ? `You won ${usdc(payout - myAmount)}`
-                          : `You lost ${usdc(myAmount)}`}
+                          : split.unmatched > 0n
+                            ? `You lost ${usdc(split.matched)} · ${usdc(split.unmatched)} comes back`
+                            : `You lost ${usdc(myAmount)}`}
                   </p>
                   {mySide !== null && settled ? (
                     <p className="mt-1 text-[13px] font-medium opacity-80">
@@ -612,6 +611,18 @@ export function WatchSheet({
                 </div>
               )}
 
+              {/* matched calls: while the round is not over, what plays against the other side and what comes back */}
+              {mySide && round && !finished ? (
+                <MatchedLine
+                  side={mySide}
+                  stake={myAmount}
+                  upTotal={round.upTotal}
+                  downTotal={round.downTotal}
+                  includesStake
+                  className="mt-3 rounded-2xl border border-border bg-muted/40 px-4 py-3 text-[13px] leading-snug"
+                />
+              ) : null}
+
               {/* your call */}
               {mySide ? (
                 <dl className="mt-4 divide-y divide-border rounded-2xl border border-border px-4">
@@ -686,6 +697,13 @@ export function WatchSheet({
                       "Waiting for the result"
                     )}
                   </Row>
+                  {mySide && !refunded && round && myTotal > 0n && otherTotal > 0n ? (
+                    <Row label="Matched">
+                      {settled
+                        ? matchedText(split)
+                        : `${matchedText(settledSplit(myAmount, myTotal, otherTotal, true))} so far`}
+                    </Row>
+                  ) : null}
                   {finished ? (
                     <>
                       <Row label="Paid out">
@@ -694,13 +712,13 @@ export function WatchSheet({
                           ? usdc(history.paidOut)
                           : position && position.claimableAmount > 0n
                             ? `${usdc(position.claimableAmount)} waiting to be claimed`
-                            : refunded || won
+                            : refunded || won || split.unmatched > 0n
                               ? "…"
                               : "$0.00"}
                       </Row>
                       <Row label="Fee">
                         {won
-                          ? `${usdc(feeShare)} (2% of winnings)`
+                          ? `${usdc(feeShare)} (2% of the matched money)`
                           : "$0.00 (no fee)"}
                       </Row>
                     </>
