@@ -28,11 +28,13 @@ function describe(p: MyPosition, round: Round | undefined): { text: string; tone
 export function YourCalls({
   positions,
   roundsByMarket,
+  onOpen,
   index,
   className,
 }: {
   positions: MyPosition[] | null;
   roundsByMarket: Record<number, Round[]> | null;
+  onOpen: (marketId: number, roundIndex: number) => void;
   index: number;
   className?: string;
 }) {
@@ -86,7 +88,7 @@ export function YourCalls({
             const mine = p.up > 0n ? p.up : p.down;
             return (
               <li key={`${p.marketId}-${p.roundIndex}`} className="flex items-center justify-between gap-3 py-2.5 text-[13px]">
-                <span className="min-w-0">
+                <button type="button" onClick={() => onOpen(p.marketId, p.roundIndex)} className="min-w-0 flex-1 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   <span className="flex items-center gap-2">
                     <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: side === "UP" ? "var(--color-up)" : "var(--color-down)", color: INK }}>
                       {side === "UP" ? "▲ UP" : "▼ DOWN"}
@@ -97,7 +99,7 @@ export function YourCalls({
                     {market?.name ?? `Market ${p.marketId}`}
                     {round ? ` · ${clock(round.lockTimeSec)} to ${clock(round.endTimeSec)}` : ""} · {d.text}
                   </span>
-                </span>
+                </button>
                 {d.tone === "claim" ? (
                   <button
                     type="button"

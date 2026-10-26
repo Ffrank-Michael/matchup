@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { toWebDeployment, syncWebDeployment } from './sync-web-deployment.mjs';
+import { toWebDeployment, toWebAgents, syncWebDeployment } from './sync-web-deployment.mjs';
 
 const ARENA = '0xec52762e8f91b2380d39cf2d03101412a8a3530c';
 const rec = (markets) => ({ network: 'arc-testnet', chainId: 5042002, arena: { address: ARENA, tx: '0xsecret-looking-but-public' }, owner: '0x1', markets, guards: {}, feeds: {} });
@@ -15,8 +15,13 @@ test('copies only the public market facts, sorted by id', () => {
   const out = toWebDeployment(rec([m(1, 'ETH/USD 5m', 300, 100), m(0, 'BTC/USD 5m', 300, 0)]));
   assert.deepEqual(out.markets.map((x) => x.id), [0, 1]);
   assert.deepEqual(Object.keys(out.markets[0]).sort(), ['coin', 'feed', 'id', 'name', 'offset', 'round']);
-  assert.deepEqual(Object.keys(out).sort(), ['arena', 'chainId', 'markets', 'network']);
+  assert.deepEqual(Object.keys(out).sort(), ['agents', 'arena', 'chainId', 'markets', 'network']);
   assert.equal(out.arena, ARENA);
+});
+
+test('copies only the key and address of each agent', () => {
+  const agents = toWebAgents({ agents: [{ key: 'contrarian', name: 'x', walletId: 'secret-id', address: '0xC91173462532E737FC76DA40545361B243248E7A' }, { key: 'bad', address: 'nope' }] });
+  assert.deepEqual(agents, [{ key: 'contrarian', address: '0xc91173462532e737fc76da40545361b243248e7a' }]);
 });
 
 test('refuses an unusable deployment with a plain message', () => {
@@ -42,5 +47,6 @@ test('the committed site copy matches the testnet deployment file', () => {
   const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
   const dep = JSON.parse(fs.readFileSync(path.join(root, 'deployments', 'arc-testnet.json'), 'utf8'));
   const copy = JSON.parse(fs.readFileSync(path.join(root, 'web', 'lib', 'deployment.generated.json'), 'utf8'));
-  assert.deepEqual(copy, toWebDeployment(dep), 'run: node scripts/sync-web-deployment.mjs');
+  const circle = JSON.parse(fs.readFileSync(path.join(root, 'deployments', 'circle-testnet.json'), 'utf8'));
+  assert.deepEqual(copy, toWebDeployment(dep, toWebAgents(circle)), 'run: node scripts/sync-web-deployment.mjs');
 });

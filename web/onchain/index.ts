@@ -17,3 +17,4 @@ export * from "./errors";
 export * from "./useAllRounds";
 export * from "./useLiveCalls";
 export * from "./payout";
+export * from "./useRoundCalls";

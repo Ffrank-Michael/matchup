@@ -99,5 +99,23 @@
       "offset": 200,
       "feed": "0x5e036746221c450b6adc8c9c40bf12b8ebe86563"
     }
+  ],
+  "agents": [
+    {
+      "key": "trend-follower",
+      "address": "0x82dbcac9a7cf0d65a74c38170a72331cde2d1ebd"
+    },
+    {
+      "key": "contrarian",
+      "address": "0xc91173462532e737fc76da40545361b243248e7a"
+    },
+    {
+      "key": "streak-hunter",
+      "address": "0xe4c5d2cb10336c5512d78671ae34741475a047f9"
+    },
+    {
+      "key": "coin-flipper",
+      "address": "0x37c19b6249dc10d9a5581bb17a95cbccfb6334c4"
+    }
   ]
 }

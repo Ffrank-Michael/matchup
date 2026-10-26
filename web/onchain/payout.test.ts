@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { estimatePayout } from "./payout.ts";
+import { estimatePayout, settledPayout } from "./payout.ts";
 
 const usdc = (n: number) => BigInt(Math.round(n * 1_000_000));
 
@@ -31,4 +31,10 @@ test("the estimate never pays out more than the money in the round", () => {
     const r = estimatePayout("UP", usdc(stake), usdc(up), usdc(down));
     assert.ok(r.payout <= usdc(up) + usdc(down) + usdc(stake));
   }
+});
+
+test("a settled round pays the stake plus its share of the losing side less 2%", () => {
+  // UP pot 2 (my stake 1), DOWN pot 2: fee 0.04, 1.96 shared, my half 0.98.
+  assert.equal(settledPayout(usdc(1), usdc(2), usdc(2)), usdc(1.98));
+  assert.equal(settledPayout(usdc(1), usdc(1), 0n), usdc(1));
 });

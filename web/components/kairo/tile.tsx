@@ -21,6 +21,7 @@ export function NotLive({ onAccent, className }: { onAccent?: boolean; className
 }
 
 export function Tile({
+  id,
   title,
   action,
   className,
@@ -28,6 +29,7 @@ export function Tile({
   accent,
   children,
 }: {
+  id?: string;
   title: React.ReactNode;
   action?: React.ReactNode;
   className?: string;
@@ -40,6 +42,7 @@ export function Tile({
 }) {
   return (
     <section
+      id={id}
       className={cn(
         "kairo-rise relative flex min-w-0 flex-col overflow-hidden rounded-[26px] border p-5",
         accent ? "border-transparent bg-up" : "border-border bg-card text-card-foreground",

@@ -21,3 +21,13 @@ export function estimatePayout(side: "UP" | "DOWN", stake: bigint, upTotal: bigi
   const share = ((other - fee) * stake) / mine;
   return { kind: "win", payout: stake + share };
 }
+
+/**
+ * What a winning stake is paid once the round has settled: the stake back plus its share of the losing side minus the 2% fee
+ * (the same sum as the contract's claim). winnerTotal is the whole winning side's pot, loserTotal the losing side's.
+ */
+export function settledPayout(stake: bigint, winnerTotal: bigint, loserTotal: bigint): bigint {
+  if (winnerTotal === 0n) return stake;
+  const fee = (loserTotal * FEE_BPS) / BPS;
+  return stake + ((loserTotal - fee) * stake) / winnerTotal;
+}

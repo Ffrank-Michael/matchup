@@ -60,6 +60,7 @@ export function YourCall({
   backing,
   onClearBacking,
   chain,
+  onCalled,
   index,
   className,
 }: {
@@ -80,6 +81,8 @@ export function YourCall({
   onClearBacking: () => void;
   /** The market as the contract has it right now (the round to call, the smallest call, the money on that round); null until read */
   chain: { nextRound: number; minStake: bigint; paused: boolean; upTotal: bigint; downTotal: bigint } | null;
+  /** Called once when a call has gone through: which market and round it was for */
+  onCalled: (marketId: number, roundIndex: number) => void;
   index: number;
   className?: string;
 }) {
@@ -98,6 +101,12 @@ export function YourCall({
   const [limit, setLimit] = React.useState(String(DEFAULT_APPROVAL_USDC));
   const [permission, setPermission] = React.useState(String(DEFAULT_APPROVAL_USDC));
 
+  // the round the last call was for: when it goes through, the watch sheet opens on it
+  const [sent, setSent] = React.useState<{ marketId: number; roundIndex: number } | null>(null);
+  const status = call.status;
+  React.useEffect(() => {
+    if (status === "done" && sent) onCalled(sent.marketId, sent.roundIndex);
+  }, [status, sent, onCalled]);
   const busy = ["checking", "approve-wallet", "approve-confirming", "call-wallet", "call-confirming"].includes(call.status);
   const amountRaw = parsed !== null && !tooSmall && !tooBig && Number.isFinite(parsed) ? BigInt(Math.round(parsed * 1_000_000)) : null;
   const needsPermission = connected && amountRaw !== null && wallet.allowanceRaw !== null && wallet.allowanceRaw < amountRaw;
@@ -119,6 +128,7 @@ export function YourCall({
 
   return (
     <Tile
+      id="your-call"
       title={`Your call · ${market.pair}`}
       accent
       action={
@@ -292,7 +302,10 @@ export function YourCall({
         type="button"
         disabled={!canConfirm}
         onClick={() => {
-          if (side && chain) void call.makeCall({ marketId: market.id, round: chain.nextRound, side, amountUsdc: amount, approvalUsdc: permission });
+          if (side && chain) {
+            setSent({ marketId: market.id, roundIndex: chain.nextRound });
+            void call.makeCall({ marketId: market.id, round: chain.nextRound, side, amountUsdc: amount, approvalUsdc: permission });
+          }
         }}
         className="mt-4 flex min-h-14 w-full items-center justify-center rounded-2xl px-3 py-2 text-center text-[16px] font-bold leading-tight transition-opacity disabled:cursor-not-allowed"
         style={canConfirm ? { background: INK, color: "var(--color-up)" } : { background: "color-mix(in oklch, black 22%, transparent)", color: INK, opacity: 0.6 }}
@@ -309,10 +322,10 @@ export function YourCall({
               Permission
             </a>
           ) : null}
-          {call.txHash ? (
-            <a href={txLink(call.txHash) ?? undefined} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+          {call.status === "done" && sent ? (
+            <button type="button" onClick={() => onCalled(sent.marketId, sent.roundIndex)} className="underline underline-offset-2">
               View your call
-            </a>
+            </button>
           ) : null}
           {call.status === "done" || call.status === "failed" ? (
             <button type="button" onClick={call.reset} className="ml-3 underline underline-offset-2">
