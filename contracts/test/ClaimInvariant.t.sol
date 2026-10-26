@@ -166,12 +166,15 @@ contract ClaimInvariantHandler is Test {
     }
 
     /// Compute matched stake for one player (ghost version of _matchedFor / contract logic).
-    /// Both winner and loser bigger sides use floor; smaller sides are fully matched.
+    /// Smaller side: fully matched. Bigger side: pro rata, rounded DOWN when the bigger side won
+    /// and rounded UP when it lost (so the sum of matched is never above / below M).
+    /// Written with its own ceiling division, not by calling the contract.
     function _ghostMatched(
-        uint256 s, uint256 M, uint256 T, bool onBigger, bool /*biggerSideWon*/
+        uint256 s, uint256 M, uint256 T, bool onBigger, bool biggerSideWon
     ) internal pure returns (uint256 matched) {
         if (!onBigger) return s; // smaller side: fully matched
-        return s * M / T; // floor for both winner-bigger and loser-bigger
+        if (biggerSideWon) return s * M / T; // floor
+        return (s * M + T - 1) / T; // ceil
     }
 
     /// Find S* and E* for a round from the recorded update list.
@@ -370,7 +373,7 @@ contract ClaimInvariantHandler is Test {
         }
     }
 
-    /// Loser-side dust: M - sum(floor(loserStake * M / T)) for unclaimed losers on the bigger side.
+    /// Loser-side dust: sum(ceil(loserStake * M / T)) - M for unclaimed losers on the bigger side.
     /// Only applies when the loser side is the bigger side.
     function _loserSideDust(
         uint256 mid, uint256 rnd, bool upWon,
@@ -383,11 +386,11 @@ contract ClaimInvariantHandler is Test {
             (uint128 pU, uint128 pD, bool clmd) = arena.positions(mid, rnd, players[p]);
             uint256 loseStake = upWon ? uint256(pD) : uint256(pU);
             if (loseStake == 0) continue;
-            sumLoserMatched += loseStake * M / T; // floor
+            sumLoserMatched += (loseStake * M + T - 1) / T; // ceil
             if (!clmd) anyLoserUnclaimed = true;
         }
         if (!anyLoserUnclaimed) return 0;
-        return M - sumLoserMatched;
+        return sumLoserMatched - M;
     }
 
     // ── Handler actions ───────────────────────────────────────
@@ -923,10 +926,10 @@ contract ClaimInvariantTest is Test {
     ///   DOWN smaller side (won, fully matched):
     ///     p2 matched=130_007; bonus=floor(130_007*294_010/300_010)=127_406; payout=257_413
     ///     p3 matched=170_003; bonus=floor(170_003*294_010/300_010)=166_603; payout=336_606
-    ///   UP bigger side (lost, floor):
-    ///     p0 floor(100_003*300_010/300_014)=100_001; unmatched=2; payout=2
-    ///     p1 floor(200_011*300_010/300_014)=200_008; unmatched=3; payout=3
-    ///   Winner dust=1 (after p2+p3 both claim); loserDust=1 (300_010-300_009=1).
+    ///   UP bigger side (lost, rounded UP):
+    ///     p0 ceil(100_003*300_010/300_014)=ceil(100_001.67)=100_002; unmatched=1; payout=1
+    ///     p1 ceil(200_011*300_010/300_014)=ceil(200_008.33)=200_009; unmatched=2; payout=2
+    ///   Winner dust=1 (after p2+p3 both claim); loserDust=1 (100_002+200_009-300_010=1).
     ///   feesAccrued = 6_000+1+1 = 6_002.
     ///   All four players claim (seed 15=0b1111).
     function test_handlerCoverage_downWin_exactNumbers() public {
@@ -936,9 +939,9 @@ contract ClaimInvariantTest is Test {
         assertEq(handler.settledDown(), 1, "one DOWN win settled");
         assertEq(usdc.balanceOf(handler.players(2)), 257_413, "p2 payout");
         assertEq(usdc.balanceOf(handler.players(3)), 336_606, "p3 payout");
-        // p0 and p1 are bigger-side losers; unmatched (floor) = stake - floor(stake*M/T).
-        assertEq(usdc.balanceOf(handler.players(0)), 2, "p0 (bigger-side loser): unmatched=100_003-100_001=2");
-        assertEq(usdc.balanceOf(handler.players(1)), 3, "p1 (bigger-side loser): unmatched=200_011-200_008=3");
+        // p0 and p1 are bigger-side losers; unmatched = stake - ceil(stake*M/T).
+        assertEq(usdc.balanceOf(handler.players(0)), 1, "p0 (bigger-side loser): unmatched=100_003-100_002=1");
+        assertEq(usdc.balanceOf(handler.players(1)), 2, "p1 (bigger-side loser): unmatched=200_011-200_009=2");
         // feesAccrued = fee(6_000) + winner-dust(1) + loser-dust(1) = 6_002.
         assertEq(arena.feesAccrued(), 6_002, "fee 6_000 + winner dust 1 + loser dust 1");
         assertEq(arena.totalPlayerFunds(), 0, "everything owed has been paid");
