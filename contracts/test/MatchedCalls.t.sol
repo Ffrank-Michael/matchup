@@ -200,6 +200,19 @@ contract MatchedCallsTest is ClaimBase {
         assertEq(md, 1_000_000); assertEq(und, 0);
     }
 
+    /// Same stakes, UP (the bigger side) wins: matched rounds DOWN.
+    ///   a: floor(400_010*1_000_000/1_000_030) = 399_998, unmatched 12;  b/c: floor = 300_000, unmatched 10
+    ///   smaller-side DOWN loser: fully matched.
+    function test_matchedStake_biggerSideWinner_roundsDown() public {
+        (address[] memory u, address[] memory d) = _play(_arr(400_010, 300_010, 300_010), _arr(1_000_000), true);
+        (uint256 m0, uint256 un0) = arena.matchedStake(mid, 1, u[0]);
+        assertEq(m0, 399_998);  assertEq(un0, 12);
+        (uint256 m1, uint256 un1) = arena.matchedStake(mid, 1, u[1]);
+        assertEq(m1, 300_000);  assertEq(un1, 10);
+        (uint256 md, uint256 und) = arena.matchedStake(mid, 1, d[0]);
+        assertEq(md, 1_000_000); assertEq(und, 0);
+    }
+
     // =========================================================
     //  Fuzz: with ANY stakes and either winner, no money appears or vanishes, the contract never
     //  owes more than it holds, and every payout equals an independent model of the spec.
