@@ -20,9 +20,9 @@ import { YourCalls } from "./your-calls";
 // The agreed phone-first layout (docs/WEBSITE.md), top to bottom:
 // Same components on phone and laptop, only arranged differently. Top to bottom: the market cards (one row, each with
 // its last-hour line), the four agents (a row of robot heads, details of the selected one underneath), Your call, Live
-// calls, Your calls, then the agent leaderboard. On a laptop the agents sit beside Your call (the space under them is
-// kept for history later) and Live calls sit beside Your calls. The full chart opens from the selected card
-// (a sheet from the bottom on a phone, a centred panel on a laptop).
+// calls (of the selected market), Your calls, then the agent leaderboard. On a laptop it is two columns: the agents and
+// Live calls in the left column beside Your call (both columns end at the same height), then Your calls beside the
+// leaderboard. The full chart opens from the selected card (a sheet from the bottom on a phone, a centred panel on a laptop).
 // Only the prices are real data right now: one Bitfinex feed (lib/price-feed.ts) supplies every number.
 // Everything about rounds, money and agents says "not live yet" until the contract is deployed.
 
@@ -83,11 +83,15 @@ export function KairoHome() {
           ))}
         </div>
 
-        {/* 2 to 5. The same four tiles on phone and laptop, only arranged differently:
-            phone = one column in this order, laptop = two columns (agents | your call, then live calls | your calls).
-            Agents and Your call are only as tall as their content (items-start), no empty block under either. */}
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:items-start">
-          <AgentStrip backing={backing} onBack={setBacking} />
+        {/* 2 to 6. The same tiles on phone and laptop, only arranged differently.
+            Phone: one column in this order: agents, your call, live calls, your calls, leaderboard (the order classes).
+            Laptop: two columns, rows stretch to the same height: [agents + live calls | your call], [your calls | leaderboard].
+            The wrapper is "contents" on a phone, so its tiles take part in the one-column order. */}
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className="contents lg:flex lg:flex-col lg:gap-3">
+            <AgentStrip backing={backing} onBack={setBacking} className="order-1 lg:order-none" />
+            <LiveCalls market={market} index={6} className="order-3 min-h-[200px] lg:order-none lg:flex-1" />
+          </div>
           <YourCall
             market={market}
             secondsLeft={now === null ? null : secondsToNextLock(now, market.lockOffset)}
@@ -99,13 +103,11 @@ export function KairoHome() {
             backing={backingAgent}
             onClearBacking={() => setBacking(null)}
             index={5}
+            className="order-2 lg:order-none"
           />
-          <LiveCalls index={6} className="min-h-[200px] lg:self-stretch" />
-          <YourCalls index={7} className="min-h-[200px] lg:self-stretch" />
+          <YourCalls index={7} className="order-4 min-h-[200px] lg:order-none" />
+          <AgentLeaderboard backing={backing} onBack={setBacking} index={8} className="order-5 lg:order-none" />
         </div>
-
-        {/* 6. The full agent cards as a leaderboard */}
-        <AgentLeaderboard backing={backing} onBack={setBacking} index={8} />
       </div>
 
       <ChartSheet

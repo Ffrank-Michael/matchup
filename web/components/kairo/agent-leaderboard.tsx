@@ -103,7 +103,7 @@ export function AgentCard({ agent, live, on, onToggle, compact }: { agent: Agent
 }
 
 /**
- * The four agents as full cards: a leaderboard (phone: one column at the bottom; laptop: a row of four).
+ * The four agents as full cards: a leaderboard (one column on a phone, two columns from tablet width up).
  * Each agent's current call, reason, win rate, profit and last five calls come from the contract, so they say
  * "not live yet" until it is. It will be ranked by profit once there are results; until then the order is fixed.
  * Picking an agent only remembers the choice; the Your call panel shows it as a chip.
@@ -124,7 +124,7 @@ export function AgentLeaderboard({
 }) {
   return (
     <Tile title="Agent leaderboard" index={index} className={cn("p-4 sm:p-5", className)}>
-      <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {AGENTS.map((agent) => (
           <li key={agent.key}>
             <AgentCard agent={agent} live={live[agent.key]} on={backing === agent.key} onToggle={() => onBack(backing === agent.key ? null : agent.key)} />

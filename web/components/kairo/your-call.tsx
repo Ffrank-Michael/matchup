@@ -169,9 +169,10 @@ export function YourCall({
             id={inputId}
             inputMode="decimal"
             autoComplete="off"
-            placeholder="0.00"
+            placeholder="1"
             value={amount}
             onChange={(e) => onAmount(cleanAmount(e.target.value))}
+            onBlur={() => { if (parsed === null) onAmount("1"); }}
             aria-invalid={tooSmall || tooBig}
             aria-describedby={`${inputId}-hint`}
             className="min-w-0 flex-1 bg-transparent font-mono text-[40px] font-semibold leading-none tracking-[-0.04em] tabular-nums outline-none placeholder:opacity-30"
