@@ -7,8 +7,8 @@ export const CFG = {
   // --- when the house agents bet (round k can be bet on from lock(k-1) until lock(k)) ---
   earlyDelay: 60,        // trend follower, chart reader and coin flipper bet 1 minute after the round opens
   earlyCutoff: 60,       // ... and not in the last minute before lock
-  contrarianLead: 120,   // the contrarian bets about 2 minutes before lock, so there is a crowd to bet against
-  contrarianCutoff: 30,  // ... and never in the last 30 seconds
+  contrarianAfterEarly: 30, // the contrarian starts looking 30 s after the early agents are due, in a round of any length, so there is a crowd to bet against
+  contrarianCutoff: 30,  // ... keeps looking until 30 s before lock (an empty or even crowd is looked at again each tick), and never later
 
   // --- when test prices are pushed (the feed owner is the deployer wallet); rule H5 in docs/RULES.md ---
   // Two prices per round per market: the START price and the END price (no price in the middle).

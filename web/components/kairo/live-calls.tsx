@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useConnection } from "wagmi";
 
+import { useBackedAgents } from "@/lib/backed";
 import type { Market } from "@/lib/markets";
 import { whoIs, whoName } from "@/lib/players";
 import { refundReasonText } from "@/lib/refund-reason";
@@ -43,6 +44,7 @@ export function LiveCalls({
   const { calls, isLoading } = useLiveCalls(market.id);
   const { address } = useConnection();
   const settlements = useSettlements();
+  const backedOf = useBackedAgents(address);
 
   const groups = React.useMemo(() => {
     const by = new Map<number, NonNullable<typeof calls>>();
@@ -124,6 +126,7 @@ export function LiveCalls({
                 <ul className="flex flex-col divide-y divide-border">
                   {list.map((c) => {
                     const who = whoIs(c.player, address);
+                    const backed = who.kind === "you" ? backedOf(market.id, c.roundIndex) : null;
                     const result = winner
                       ? c.side === winner
                         ? "won"
@@ -141,6 +144,10 @@ export function LiveCalls({
                           <span className="flex min-w-0 items-center gap-2">
                             {who.kind === "agent" ? (
                               <AgentAvatar agent={who.agent} size={26} />
+                            ) : backed ? (
+                              <span title={`Backing ${backed.name}`}>
+                                <AgentAvatar agent={backed} size={26} />
+                              </span>
                             ) : null}
                             <span
                               className={

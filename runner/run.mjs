@@ -10,7 +10,7 @@
 import { setup } from '../scripts/lib.mjs';
 import { displayName } from '../agents/index.mjs';
 import { CFG } from './config.mjs';
-import { planTick, tickDelay } from './plan.mjs';
+import { planTick, tickDelay, LATE } from './plan.mjs';
 import { loadDeployments, makeReader } from './chain.mjs';
 import { makeExecutor, describe } from './wallets.mjs';
 import { createCandles } from './candles.mjs';
@@ -34,6 +34,7 @@ const candleSource = createCandles();
 let candleData = null;       // closed 1-minute candles per coin, for the chart reader
 let candleRefresh = null;
 const decided = new Set();   // decisions already taken (a skip counts), so no agent decides twice per round
+const loggedSkips = new Set(); // retryable skips already written to the log (once per round)
 const failedUntil = new Map(); // action text -> time before which we do not retry it
 let execute;
 let agentLane = Promise.resolve(); // the background lane for agent transactions
@@ -51,7 +52,11 @@ async function tick() {
   const delay = tickDelay(snap, CFG);
 
   for (const d of decisions) {
-    if (d.decision.action === 'SKIP') log(`${displayName(d.agent)} skips ${d.market} round ${d.round}: ${d.decision.reason}`);
+    if (d.decision.action === 'SKIP' && !(d.retry && loggedSkips.has(d.id))) {
+      log(`${displayName(d.agent)} skips ${d.market} round ${d.round}: ${d.decision.reason}`);
+      if (d.retry) loggedSkips.add(d.id);
+    }
+    if (d.retry) continue; // the contrarian's skip is not final: it looks again next tick, until its cutoff
     if (LIVE || d.decision.action === 'SKIP') decided.add(d.id); // a dry run never marks a bet as decided, so it keeps showing it
   }
   if (actions.length === 0 && decisions.length === 0) return delay;
@@ -77,7 +82,10 @@ async function runLane(list) {
       log(`${LIVE ? 'DONE' : 'WOULD'}: ${text}${res.note ? '\n         ' + res.note : ''}${res.tx ? '\n         tx ' + res.tx : ''}`);
     } catch (e) {
       // do not hammer a failing action; a failed price push is retried after 5 s (the start price waits for the first trade after the lock)
-      failedUntil.set(text, Date.now() + (a.type === 'pushPrice' ? 5_000 : 5 * 60_000));
+      // a failed contrarian approval or bet is tried again soon (its window is short) and its decision is taken back after that
+      const late = a.agent === LATE && (a.type === 'bet' || a.type === 'approve');
+      failedUntil.set(text, Date.now() + (a.type === 'pushPrice' ? 5_000 : late ? 15_000 : 5 * 60_000));
+      if (late && a.type === 'bet') setTimeout(() => decided.delete(`${a.market}:${a.round}:${a.agent}`), 15_000); // then it is planned again (if its window is still open)
       const why = String(e.shortMessage || e.message).slice(0, 300);
       // the start price waits for the first trade after the lock: that is waiting, not a failure
       log(`${/will try again/.test(why) ? 'WAITING' : 'FAILED'}: ${text}\n         ${why}`);

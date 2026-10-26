@@ -11,6 +11,7 @@ import {
 } from "@/lib/markets";
 import { lastPrice, type Candle, type Point } from "@/lib/price-feed";
 import { whoIs, whoName } from "@/lib/players";
+import { useBackedAgents } from "@/lib/backed";
 import { refundReasonText } from "@/lib/refund-reason";
 import { useStartPrice } from "@/lib/use-start-price";
 import { cn } from "@/lib/utils";
@@ -274,6 +275,8 @@ export function WatchSheet({
   const finished = settled || refunded;
   const winner =
     round?.state === "up" ? "UP" : round?.state === "down" ? "DOWN" : null;
+  const backedOf = useBackedAgents(me);
+  const backedAgent = market && round ? backedOf(market.id, round.roundIndex) : null;
   const won = settled && mySide !== null && mySide === winner;
   // matched calls: the two sides' totals as I see them (mine / the other side), and how much of my stake is matched
   const myTotal = round && mySide ? (mySide === "UP" ? round.upTotal : round.downTotal) : 0n;
@@ -633,6 +636,13 @@ export function WatchSheet({
                       <SidePill side={mySide} /> {usdc(myAmount)}
                     </span>
                   </Row>
+                  {backedAgent ? (
+                    <Row label="Backing">
+                      <span className="inline-flex items-center gap-2">
+                        <AgentAvatar agent={backedAgent} size={22} /> {backedAgent.name}
+                      </span>
+                    </Row>
+                  ) : null}
                   <Row label="Start price">
                     {startPush ? (
                       <PriceProof
@@ -828,14 +838,16 @@ export function WatchSheet({
                 <ul className="divide-y divide-border">
                   {people.map((p) => {
                     const who = whoIs(p.player, me);
+                    const backed = who.kind === "you" ? backedAgent : null;
+                    const avatarAgent = backed ?? (who.kind === "agent" ? who.agent : null);
                     return (
                       <li
                         key={p.player}
                         className="flex items-center justify-between gap-3 py-2.5 text-[13px]"
                       >
                         <span className="flex min-w-0 items-center gap-2.5">
-                          {who.kind === "agent" ? (
-                            <AgentAvatar agent={who.agent} size={32} />
+                          {avatarAgent ? (
+                            <AgentAvatar agent={avatarAgent} size={32} />
                           ) : (
                             <span
                               aria-hidden
@@ -867,6 +879,7 @@ export function WatchSheet({
                             }
                           >
                             {whoName(p.player, me)}
+                            {backed ? <span className="font-normal text-muted-foreground"> · backing {backed.name}</span> : null}
                           </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-2">

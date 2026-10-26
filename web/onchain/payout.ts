@@ -20,7 +20,7 @@ export function matchedPart(stake: bigint, mine: bigint, other: bigint, won: boo
 
 export type PayoutEstimate =
   /** Matched `matched` of the stake. Win: payout = stake + bonus. Either way `unmatched` comes back. */
-  | { kind: "win"; payout: bigint; matched: bigint; unmatched: bigint; bonus: bigint }
+  | { kind: "win"; payout: bigint; matched: bigint; unmatched: bigint; bonus: bigint; lose: bigint }
   /** Nobody on the other side yet: the stake would come back, no fee */
   | { kind: "refund"; payout: bigint };
 
@@ -31,7 +31,9 @@ export function estimatePayout(side: "UP" | "DOWN", stake: bigint, upTotal: bigi
   const M = mine < other ? mine : other;
   const matched = matchedPart(stake, mine, other, true);
   const bonus = (matched * (M - (M * FEE_BPS) / BPS)) / M;
-  return { kind: "win", payout: stake + bonus, matched, unmatched: stake - matched, bonus };
+  // what a loss would cost: the matched part of the stake (a losing bigger side rounds its matched part up)
+  const lose = matchedPart(stake, mine, other, false);
+  return { kind: "win", payout: stake + bonus, matched, unmatched: stake - matched, bonus, lose };
 }
 
 /**

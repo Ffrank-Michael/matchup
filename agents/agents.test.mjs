@@ -129,7 +129,7 @@ test('chart reader: 5-candle average above the 20-candle average and the last ca
   assert.equal(d.action, 'BET');
   assert.equal(d.side, 'UP');
   assert.equal(d.stake, 500_000);
-  assert.equal(d.reason, 'BTC/USD 5-candle average 117.00, 20-candle average 109.50, last candle 118.00 -> 119.00: the short average is above the long one and the last candle closed higher, so I call UP.');
+  assert.equal(d.reason, 'BTC/USD 5-candle average 117.00, 20-candle average 109.50, last candle 118.00 -> 119.00: the short average is above the long one and the last candle closed higher. I call UP.');
 });
 
 test('chart reader: 5-candle average below the 20-candle average and the last candle closed lower -> DOWN', () => {
@@ -138,26 +138,41 @@ test('chart reader: 5-candle average below the 20-candle average and the last ca
   assert.equal(d.side, 'DOWN');
 });
 
-test('chart reader: the averages say UP but the last candle closed lower -> skips', () => {
+test('chart reader: the averages say UP but the last candle closed lower -> follows the last candle: DOWN', () => {
   const closes = Array.from({ length: 20 }, (_, i) => 100 + i);
   const d = reader.decide(ctx({ candles: candlesFrom(closes, 125) })); // opened at 125, closed at 119
-  assert.equal(d.action, 'SKIP');
-  assert.match(d.reason, /does not agree with itself/);
+  assert.equal(d.action, 'BET');
+  assert.equal(d.side, 'DOWN');
+  assert.equal(d.stake, 500_000);
+  assert.equal(d.reason, 'BTC/USD 5-candle average 117.00, 20-candle average 109.50, last candle 125.00 -> 119.00: the averages say UP but the last candle closed lower, so I follow the last candle. I call DOWN.');
 });
 
-test('chart reader: the averages say DOWN but the last candle closed higher -> skips', () => {
+test('chart reader: the averages say DOWN but the last candle closed higher -> follows the last candle: UP', () => {
   const closes = Array.from({ length: 20 }, (_, i) => 120 - i);
-  assert.equal(reader.decide(ctx({ candles: candlesFrom(closes, 90) })).action, 'SKIP'); // opened at 90, closed at 101
+  const d = reader.decide(ctx({ candles: candlesFrom(closes, 90) })); // opened at 90, closed at 101
+  assert.equal(d.action, 'BET');
+  assert.equal(d.side, 'UP');
 });
 
-test('chart reader: equal averages (a flat chart) -> skips', () => {
-  const flatCandles = Array.from({ length: 20 }, () => ({ open: 100, close: 100 }));
-  assert.equal(reader.decide(ctx({ candles: flatCandles })).action, 'SKIP');
+test('chart reader: the last candle closing exactly where it opened -> follows the 5-candle trend', () => {
+  const up5 = Array.from({ length: 20 }, (_, i) => 100 + i);
+  assert.equal(reader.decide(ctx({ candles: candlesFrom(up5, 119) })).side, 'UP'); // short average above the long one
+  const down5 = Array.from({ length: 20 }, (_, i) => 120 - i);
+  const d = reader.decide(ctx({ candles: candlesFrom(down5, 101) })); // last candle flat, short average below the long one
+  assert.equal(d.side, 'DOWN');
+  assert.match(d.reason, /closed exactly where it opened, so I follow the 5-candle trend/);
 });
 
-test('chart reader: the last candle closing exactly where it opened never counts as higher or lower', () => {
-  const closes = Array.from({ length: 20 }, (_, i) => 100 + i);
-  assert.equal(reader.decide(ctx({ candles: candlesFrom(closes, 119) })).action, 'SKIP');
+test('chart reader: a completely flat chart follows the newest candle that moved, and calls UP if nothing moved', () => {
+  const quiet = Array.from({ length: 20 }, () => ({ open: 100, close: 100 }));
+  const none = reader.decide(ctx({ candles: quiet }));
+  assert.equal(none.action, 'BET'); // never skips
+  assert.equal(none.side, 'UP');
+  // Averages equal (the two moves cancel), last candle flat: the newest candle that moved decides.
+  const dipThenRise = quiet.map((c, i) => (i === 5 ? { open: 101, close: 99 } : i === 6 ? { open: 99, close: 101 } : c));
+  assert.equal(reader.decide(ctx({ candles: dipThenRise })).side, 'UP');
+  const riseThenDip = quiet.map((c, i) => (i === 5 ? { open: 99, close: 101 } : i === 6 ? { open: 101, close: 99 } : c));
+  assert.equal(reader.decide(ctx({ candles: riseThenDip })).side, 'DOWN');
 });
 
 test('chart reader: fewer than 20 candles, or none -> skips and says why', () => {

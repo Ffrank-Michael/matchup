@@ -3,6 +3,7 @@
 import * as React from "react";
 
 import { formatUsd, frameWords, MARKETS } from "@/lib/markets";
+import { useBackedAgents } from "@/lib/backed";
 import { whoIs, whoName } from "@/lib/players";
 import { refundReasonText } from "@/lib/refund-reason";
 import { cn } from "@/lib/utils";
@@ -115,6 +116,7 @@ function RoundCard({
     setHeld(target);
   const open = target !== null;
   const w = target ?? held;
+  const backedOf = useBackedAgents(me);
 
   const market = w ? MARKETS.find((m) => m.id === w.marketId) : undefined;
   const round = w
@@ -350,6 +352,8 @@ function RoundCard({
                 <ul className="divide-y divide-border">
                   {people.map((p) => {
                     const who = whoIs(p.player, me);
+                    const backed = who.kind === "you" ? backedOf(market.id, round.roundIndex) : null;
+                    const avatarAgent = backed ?? (who.kind === "agent" ? who.agent : null);
                     const result = winner
                       ? p.side === winner
                         ? "won"
@@ -370,8 +374,8 @@ function RoundCard({
                         className="flex items-center justify-between gap-3 py-2.5 text-[13px]"
                       >
                         <span className="flex min-w-0 items-center gap-2.5">
-                          {who.kind === "agent" ? (
-                            <AgentAvatar agent={who.agent} size={30} />
+                          {avatarAgent ? (
+                            <AgentAvatar agent={avatarAgent} size={30} />
                           ) : (
                             <span
                               aria-hidden
@@ -403,6 +407,7 @@ function RoundCard({
                             }
                           >
                             {whoName(p.player, me)}
+                            {backed ? <span className="font-normal text-muted-foreground"> · backing {backed.name}</span> : null}
                           </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-2">

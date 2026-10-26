@@ -30,7 +30,7 @@ const LOGIC = {
   contrarian,
 };
 export const EARLY = ['trend-follower', 'chart-reader', 'coin-flipper']; // bet early, in this order
-export const LATE = 'contrarian'; // bets last, about 2 minutes before lock
+export const LATE = 'contrarian'; // bets last, after the three early agents, once there is money on one side
 
 /** How many past rounds to look at: enough to cover the contract's whole settle window (cfg.lookback is the minimum). */
 export const lookbackFor = (m, cfg) => Math.max(cfg.lookback, Math.ceil(cfg.settleWindow / m.roundLength) + 2);
@@ -71,7 +71,8 @@ function planBet(m, k, agent, cfg, actions, decisions, candles) {
     balance: Math.max(0, agent.balance - cfg.gasReserve),
     random: cfg.random,
   });
-  decisions.push({ id: decisionId(m, k, agent.key), agent: agent.key, market: m.name, round: k, decision: d });
+  // The contrarian's skip is not final: an empty or even crowd can get a side with less money a moment later, so it is looked at again.
+  decisions.push({ id: decisionId(m, k, agent.key), agent: agent.key, market: m.name, round: k, decision: d, retry: agent.key === LATE && d.action === 'SKIP' });
   if (d.action !== 'BET') return;
   const stake = Math.min(d.stake, cfg.maxStake);
   if (stake < m.minStake) return;
@@ -173,9 +174,9 @@ export function planTick(snap, cfg, decided = new Set()) {
           if (!finished(key)) planBet(m, k, agentByKey[key], cfg, actions, decisions, snap.candles);
         }
       }
-      // The contrarian only acts once every early agent has bet or skipped (in an earlier tick), so
-      // it sees their real money.
-      if (now >= lockK - cfg.contrarianLead && now < lockK - cfg.contrarianCutoff
+      // The contrarian goes last: only once every early agent has bet or skipped (in an earlier tick), so it sees their
+      // real money, and from shortly after they are due, whatever the round length. It always takes the side with less money.
+      if (now >= opensAt(m, k) + cfg.earlyDelay + cfg.contrarianAfterEarly && now < lockK - cfg.contrarianCutoff
           && EARLY.every(finished) && !finished(LATE)) {
         planBet(m, k, agentByKey[LATE], cfg, actions, decisions, snap.candles);
       }

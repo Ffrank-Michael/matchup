@@ -15,12 +15,12 @@ test("nobody on the other side: the stake comes back, no fee", () => {
 test("worked example: UP 10 against DOWN 6 -> matched 6, win +5.88, 4 comes back", () => {
   // An UP call of 10 on an empty UP side, DOWN already 6. M = 6, fee = 0.12, bonus = 5.88.
   const r = estimatePayout("UP", usdc(10), 0n, usdc(6));
-  assert.deepEqual(r, { kind: "win", payout: usdc(15.88), matched: usdc(6), unmatched: usdc(4), bonus: usdc(5.88) });
+  assert.deepEqual(r, { kind: "win", payout: usdc(15.88), matched: usdc(6), unmatched: usdc(4), bonus: usdc(5.88), lose: usdc(6) });
 });
 
 test("the smaller side is fully matched: DOWN 6 against UP 10 wins +5.88 and nothing comes back", () => {
   const r = estimatePayout("DOWN", usdc(6), usdc(10), 0n);
-  assert.deepEqual(r, { kind: "win", payout: usdc(11.88), matched: usdc(6), unmatched: 0n, bonus: usdc(5.88) });
+  assert.deepEqual(r, { kind: "win", payout: usdc(11.88), matched: usdc(6), unmatched: 0n, bonus: usdc(5.88), lose: usdc(6) });
 });
 
 test("a tie matches everybody in full; the fee is 2% of the matched pool", () => {

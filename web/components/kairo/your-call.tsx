@@ -52,11 +52,12 @@ export function YourCall({
   onFrame,
   market,
   secondsLeft,
-  side,
+  side: pickedSide,
   onSide,
   amount,
   onAmount,
   backing,
+  backingCall,
   onClearBacking,
   chain,
   onCalled,
@@ -71,12 +72,15 @@ export function YourCall({
   market: Market;
   /** Seconds until the next lock of this market; null before the clock is known */
   secondsLeft: number | null;
+  /** The side the visitor picked (ignored while backing an agent: then the agent's side counts) */
   side: Side | null;
   onSide: (side: Side) => void;
   amount: string;
   onAmount: (amount: string) => void;
   /** An agent the user chose to back, if any */
   backing: Agent | null;
+  /** The backed agent's call on the open round of this market; null while it has not called yet */
+  backingCall: Side | null;
   onClearBacking: () => void;
   /** The market as the contract has it right now (the round to call, the smallest call, the money on that round); null until read */
   chain: { nextRound: number; minStake: bigint; paused: boolean; upTotal: bigint; downTotal: bigint } | null;
@@ -94,12 +98,18 @@ export function YourCall({
   const connected = !!address;
   const { isWrongNetwork: wrongNetwork } = useWalletStatus();
   const call = useMakeCall();
+  // Backing an agent: its side is the call. Until it has called this round there is no side, and the button waits.
+  const side: Side | null = backing ? backingCall : pickedSide;
 
   // the round the last call was for: when it goes through, the watch sheet opens on it
   const [sent, setSent] = React.useState<{ marketId: number; roundIndex: number } | null>(null);
   const status = call.status;
+  const handled = React.useRef<typeof sent>(null); // tell the page about each call once, even if `onCalled` changes
   React.useEffect(() => {
-    if (status === "done" && sent) onCalled(sent.marketId, sent.roundIndex);
+    if (status === "done" && sent && handled.current !== sent) {
+      handled.current = sent;
+      onCalled(sent.marketId, sent.roundIndex);
+    }
   }, [status, sent, onCalled]);
   const busy = ["checking", "approve-wallet", "approve-confirming", "call-wallet", "call-confirming"].includes(call.status);
   const amountRaw = parsed !== null && !tooSmall && !tooBig && Number.isFinite(parsed) ? BigInt(Math.round(parsed * 1_000_000)) : null;
@@ -109,7 +119,9 @@ export function YourCall({
     ? "Loading…"
     : chain.paused
       ? "This market is paused"
-      : !side
+      : backing && !side
+        ? `Waiting for ${backing.name}`
+        : !side
         ? "Pick UP or DOWN"
         : amountRaw === null || parsed === null
           ? "Enter an amount"
@@ -117,7 +129,7 @@ export function YourCall({
             ? "Connect your wallet to call"
             : wrongNetwork
               ? "Switch network in your wallet"
-              : `Call ${side} on ${market.key} · ${frameWords(market.roundSeconds)} · ${dollars(parsed)}`;
+              : `${backing ? `Back ${backing.name}` : "Call"}${backing ? " · " : " "}${side} on ${market.key} · ${frameWords(market.roundSeconds)} · ${dollars(parsed)}`;
 
   return (
     <Tile
@@ -144,14 +156,15 @@ export function YourCall({
       </div>
 
       {backing ? (
-        <div className="mt-4 flex items-center gap-2.5 rounded-2xl p-2 pr-3" style={{ background: "color-mix(in oklch, black 12%, transparent)" }}>
-          <AgentAvatar agent={backing} size={40} />
-          <p className="min-w-0 flex-1 text-[12px] font-semibold leading-snug">
-            Backing Agent {backing.number} · {backing.name}
-          </p>
-          <button type="button" onClick={onClearBacking} className="shrink-0 rounded-full px-2 py-1 text-[12px] font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current">
-            Stop
-          </button>
+        <div className="mt-4">
+          <span className="inline-flex items-center gap-2 rounded-full py-1 pl-1 pr-2 text-[13px] font-semibold" style={{ background: "color-mix(in oklch, black 14%, transparent)" }}>
+            <AgentAvatar agent={backing} size={26} />
+            Backing {backing.name}
+            <button type="button" onClick={onClearBacking} aria-label={`Stop backing ${backing.name}`} className="grid size-6 place-items-center rounded-full text-[13px] leading-none hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current">
+              ✕
+            </button>
+          </span>
+          {!backingCall ? <p className="mt-1.5 text-[12px] font-medium opacity-80">{backing.name} hasn&apos;t called this round yet</p> : null}
         </div>
       ) : null}
 
@@ -191,7 +204,10 @@ export function YourCall({
               key={s}
               type="button"
               aria-pressed={on}
-              onClick={() => onSide(s)}
+              onClick={() => {
+                if (backing) onClearBacking(); // choosing a side yourself ends the backing
+                onSide(s);
+              }}
               className="flex h-[88px] flex-col items-center justify-center gap-0.5 rounded-2xl border-2 text-[26px] font-bold tracking-[-0.02em] transition-[background-color,transform] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 motion-reduce:transition-none"
               style={on ? { background: INK, borderColor: INK, color: colour } : { background: "color-mix(in oklch, white 28%, transparent)", borderColor: "color-mix(in oklch, black 20%, transparent)", color: INK }}
             >
@@ -246,20 +262,19 @@ export function YourCall({
         </div>
       </div>
 
-      {/* money on the round and what a win adds: two lines (from the contract's numbers) */}
+      {/* the money box: exactly two lines (the contract's numbers) */}
       {chain ? (
         <div className="mt-5 rounded-2xl px-3.5 py-3 text-[13px] leading-snug" style={{ background: "color-mix(in oklch, black 10%, transparent)" }}>
-          <p className="flex flex-wrap items-baseline gap-x-2">
-            <span className="font-semibold">In this round:</span>
-            <span className="font-mono tabular-nums">▲ {usdc(chain.upTotal)} · ▼ {usdc(chain.downTotal)}</span>
+          <p className="font-mono font-semibold tabular-nums">
+            ▲ UP {usdc(chain.upTotal)} · ▼ DOWN {usdc(chain.downTotal)}
           </p>
-          <p className="mt-1.5 flex flex-wrap items-baseline gap-x-2">
+          <p className="mt-1.5">
             {estimate?.kind === "refund" ? (
-              <span className="font-medium">No one on the other side yet. Your money comes back if it stays that way.</span>
+              <>No one on the other side yet · Your money comes back if it stays that way</>
             ) : (
               <>
-                <span className="font-semibold">If you win:</span>
-                <span className="font-mono font-semibold tabular-nums">{estimate ? `+${usdc(estimate.bonus)}` : "—"}</span>
+                If you win <span className="font-mono font-semibold tabular-nums">{estimate ? `+${usdc(estimate.bonus)}` : "—"}</span> · If you lose{" "}
+                <span className="font-mono font-semibold tabular-nums">{estimate ? `−${usdc(estimate.lose)}` : "—"}</span>
               </>
             )}
           </p>

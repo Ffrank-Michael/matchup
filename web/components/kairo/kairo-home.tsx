@@ -5,6 +5,7 @@ import * as React from "react";
 import { useConnection } from "wagmi";
 
 import { AGENTS, type AgentKey } from "@/lib/agents";
+import { rememberBacked } from "@/lib/backed";
 import {
   COINS,
   DEFAULT_FRAME,
@@ -62,6 +63,13 @@ export function KairoHome() {
   const closeWatch = React.useCallback(() => setWatch(null), []);
   const { address: me } = useConnection();
   const backingAgent = AGENTS.find((a) => a.key === backing) ?? null;
+  // Tapping "Back this agent": remember it, and on a phone (one column) bring the call card into view.
+  const backAgent = React.useCallback((key: AgentKey | null) => {
+    setBacking(key);
+    if (key !== null && window.matchMedia("(max-width: 1023px)").matches) {
+      document.getElementById("your-call")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
   const feed = usePriceFeed();
   const now = useNowSeconds();
   const nowMs = now === null ? null : now * 1000;
@@ -176,7 +184,7 @@ export function KairoHome() {
             <div className="contents lg:flex lg:flex-col lg:gap-3">
               <AgentStrip
                 backing={backing}
-                onBack={setBacking}
+                onBack={backAgent}
                 live={agentLive}
                 className="order-1 lg:order-none"
               />
@@ -207,8 +215,14 @@ export function KairoHome() {
               amount={amount}
               onAmount={setAmount}
               backing={backingAgent}
+              backingCall={backing ? (agentLive[backing]?.call ?? null) : null}
               onClearBacking={() => setBacking(null)}
-              onCalled={openWatch}
+              onCalled={(marketId, roundIndex) => {
+                // a backed call: remember whom it copied (for the little avatar in Live calls and the receipt), then the chip is done
+                if (backing && me) rememberBacked(me, marketId, roundIndex, backing);
+                if (backing) setBacking(null);
+                openWatch(marketId, roundIndex);
+              }}
               chain={
                 selectedChain
                   ? {
@@ -233,7 +247,7 @@ export function KairoHome() {
             />
             <AgentLeaderboard
               backing={backing}
-              onBack={setBacking}
+              onBack={backAgent}
               live={agentLive}
               index={8}
               className="order-5 lg:order-none"

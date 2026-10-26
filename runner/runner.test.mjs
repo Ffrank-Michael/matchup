@@ -37,9 +37,10 @@ const kinds = (r) => r.actions.map((a) => a.type);
 
 // ---------------------------------------------------------------- the settings fit 10-minute rounds
 
-test('settings: early bets 1 minute after a round opens, contrarian 2 minutes before lock, two prices a round', () => {
+test('settings: early bets 1 minute after a round opens, contrarian 30 s after that, two prices a round', () => {
   assert.equal(CFG.earlyDelay, 60);
-  assert.equal(CFG.contrarianLead, 120);
+  assert.equal(CFG.contrarianAfterEarly, 30);
+  assert.equal(CFG.contrarianCutoff, 30);
   assert.equal(CFG.endMargin, 60);
   assert.equal(CFG.startAfter, 2);
   assert.equal(CFG.startGiveUp, 0.25);
@@ -87,26 +88,48 @@ test('no early bets in the last minute before lock', () => {
   assert.equal(bets(planTick(snap(6540), cfg())).length, 0);
 });
 
-test('the contrarian bets about 2 minutes before lock, and only after the early agents are done', () => {
+test('the contrarian bets 30 s after the early agents are due, in any round, and only after they are done', () => {
   const done = new Set(['0:11:trend-follower', '0:11:chart-reader', '0:11:coin-flipper']);
   const m = (now) => market(now, { rounds: { 11: { state: 'Unsettled', up: 800_000, down: 200_000, startPrice: 0n, endPrice: 0n } } });
-  assert.deepEqual(bets(planTick(snap(6479, m(6479)), cfg(), done)), []);
-  const r = planTick(snap(6480, m(6480)), cfg(), done);
+  assert.deepEqual(bets(planTick(snap(6089, m(6089)), cfg(), done)), []);
+  const r = planTick(snap(6090, m(6090)), cfg(), done);
   assert.deepEqual(bets(r).map((b) => [b.agent, b.side]), [['contrarian', 'DOWN']]);
   assert.match(bets(r)[0].reason, /\$0\.80 is on UP and \$0\.20 on DOWN \(80% on UP\)/);
   // not in the last 30 seconds
   assert.deepEqual(bets(planTick(snap(6570, m(6570)), cfg(), done)), []);
   // an early agent that has not finished holds the contrarian back
   const notDone = new Set(['0:11:trend-follower', '0:11:chart-reader']);
-  assert.deepEqual(bets(planTick(snap(6480, m(6480)), cfg(), notDone)).map((b) => b.agent).filter((a) => a === 'contrarian'), []);
+  assert.deepEqual(bets(planTick(snap(6090, m(6090)), cfg(), notDone)).map((b) => b.agent).filter((a) => a === 'contrarian'), []);
 });
 
 test('the contrarian skips when nobody has bet (and says so)', () => {
   const done = new Set(['0:11:trend-follower', '0:11:chart-reader', '0:11:coin-flipper']);
-  const r = planTick(snap(6480), cfg(), done);
+  const r = planTick(snap(6090), cfg(), done);
   assert.deepEqual(bets(r), []);
   const d = r.decisions.find((x) => x.agent === 'contrarian');
   assert.equal(d.decision.action, 'SKIP');
+  assert.equal(d.retry, true, 'an empty crowd is looked at again, not decided for good');
+});
+
+test('the contrarian takes the empty side: everyone on UP and DOWN at $0 gets a DOWN call, early in the round', () => {
+  const done = new Set(['0:11:trend-follower', '0:11:chart-reader', '0:11:coin-flipper']);
+  const m = (now) => market(now, { rounds: { 11: { state: 'Unsettled', up: 1_500_000, down: 0, startPrice: 0n, endPrice: 0n } } });
+  // 90 s after the round opened, not only in the last 2 minutes
+  const r = planTick(snap(6090, m(6090)), cfg(), done);
+  assert.deepEqual(bets(r).map((b) => [b.agent, b.side]), [['contrarian', 'DOWN']]);
+});
+
+test('the contrarian is looked at again after an empty-crowd skip, and a skip is never recorded as final', () => {
+  const done = new Set(['0:11:trend-follower', '0:11:chart-reader', '0:11:coin-flipper']);
+  const empty = (now) => market(now, { rounds: { 11: { state: 'Unsettled', up: 0, down: 0, startPrice: 0n, endPrice: 0n } } });
+  const r1 = planTick(snap(6100, empty(6100)), cfg(), done);
+  assert.equal(r1.decisions.find((d) => d.agent === 'contrarian').retry, true);
+  // the runner does not add a retry decision to the decided set, so the next tick plans it again, and now there is a crowd
+  const crowd = (now) => market(now, { rounds: { 11: { state: 'Unsettled', up: 0, down: 600_000, startPrice: 0n, endPrice: 0n } } });
+  const r2 = planTick(snap(6110, crowd(6110)), cfg(), done);
+  assert.deepEqual(bets(r2).map((b) => [b.agent, b.side]), [['contrarian', 'UP']]);
+  // early agents' skips stay final
+  assert.ok(planTick(snap(6060), cfg()).decisions.filter((d) => d.agent !== 'contrarian').every((d) => !d.retry));
 });
 
 test('an agent decides once per round: decided ids are not decided again', () => {
@@ -170,7 +193,7 @@ test('each market runs on its own clock: BTC locks at :00, ETH at :03, SOL at :0
 test('each market gets its early bets 1 minute after ITS round opens', () => {
   // BTC round 11 opened at 6000, ETH round 11 opens at 6180, SOL round 11 opens at 6360.
   const run = (now, decided) => planTick({ now, markets: three(now), agents: agents() }, cfg(), decided);
-  const who = (r) => [...new Set(r.decisions.map((d) => d.market))];
+  const who = (r) => [...new Set(r.decisions.filter((d) => d.agent !== 'contrarian').map((d) => d.market))]; // the early agents only
   const r1 = run(6060, new Set());
   assert.ok(who(r1).includes('BTC/USD'));
   const decided = new Set(r1.decisions.map((d) => d.id));
