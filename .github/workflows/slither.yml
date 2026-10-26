@@ -35,7 +35,7 @@ jobs:
         shell: bash
         run: |
           slither contracts/PredictionArena.sol \
-            --solc-remaps "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/" \
+            --compile-force-framework solc \n            --solc-remaps "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/" \
             --solc-args "--evm-version cancun --optimize --optimize-runs 200" \
             --filter-paths "node_modules" \
             --no-fail-pedantic \
