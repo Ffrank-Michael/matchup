@@ -1,19 +1,21 @@
 "use client";
 
+import Link from "next/link";
 import * as React from "react";
+import { useConnection } from "wagmi";
 
 import type { Agent } from "@/lib/agents";
-import { formatCountdown, ROUND_SECONDS, type Market } from "@/lib/markets";
-import { nextRoundRefundText } from "@/lib/refund";
+import { formatCountdown, frameWords, type Market } from "@/lib/markets";
 import { cn } from "@/lib/utils";
+import { APPROVAL_NOTICE, BETA_LIMIT_USDC, DEFAULT_APPROVAL_USDC, estimatePayout, STATUS_TEXT, txLink, useMakeCall, usdc, useRevokeApproval, useUsdc, useWalletStatus } from "@/onchain";
 
 import { AgentAvatar } from "./agent-avatar";
-import { INK, NotLive, Tile } from "./tile";
+import { INK, Tile } from "./tile";
 
 export type Side = "UP" | "DOWN";
 
 const MIN_STAKE = 0.1;
-const MAX_STAKE = 10; // beta limit per call, enforced here on the site (the contract itself only has the 0.10 minimum)
+const MAX_STAKE = BETA_LIMIT_USDC; // beta limit: 10 USDC per wallet in each round, enforced on the site (the contract itself only has the 0.10 minimum)
 const QUICK = ["1", "5", "10"] as const;
 const URGENT_SECONDS = 60;
 
@@ -25,51 +27,50 @@ function cleanAmount(raw: string) {
   return `${whole.slice(0, 7)}.${rest.join("").slice(0, 6)}`;
 }
 
-function Ring({ secondsLeft }: { secondsLeft: number | null }) {
+/** 1 -> "$1", 0.5 -> "$0.50" */
+const dollars = (n: number) => `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
+
+function Ring({ secondsLeft, roundSeconds }: { secondsLeft: number | null; roundSeconds: number }) {
   const r = 20;
   const c = 2 * Math.PI * r;
-  const frac = secondsLeft === null ? 1 : Math.max(0, Math.min(1, secondsLeft / ROUND_SECONDS));
+  const frac = secondsLeft === null ? 1 : Math.max(0, Math.min(1, secondsLeft / roundSeconds));
   const urgent = secondsLeft !== null && secondsLeft <= URGENT_SECONDS;
   return (
     <svg width="52" height="52" viewBox="0 0 52 52" className={cn("shrink-0 -rotate-90", urgent && "animate-pulse motion-reduce:animate-none")} aria-hidden>
       <circle cx="26" cy="26" r={r} fill="none" strokeWidth="5" style={{ stroke: INK, opacity: 0.15 }} />
-      <circle
-        cx="26"
-        cy="26"
-        r={r}
-        fill="none"
-        strokeWidth="5"
-        strokeLinecap="round"
-        strokeDasharray={c}
-        strokeDashoffset={c * (1 - frac)}
-        style={{ stroke: INK, transition: "stroke-dashoffset 1s linear" }}
-      />
+      <circle cx="26" cy="26" r={r} fill="none" strokeWidth="5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - frac)} style={{ stroke: INK, transition: "stroke-dashoffset 1s linear" }} />
     </svg>
   );
 }
 
 /**
- * The big lime panel: choose UP or DOWN, an amount, then confirm.
- * Nothing here talks to the contract yet, so the payout says "not live yet" and Confirm stays off.
+ * The big lime panel: choose a time frame, UP or DOWN and an amount, then confirm. The market (BTC, ETH, SOL) is chosen by the
+ * cards at the top, not here. Everything about the round comes from the contract.
  */
 export function YourCall({
+  frames,
+  frame,
+  onFrame,
   market,
   secondsLeft,
-  nowSec,
   side,
   onSide,
   amount,
   onAmount,
   backing,
   onClearBacking,
+  chain,
   index,
   className,
 }: {
+  /** The time frames that exist (round lengths in seconds) */
+  frames: number[];
+  frame: number;
+  onFrame: (roundSeconds: number) => void;
+  /** The market that the selected card + time frame make */
   market: Market;
   /** Seconds until the next lock of this market; null before the clock is known */
   secondsLeft: number | null;
-  /** The clock (unix seconds); null before it is known */
-  nowSec: number | null;
   side: Side | null;
   onSide: (side: Side) => void;
   amount: string;
@@ -77,14 +78,44 @@ export function YourCall({
   /** An agent the user chose to back, if any */
   backing: Agent | null;
   onClearBacking: () => void;
+  /** The market as the contract has it right now (the round to call, the smallest call, the money on that round); null until read */
+  chain: { nextRound: number; minStake: bigint; paused: boolean; upTotal: bigint; downTotal: bigint } | null;
   index: number;
   className?: string;
 }) {
-  const urgent = secondsLeft !== null && secondsLeft <= URGENT_SECONDS;
   const parsed = amount === "" || amount === "." ? null : Number(amount);
   const tooSmall = parsed !== null && parsed < MIN_STAKE;
   const tooBig = parsed !== null && parsed > MAX_STAKE;
   const inputId = React.useId();
+  const { address } = useConnection();
+  const connected = !!address;
+  const { isWrongNetwork: wrongNetwork } = useWalletStatus();
+  const call = useMakeCall();
+  const wallet = useUsdc();
+  const approval = useRevokeApproval();
+  const revoking = approval.status === "wallet" || approval.status === "confirming";
+  const [editing, setEditing] = React.useState(false);
+  const [limit, setLimit] = React.useState(String(DEFAULT_APPROVAL_USDC));
+  const [permission, setPermission] = React.useState(String(DEFAULT_APPROVAL_USDC));
+
+  const busy = ["checking", "approve-wallet", "approve-confirming", "call-wallet", "call-confirming"].includes(call.status);
+  const amountRaw = parsed !== null && !tooSmall && !tooBig && Number.isFinite(parsed) ? BigInt(Math.round(parsed * 1_000_000)) : null;
+  const needsPermission = connected && amountRaw !== null && wallet.allowanceRaw !== null && wallet.allowanceRaw < amountRaw;
+  const canConfirm = connected && !wrongNetwork && !busy && !!chain && !chain.paused && !!side && amountRaw !== null && amountRaw >= chain.minStake;
+  const estimate = chain && side && amountRaw !== null ? estimatePayout(side, amountRaw, chain.upTotal, chain.downTotal) : null;
+  const confirmLabel = !chain
+    ? "Loading…"
+    : chain.paused
+      ? "This market is paused"
+      : !side
+        ? "Pick UP or DOWN"
+        : amountRaw === null || parsed === null
+          ? "Enter an amount"
+          : !connected
+            ? "Connect your wallet to call"
+            : wrongNetwork
+              ? "Switch network in your wallet"
+              : `Call ${side} on ${market.key} · ${frameWords(market.roundSeconds)} · ${dollars(parsed)}`;
 
   return (
     <Tile
@@ -95,36 +126,53 @@ export function YourCall({
           Beta
         </span>
       }
-      index={index} className={cn("p-4 sm:p-6", className)}>
-      {/* what you are calling: the NEXT round, not the price at the moment you click */}
-      <h3 className="text-[24px] font-bold leading-tight tracking-[-0.025em]">Next round: UP or DOWN?</h3>
-      <p className="mt-1 text-[13px] leading-snug opacity-80">You call the round that starts when the countdown ends, not the price right now.</p>
-
-      {/* countdown */}
-      <div className="mt-4 flex items-center gap-3">
-        <Ring secondsLeft={secondsLeft} />
+      index={index}
+      className={cn("p-4 sm:p-6", className)}
+    >
+      {/* countdown: the call is always for the NEXT round */}
+      <div className="flex items-center gap-3">
+        <Ring secondsLeft={secondsLeft} roundSeconds={market.roundSeconds} />
         <div className="min-w-0">
           <p className="font-mono text-[34px] font-semibold leading-none tracking-[-0.04em] tabular-nums" aria-label="next round starts in">
             {secondsLeft === null ? "--:--" : formatCountdown(secondsLeft)}
           </p>
-          <p className="mt-1 text-[12px] font-medium opacity-75">{urgent ? "Next round starts very soon" : "until the next round starts (calling closes)"}</p>
+          <p className="mt-1 text-[12px] font-medium opacity-75">Calling for the next round closes in</p>
         </div>
       </div>
 
       {backing ? (
         <div className="mt-4 flex items-center gap-2.5 rounded-2xl p-2 pr-3" style={{ background: "color-mix(in oklch, black 12%, transparent)" }}>
           <AgentAvatar agent={backing} size={40} />
-          <p className="min-w-0 flex-1 text-[12px] leading-snug">
-            <span className="font-semibold">
-              Backing Agent {backing.number} · {backing.name}
-            </span>
-            <span className="block opacity-70">Its call comes from the contract (not live yet), so pick a side below for now.</span>
+          <p className="min-w-0 flex-1 text-[12px] font-semibold leading-snug">
+            Backing Agent {backing.number} · {backing.name}
           </p>
           <button type="button" onClick={onClearBacking} className="shrink-0 rounded-full px-2 py-1 text-[12px] font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current">
             Stop
           </button>
         </div>
       ) : null}
+
+      {/* time frame: one row */}
+      <div role="group" aria-label="Time frame" className="mt-4">
+        <p className="mb-1.5 text-[12px] font-semibold opacity-75">Time frame</p>
+        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${frames.length}, minmax(0, 1fr))` }}>
+          {frames.map((f) => {
+            const on = f === frame;
+            return (
+              <button
+                key={f}
+                type="button"
+                aria-pressed={on}
+                onClick={() => onFrame(f)}
+                className="h-11 rounded-2xl border-2 px-1 text-[14px] font-bold tracking-[-0.01em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current focus-visible:ring-offset-2"
+                style={on ? { background: INK, borderColor: INK, color: "var(--color-up)" } : { background: "color-mix(in oklch, white 28%, transparent)", borderColor: "color-mix(in oklch, black 20%, transparent)", color: INK }}
+              >
+                {frameWords(f)}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       {/* UP / DOWN */}
       <div role="group" aria-label="Your call" className="mt-4 grid grid-cols-2 gap-3">
@@ -142,11 +190,7 @@ export function YourCall({
               aria-pressed={on}
               onClick={() => onSide(s)}
               className="flex h-[88px] flex-col items-center justify-center gap-0.5 rounded-2xl border-2 text-[26px] font-bold tracking-[-0.02em] transition-[background-color,transform] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 motion-reduce:transition-none"
-              style={
-                on
-                  ? { background: INK, borderColor: INK, color: colour }
-                  : { background: "color-mix(in oklch, white 28%, transparent)", borderColor: "color-mix(in oklch, black 20%, transparent)", color: INK }
-              }
+              style={on ? { background: INK, borderColor: INK, color: colour } : { background: "color-mix(in oklch, white 28%, transparent)", borderColor: "color-mix(in oklch, black 20%, transparent)", color: INK }}
             >
               <span aria-hidden className="text-[20px] leading-none">
                 {s === "UP" ? "▲" : "▼"}
@@ -172,15 +216,16 @@ export function YourCall({
             placeholder="1"
             value={amount}
             onChange={(e) => onAmount(cleanAmount(e.target.value))}
-            onBlur={() => { if (parsed === null) onAmount("1"); }}
+            onBlur={() => {
+              if (parsed === null) onAmount("1");
+            }}
             aria-invalid={tooSmall || tooBig}
             aria-describedby={`${inputId}-hint`}
             className="min-w-0 flex-1 bg-transparent font-mono text-[40px] font-semibold leading-none tracking-[-0.04em] tabular-nums outline-none placeholder:opacity-30"
           />
         </div>
         <p id={`${inputId}-hint`} className={cn("mt-1.5 text-[12px]", tooSmall || tooBig ? "font-semibold" : "opacity-70")}>
-          {tooBig ? `Beta limit: ${MAX_STAKE} USDC per call.` : "Minimum 0.10 USDC"}
-          {!tooBig ? ` · Beta limit ${MAX_STAKE} USDC per call` : null}
+          {tooBig ? `Beta limit: ${MAX_STAKE} USDC per round.` : tooSmall ? "The smallest call is 0.10 USDC." : `Minimum 0.10 USDC · Beta limit ${MAX_STAKE} USDC per round`}
         </p>
         <div className="mt-3 flex gap-2">
           {QUICK.map((q) => (
@@ -198,39 +243,144 @@ export function YourCall({
         </div>
       </div>
 
-      {/* payout */}
-      <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl px-3.5 py-3 text-[13px]" style={{ background: "color-mix(in oklch, black 10%, transparent)" }}>
-        <span>
-          <span className="font-semibold">Estimated payout</span>
-          <span className="block text-[11px] opacity-70">Changes until the round starts</span>
-        </span>
-        <NotLive onAccent className="text-[12px]" />
-      </div>
+      {/* money on the round and the estimate (from the contract) */}
+      {chain ? (
+        <div className="mt-5 rounded-2xl px-3.5 py-3 text-[13px]" style={{ background: "color-mix(in oklch, black 10%, transparent)" }}>
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="font-semibold">Total in this round</span>
+            <span className="font-mono text-[18px] font-semibold tabular-nums">{usdc(chain.upTotal + chain.downTotal)}</span>
+          </div>
+          <div className="mt-1 flex items-center gap-4 font-mono text-[12px] tabular-nums opacity-80">
+            <span>▲ UP {usdc(chain.upTotal)}</span>
+            <span>▼ DOWN {usdc(chain.downTotal)}</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <span>
+              <span className="font-semibold">Estimated payout</span>
+              <span className="block text-[11px] opacity-70">Changes until the round starts</span>
+            </span>
+            <span className="text-right font-mono font-semibold tabular-nums">
+              {estimate ? (estimate.kind === "win" ? usdc(estimate.payout) : <span className="font-sans text-[12px] font-medium">Your money back for now</span>) : "—"}
+            </span>
+          </div>
+        </div>
+      ) : null}
+
+      {/* before the one-time permission is asked for: say what it is */}
+      {needsPermission && call.status === "idle" ? (
+        <div className="mt-4 rounded-2xl p-3 text-[12px] leading-snug" style={{ background: "color-mix(in oklch, black 10%, transparent)" }}>
+          <p>{APPROVAL_NOTICE}</p>
+          <label className="mt-2 flex items-center gap-2 font-semibold">
+            Permission amount
+            <span className="flex items-center gap-1 rounded-xl border-2 px-2 py-1" style={{ borderColor: "color-mix(in oklch, black 25%, transparent)" }}>
+              <span className="font-mono opacity-60">$</span>
+              <input
+                inputMode="decimal"
+                autoComplete="off"
+                value={permission}
+                onChange={(e) => setPermission(cleanAmount(e.target.value))}
+                aria-label="Permission amount in USDC"
+                className="w-16 bg-transparent font-mono tabular-nums outline-none"
+              />
+            </span>
+          </label>
+        </div>
+      ) : null}
 
       {/* confirm */}
       <button
         type="button"
-        disabled
-        className="mt-4 flex h-14 w-full items-center justify-center rounded-2xl text-[17px] font-bold disabled:cursor-not-allowed"
-        style={{ background: "color-mix(in oklch, black 22%, transparent)", color: INK, opacity: 0.55 }}
+        disabled={!canConfirm}
+        onClick={() => {
+          if (side && chain) void call.makeCall({ marketId: market.id, round: chain.nextRound, side, amountUsdc: amount, approvalUsdc: permission });
+        }}
+        className="mt-4 flex min-h-14 w-full items-center justify-center rounded-2xl px-3 py-2 text-center text-[16px] font-bold leading-tight transition-opacity disabled:cursor-not-allowed"
+        style={canConfirm ? { background: INK, color: "var(--color-up)" } : { background: "color-mix(in oklch, black 22%, transparent)", color: INK, opacity: 0.6 }}
       >
-        Confirm call
+        {busy ? STATUS_TEXT[call.status].replace("…", "") : confirmLabel}
       </button>
-      <p className="mt-1.5 text-center text-[11px] opacity-70">Calls open once the contract is live.</p>
 
-      {/* notes */}
-      <ul className="mt-4 flex flex-col gap-2 text-[12px] leading-relaxed opacity-80">
-        <li>
-          <span className="font-semibold">Fee:</span> 2% of winnings. If you lose or get refunded, you pay no fee.
-        </li>
-        <li>
-          <span className="font-semibold">No one on the other side?</span> You get your full stake back, no fee.{" "}
-          {nowSec !== null && secondsLeft !== null ? <span className="font-semibold">{nextRoundRefundText(nowSec, secondsLeft)}.</span> : null}
-        </li>
-        <li>
-          UP wins if the price is higher at the end of the round than at the start. The price when you tap doesn&apos;t count.
-        </li>
-      </ul>
+      {call.status !== "idle" ? (
+        <div className="mt-2 text-center text-[12px] leading-snug" role="status">
+          <p className="font-semibold">{call.status === "failed" ? (call.errorMessage ?? STATUS_TEXT.failed) : STATUS_TEXT[call.status]}</p>
+          {call.errorTechnical && call.status === "failed" ? <p className="mt-0.5 break-words text-[11px] opacity-60">{call.errorTechnical}</p> : null}
+          {call.approveTxHash ? (
+            <a href={txLink(call.approveTxHash) ?? undefined} target="_blank" rel="noreferrer" className="mr-3 underline underline-offset-2">
+              Permission
+            </a>
+          ) : null}
+          {call.txHash ? (
+            <a href={txLink(call.txHash) ?? undefined} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+              View your call
+            </a>
+          ) : null}
+          {call.status === "done" || call.status === "failed" ? (
+            <button type="button" onClick={call.reset} className="ml-3 underline underline-offset-2">
+              Dismiss
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* the rule, in one line */}
+      <p className="mt-4 text-center text-[11px] leading-snug opacity-80">
+        2% fee on winnings only · Money back if no one is on the other side ·{" "}
+        <Link href="/how-it-works" className="font-semibold underline underline-offset-2">
+          How it works →
+        </Link>
+      </p>
+
+      {/* the spending limit (the one-time permission): shown when there is one; Change opens the editor, which also removes it */}
+      {connected && wallet.allowanceRaw !== null && wallet.allowanceRaw > 0n ? (
+        <div className="mt-2 text-center text-[12px]">
+          <p className="opacity-80">
+            Spending limit: {usdc(wallet.allowanceRaw)} left ·{" "}
+            <button type="button" onClick={() => setEditing((v) => !v)} aria-expanded={editing} className="font-semibold underline underline-offset-2">
+              Change
+            </button>
+          </p>
+          {editing ? (
+            <div className="mt-2 rounded-2xl p-3 text-left" style={{ background: "color-mix(in oklch, black 10%, transparent)" }}>
+              <p className="text-[12px] leading-snug">{APPROVAL_NOTICE}</p>
+              <label className="mt-2 flex items-center gap-2 text-[12px] font-semibold">
+                Spending limit
+                <span className="flex items-center gap-1 rounded-xl border-2 px-2 py-1" style={{ borderColor: "color-mix(in oklch, black 25%, transparent)" }}>
+                  <span className="font-mono opacity-60">$</span>
+                  <input
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={limit}
+                    onChange={(e) => setLimit(cleanAmount(e.target.value))}
+                    aria-label="Spending limit in USDC"
+                    className="w-16 bg-transparent font-mono tabular-nums outline-none"
+                  />
+                </span>
+              </label>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  disabled={revoking || limit === "" || limit === "."}
+                  onClick={() => void approval.setLimit(limit)}
+                  className="h-10 flex-1 rounded-xl text-[13px] font-bold disabled:opacity-50"
+                  style={{ background: INK, color: "var(--color-up)" }}
+                >
+                  Save limit
+                </button>
+                <button
+                  type="button"
+                  disabled={revoking}
+                  onClick={() => void approval.revoke()}
+                  className="h-10 flex-1 rounded-xl border-2 text-[13px] font-bold disabled:opacity-50"
+                  style={{ borderColor: "color-mix(in oklch, black 30%, transparent)" }}
+                >
+                  Remove permission
+                </button>
+              </div>
+              <p className="mt-2 text-[11px] opacity-70">{revoking ? "Confirm in your wallet…" : approval.status === "failed" && approval.errorMessage ? approval.errorMessage : "Your wallet will ask you to confirm."}</p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </Tile>
   );
 }

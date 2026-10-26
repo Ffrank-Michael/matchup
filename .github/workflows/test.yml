@@ -20,7 +20,7 @@ jobs:
         run: node --test runner/runner.test.mjs runner/exchangePrices.test.mjs runner/priceLog.test.mjs
 
       - name: Deploy script market lists and guard check
-        run: node --test scripts/markets.test.mjs
+        run: node --test scripts/markets.test.mjs scripts/sync-web-deployment.test.mjs
 
       - name: Which Arc network flag does this forge have?
         shell: bash

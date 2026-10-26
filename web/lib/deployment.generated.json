@@ -1,0 +1,103 @@
+{
+  "network": "arc-testnet",
+  "chainId": 5042002,
+  "arena": "0xec52762e8f91b2380d39cf2d03101412a8a3530c",
+  "markets": [
+    {
+      "id": 0,
+      "name": "BTC/USD 5m",
+      "coin": "btc",
+      "round": 300,
+      "offset": 0,
+      "feed": "0xbedb9f42fec4640fe77372f169e7a5be96fd3910"
+    },
+    {
+      "id": 1,
+      "name": "ETH/USD 5m",
+      "coin": "eth",
+      "round": 300,
+      "offset": 100,
+      "feed": "0x0078011b069e45b60ad547d71b638a149b027f22"
+    },
+    {
+      "id": 2,
+      "name": "SOL/USD 5m",
+      "coin": "sol",
+      "round": 300,
+      "offset": 200,
+      "feed": "0x5e036746221c450b6adc8c9c40bf12b8ebe86563"
+    },
+    {
+      "id": 3,
+      "name": "BTC/USD 10m",
+      "coin": "btc",
+      "round": 600,
+      "offset": 0,
+      "feed": "0xbedb9f42fec4640fe77372f169e7a5be96fd3910"
+    },
+    {
+      "id": 4,
+      "name": "ETH/USD 10m",
+      "coin": "eth",
+      "round": 600,
+      "offset": 100,
+      "feed": "0x0078011b069e45b60ad547d71b638a149b027f22"
+    },
+    {
+      "id": 5,
+      "name": "SOL/USD 10m",
+      "coin": "sol",
+      "round": 600,
+      "offset": 200,
+      "feed": "0x5e036746221c450b6adc8c9c40bf12b8ebe86563"
+    },
+    {
+      "id": 6,
+      "name": "BTC/USD 30m",
+      "coin": "btc",
+      "round": 1800,
+      "offset": 0,
+      "feed": "0xbedb9f42fec4640fe77372f169e7a5be96fd3910"
+    },
+    {
+      "id": 7,
+      "name": "ETH/USD 30m",
+      "coin": "eth",
+      "round": 1800,
+      "offset": 100,
+      "feed": "0x0078011b069e45b60ad547d71b638a149b027f22"
+    },
+    {
+      "id": 8,
+      "name": "SOL/USD 30m",
+      "coin": "sol",
+      "round": 1800,
+      "offset": 200,
+      "feed": "0x5e036746221c450b6adc8c9c40bf12b8ebe86563"
+    },
+    {
+      "id": 9,
+      "name": "BTC/USD 1h",
+      "coin": "btc",
+      "round": 3600,
+      "offset": 0,
+      "feed": "0xbedb9f42fec4640fe77372f169e7a5be96fd3910"
+    },
+    {
+      "id": 10,
+      "name": "ETH/USD 1h",
+      "coin": "eth",
+      "round": 3600,
+      "offset": 100,
+      "feed": "0x0078011b069e45b60ad547d71b638a149b027f22"
+    },
+    {
+      "id": 11,
+      "name": "SOL/USD 1h",
+      "coin": "sol",
+      "round": 3600,
+      "offset": 200,
+      "feed": "0x5e036746221c450b6adc8c9c40bf12b8ebe86563"
+    }
+  ]
+}

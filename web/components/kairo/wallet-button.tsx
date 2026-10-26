@@ -5,7 +5,8 @@ import { formatUnits } from "viem";
 import { IS_MAINNET } from "@/lib/network";
 import { useBalance, useConnect, useConnection, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
 
-import { arcTestnet, shortAddress } from "@/lib/arc";
+import { chipAddress } from "@/lib/arc";
+import { activeChain as arcTestnet } from "@/onchain/wagmiConfig";
 import { cn } from "@/lib/utils";
 
 // "Connect wallet" for Arc testnet (browser wallets and wallet apps; Google sign-in comes later).
@@ -15,7 +16,7 @@ import { cn } from "@/lib/utils";
 //   if it does not know it. A pill in the top bar stays amber ("Wrong network") until that is done.
 
 const pillBase =
-  "rounded-full px-3.5 py-1.5 font-mono text-[12px] font-semibold transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "whitespace-nowrap rounded-full px-3 py-1.5 font-mono text-[12px] font-semibold transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 function friendly(error: Error | null) {
   if (!error) return null;
@@ -43,6 +44,8 @@ function ConnectView({ onDone }: { onDone: () => void }) {
   const { mutate: connect, isPending, variables, error, reset } = useConnect();
 
   // Wallets announced by the browser (EIP-6963). Older wallet browsers only provide window.ethereum.
+  // WalletConnect (Reown): phone users in any browser pick a wallet app, which opens and asks to connect. Only present when a project id is set.
+  const walletConnect = connectors.find((c) => c.id === "walletConnect");
   const announced = connectors.filter((c) => c.rdns);
   const hasLegacy = typeof window !== "undefined" && "ethereum" in window;
   const wallets = announced.length ? announced : hasLegacy ? connectors.filter((c) => c.id === "injected") : [];
@@ -87,6 +90,24 @@ function ConnectView({ onDone }: { onDone: () => void }) {
           {isMobile ? "No wallet found in this browser." : "No wallet found in this browser. Install one, then reload this page:"}
         </p>
       )}
+
+      {walletConnect ? (
+        <div className={wallets.length > 0 ? "mt-2" : "mt-3"}>
+          <Row
+            disabled={isPending}
+            onClick={() => {
+              reset();
+              connect({ connector: walletConnect, chainId: arcTestnet.id }, { onSuccess: onDone });
+            }}
+          >
+            <span className="grid size-7 place-items-center rounded-lg bg-muted text-[13px]" aria-hidden>
+              ⌁
+            </span>
+            <span className="flex-1">{isMobile ? "Open a wallet app" : "WalletConnect"}</span>
+            <span className="font-mono text-[11px] text-muted-foreground">{isMobile ? "any browser" : "phone wallet"}</span>
+          </Row>
+        </div>
+      ) : null}
 
       {error ? <p className="mt-3 rounded-xl bg-muted px-3 py-2 text-[12px]">{friendly(error)}</p> : null}
 
@@ -223,7 +244,7 @@ export function WalletButton() {
   if (status === "reconnecting" || status === "connecting") {
     button = (
       <button type="button" disabled className={cn(pillBase, "border border-border text-muted-foreground")}>
-        {address ? shortAddress(address) : "Connecting…"}
+        {address ? chipAddress(address) : "Connecting…"}
       </button>
     );
   } else if (connected && wrongNetwork) {
@@ -235,20 +256,20 @@ export function WalletButton() {
         onClick={() => switchChain({ chainId: arcTestnet.id })}
         className={cn(pillBase, "bg-amber-400 text-black hover:opacity-90")}
       >
-        {switching ? "Check your wallet…" : "Wrong network · Switch"}
+        {switching ? "Check your wallet…" : "Wrong network"}
       </button>
     );
   } else if (connected) {
     button = (
       <button type="button" onClick={() => setOpen(true)} className={cn(pillBase, "flex items-center gap-2 border border-border hover:bg-muted")}>
         <span className="size-2 rounded-full bg-up" aria-hidden />
-        {shortAddress(address)}
+        {chipAddress(address)}
       </button>
     );
   } else {
     button = (
       <button type="button" onClick={() => setOpen(true)} className={cn(pillBase, "bg-foreground text-background hover:opacity-90")}>
-        Connect wallet
+        Connect<span className="hidden sm:inline">&nbsp;wallet</span>
       </button>
     );
   }

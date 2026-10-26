@@ -6,21 +6,25 @@ import { getAddress } from 'viem';
 import { SETS, COINS, CHAINLINK_MAINNET, MIN_STAKE, FEED_DECIMALS, MAX_GUARD_AGE_SECONDS, marketName, relayDescription, standInDescription, validateSet, judgeGuard } from './markets.mjs';
 import { compile } from './compile.mjs';
 
-test('both sets are the same six markets: BTC, ETH and SOL at 5 and at 10 minutes', () => {
+test('both sets are the same twelve markets: BTC, ETH and SOL at 5, 10 and 30 minutes and 1 hour', () => {
   for (const name of ['rehearsal', 'mainnet']) {
     assert.deepEqual(validateSet(name), [], name);
     const names = SETS[name].markets.map(marketName);
-    assert.deepEqual(names, ['BTC/USD 5m', 'ETH/USD 5m', 'SOL/USD 5m', 'BTC/USD 10m', 'ETH/USD 10m', 'SOL/USD 10m']);
+    assert.deepEqual(names, ['BTC/USD 5m', 'ETH/USD 5m', 'SOL/USD 5m', 'BTC/USD 10m', 'ETH/USD 10m', 'SOL/USD 10m', 'BTC/USD 30m', 'ETH/USD 30m', 'SOL/USD 30m', 'BTC/USD 1h', 'ETH/USD 1h', 'SOL/USD 1h']);
   }
   assert.deepEqual(SETS.rehearsal.markets, SETS.mainnet.markets);
   assert.equal(SETS.rehearsal.network, 'testnet');
   assert.equal(SETS.mainnet.network, 'mainnet');
 });
 
-test('offsets are the agreed ones, and no two markets of the same round length lock at the same second', () => {
+test('offsets: a coin has one offset for both time frames, and no two coins lock or end at the same second', () => {
   const at = (n) => SETS.mainnet.markets.find((m) => marketName(m) === n).offset;
   assert.deepEqual(['BTC/USD 5m', 'ETH/USD 5m', 'SOL/USD 5m'].map(at), [0, 100, 200]);
-  assert.deepEqual(['BTC/USD 10m', 'ETH/USD 10m', 'SOL/USD 10m'].map(at), [0, 200, 400]);
+  assert.deepEqual(['BTC/USD 10m', 'ETH/USD 10m', 'SOL/USD 10m'].map(at), [0, 100, 200]);
+  assert.deepEqual(['BTC/USD 30m', 'ETH/USD 30m', 'SOL/USD 30m'].map(at), [0, 100, 200]);
+  assert.deepEqual(['BTC/USD 1h', 'ETH/USD 1h', 'SOL/USD 1h'].map(at), [0, 100, 200]);
+  const ends = SETS.mainnet.markets.map((m) => m.offset % 300);
+  assert.equal(new Set(ends).size, 3, 'three distinct end times per five minutes, shared by a coin and its two markets');
 });
 
 test('bands are 1.0% for BTC and 1.5% for ETH and SOL, and the relay description says so', () => {

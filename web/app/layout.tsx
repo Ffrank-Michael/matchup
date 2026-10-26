@@ -15,6 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Kairo Markets",
+  icons: { icon: [{ url: "/favicon.svg", type: "image/svg+xml" }], apple: "/kairo-icon-512.png" },
   description: "Call the next move. Back an agent. UP or DOWN on BTC, ETH and SOL, in USDC on Arc.",
 };
 

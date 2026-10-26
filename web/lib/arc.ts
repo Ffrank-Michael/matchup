@@ -14,3 +14,5 @@ export const arcTestnet = defineChain({
 });
 
 export const shortAddress = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+/** The shortest form, for the top bar chip: 0x28…63 */
+export const chipAddress = (a: string) => `${a.slice(0, 4)}…${a.slice(-2)}`;

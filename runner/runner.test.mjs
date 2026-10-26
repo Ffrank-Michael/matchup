@@ -38,7 +38,7 @@ const kinds = (r) => r.actions.map((a) => a.type);
 test('settings: early bets 1 minute after a round opens, contrarian 2 minutes before lock, two prices a round', () => {
   assert.equal(CFG.earlyDelay, 60);
   assert.equal(CFG.contrarianLead, 120);
-  assert.equal(CFG.endMargin, 15);
+  assert.equal(CFG.endMargin, 60);
   assert.equal(CFG.startAfter, 2);
   assert.equal(CFG.startGiveUp, 0.25);
   assert.ok(CFG.fastTickSeconds < CFG.tickSeconds, 'looks more often while a price is due');
@@ -224,15 +224,16 @@ test('only the start price asks for a trade after the lock; the end price is the
 
 test('there is no price in the middle of the round', () => {
   const f = [...FEED, upd(5, 6010, 102)];
-  for (let now = 6011; now < 6585; now += 7) assert.equal(priceAt(now, f).length, 0, 'at ' + now);
+  for (let now = 6011; now < 6540; now += 7) assert.equal(priceAt(now, f).length, 0, 'at ' + now);
 });
 
-test('end price: pushed 15 seconds before the end, once', () => {
+test('end price: pushed from 60 seconds before the end, once, and the action says when the round ends', () => {
   const f = [...FEED, upd(5, 6010, 102)];
-  assert.equal(priceAt(6584, f).length, 0);
-  assert.equal(priceAt(6585, f)[0].why, 'end price');
+  assert.equal(priceAt(6539, f).length, 0);
+  assert.equal(priceAt(6540, f)[0].why, 'end price');
+  assert.equal(priceAt(6540, f)[0].endsAt, 6600);
   assert.equal(priceAt(6599, f)[0].why, 'end price'); // late is better than never, until the end
-  assert.equal(priceAt(6585, [...f, upd(6, 6585, 103)]).length, 0);
+  assert.equal(priceAt(6540, [...f, upd(6, 6541, 103)]).length, 0);
   assert.equal(priceAt(6600, f).length, 0); // next round now
 });
 
@@ -251,12 +252,14 @@ test('two prices go into one 10-minute round: start, end', () => {
 test('the runner looks every 3 seconds while a start or end price is due, otherwise every 10', () => {
   const delay = (now, updates) => tickDelay(snap(now, market(now, { feed: { updates } })), CFG);
   const f = [...FEED, upd(5, 6010, 102)];
-  assert.equal(delay(5990, FEED), 10);
+  assert.equal(delay(5990, FEED), 10);  // the start trade is picked by its own time, so a slow tick before the lock costs nothing
   assert.equal(delay(6002, FEED), 3);   // start price due
   assert.equal(delay(6150, FEED), 10);  // gave up
   assert.equal(delay(6100, f), 10);     // start is in, end not due yet
-  assert.equal(delay(6585, f), 3);      // end price due
-  assert.equal(delay(6585, [...f, upd(6, 6585, 103)]), 10);
+  assert.equal(delay(6520, f), 10);
+  assert.equal(delay(6530, f), 3);      // one slow tick before the end window opens
+  assert.equal(delay(6545, f), 3);      // end price due
+  assert.equal(delay(6545, [...f, upd(6, 6545, 103)]), 10);
 });
 
 // ---------------------------------------------------------------- settling
@@ -449,7 +452,7 @@ test('two markets of one coin on the same feed: one start price push, one end pr
   assert.equal(start[0].feed, '0xRELAY'); // the executor pushes to the feed the market uses
   // after that push both markets have their start price, so nothing more is due
   assert.equal(pushes(3003, { address: '0xRELAY', updates: [...feed.updates, upd(2, 3003, 101)] }).length, 0);
-  // at 3285 the 5-minute round ends in 15 s; the 10-minute round has 5 more minutes: one end price push, for the 5m market
+  // at 3285 the 5-minute round ends in 15 s (its end window is open); the 10-minute round has 5 more minutes: one end price push, for the 5m market
   const mid = { address: '0xRELAY', updates: [...feed.updates, upd(2, 3003, 101)] };
   const end = pushes(3285, mid);
   assert.equal(end.length, 1);

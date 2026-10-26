@@ -21,15 +21,24 @@ export const CHAINLINK_MAINNET = {
   sol: '0x2d04D354f5fDaE3De723df475745B0a9B4edf90C',
 };
 
-// Round length and lock offset (seconds) of each market. The three coins are staggered inside each round length
-// so the runner is not busy with all of them at the same second.
+// Round length and lock offset (seconds) of each market. A coin uses the same offset for both time frames, so its 5 and
+// 10 minute rounds start and end together and one price push serves both; the three coins are 100 s apart, so no two
+// coins ever need a price at the same second.
 const SHAPES = [
   { coin: 'btc', round: 300, offset: 0 },
   { coin: 'eth', round: 300, offset: 100 },
   { coin: 'sol', round: 300, offset: 200 },
   { coin: 'btc', round: 600, offset: 0 },
-  { coin: 'eth', round: 600, offset: 200 },
-  { coin: 'sol', round: 600, offset: 400 },
+  { coin: 'eth', round: 600, offset: 100 },
+  { coin: 'sol', round: 600, offset: 200 },
+  // 30 minutes and 1 hour (added 26 Oct, after the first six, so the markets already deployed keep their ids). Same offsets: all
+  // time frames of a coin line up with its 5-minute rounds, so one price push still serves every market of the coin.
+  { coin: 'btc', round: 1800, offset: 0 },
+  { coin: 'eth', round: 1800, offset: 100 },
+  { coin: 'sol', round: 1800, offset: 200 },
+  { coin: 'btc', round: 3600, offset: 0 },
+  { coin: 'eth', round: 3600, offset: 100 },
+  { coin: 'sol', round: 3600, offset: 200 },
 ];
 
 export const SETS = {
@@ -37,7 +46,7 @@ export const SETS = {
   mainnet: { network: 'mainnet', markets: SHAPES },
 };
 
-export const marketName = (m) => `${COINS[m.coin].pair} ${m.round / 60}m`;
+export const marketName = (m) => `${COINS[m.coin].pair} ${m.round % 3600 === 0 ? `${m.round / 3600}h` : `${m.round / 60}m`}`;
 const percent = (bps) => `${(bps / 100).toFixed(1)}%`;
 
 /** Description stored in the relay (the contract insists it starts with "Kairo relay "). The site shows the same words. */

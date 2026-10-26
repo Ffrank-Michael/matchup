@@ -78,6 +78,11 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
         let note = `real price ${usd(q.price)}, ${quoteText(q)}, pushed to the TEST feed`;
         try { // the price is already on chain; a log problem must be loud but must not look like a failed push
           const block = await pub.getBlock({ blockNumber: rc.blockNumber });
+          if (a.endsAt) { // prove the margin: how long before the round's end did the end price land on chain
+            const spare = a.endsAt - Number(block.timestamp);
+            note += `
+         end price landed ${spare} s before the round ends${spare < 30 ? ' (LESS THAN 30 s: too close)' : ''}`;
+          }
           logPush(makePriceLogEntry({ action: a, quote: q, txHash: hash, blockNumber: rc.blockNumber, blockTimestamp: block.timestamp, feed, explorer, chainId }));
         } catch (e) { note += `
          WARNING: the price is on chain but could not be written to the price log: ${e.message}`; }

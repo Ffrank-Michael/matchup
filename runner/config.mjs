@@ -18,7 +18,8 @@ export const CFG = {
   // startGiveUp of the round, no start price is recorded and the round refunds.
   startAfter: 2,         // the start trade must be at least this many seconds after the lock (covers clock differences)
   startGiveUp: 0.25,     // ... and the runner stops waiting for it after this share of the round
-  endMargin: 15,         // the last trade is pushed this long before the end: it becomes the END price
+  endMargin: 60,         // the last trade is pushed this long before the end: it becomes the END price. A push takes about 13 s on the testnet
+                         // (two transactions), so this leaves at least 30 s to spare even when the network is slow. The log shows each landing.
 
   // --- settling and claiming ---
   settleWindow: 3600,    // the contract only allows settling for 1 hour after a round ends

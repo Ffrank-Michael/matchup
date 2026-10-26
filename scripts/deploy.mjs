@@ -1,7 +1,7 @@
-// Kairo Markets: deploy the six markets (BTC, ETH and SOL at 5 and 10 minutes) with one guarded relay feed per coin.
+// Kairo Markets: deploy the twelve markets (BTC, ETH and SOL at 5, 10 and 30 minutes and 1 hour) with one guarded relay feed per coin.
 //
 //   node scripts/deploy.mjs --set rehearsal                  DRY RUN on Arc TESTNET (default). Compiles, checks, estimates. Sends nothing.
-//   node scripts/deploy.mjs --set rehearsal --send           Deploys 3 test stand-ins for Chainlink, the arena, 3 relays, 6 markets, then verifies.
+//   node scripts/deploy.mjs --set rehearsal --send           Deploys 3 test stand-ins for Chainlink, the arena, 3 relays, 12 markets, then verifies.
 //   node scripts/deploy.mjs --set mainnet                    DRY RUN on Arc MAINNET: reads Chainlink on chain and checks it. Sends nothing.
 //   node scripts/deploy.mjs --set mainnet --send --i-understand-this-spends-real-usdc
 //                                                            Real deployment on Arc MAINNET (real USDC for gas).
@@ -286,7 +286,7 @@ async function verify(art, st) {
     check(getAddress(mk[0]) === getAddress(st.feeds[m.coin].address), `market ${i} uses the ${m.coin.toUpperCase()} relay`);
     check(getAddress(mk[1]) === zeroAddress, `market ${i} has no second feed`);
     check(Number(mk[2]) === m.round && Number(mk[3]) === m.offset && mk[4] === MIN_STAKE && mk[5] === false,
-      `market ${i}: ${m.round / 60}-minute rounds, offset ${m.offset}s, min stake 0.10 USDC, not paused`);
+      `market ${i}: ${m.round / 60}-minute rounds (${marketName(m)}), offset ${m.offset}s, min stake 0.10 USDC, not paused`);
   }
 
   if (bad) fail(`${bad} check(s) failed. Do not use this deployment until they are understood.`);

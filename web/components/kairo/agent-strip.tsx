@@ -47,10 +47,7 @@ export function AgentStrip({
                 )}
               >
                 <AgentAvatar agent={a} call={live[a.key]?.call ?? null} size={56} className="lg:size-[68px]" />
-                <span className="w-full truncate text-center text-[11px] font-medium leading-tight sm:text-[12px]">
-                  <span className="sm:hidden">{a.short}</span>
-                  <span className="hidden sm:inline">{a.name}</span>
-                </span>
+                <span className="w-full text-center text-[10px] font-medium leading-tight sm:text-[12px]">{a.name}</span>
                 <span
                   aria-hidden
                   className="h-1 w-5 rounded-full transition-opacity"

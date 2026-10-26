@@ -80,7 +80,8 @@ async function runLane(list) {
 
 do {
   let delay = CFG.tickSeconds;
-  try { delay = await tick(); } catch (e) { log(`tick error: ${String(e.shortMessage || e.message).slice(0, 300)}`); }
+  const began = Date.now();
+  try { delay = await tick(); const took = (Date.now() - began) / 1000; if (took > 4) log(`slow pass: ${took.toFixed(1)} s (reading the chain and sending prices and settles)`); } catch (e) { log(`tick error: ${String(e.shortMessage || e.message).slice(0, 300)}`); }
   if (!ONCE) await new Promise((r) => setTimeout(r, delay * 1000));
 } while (!ONCE);
 await agentLane; // --once: wait for the agent transactions that were started

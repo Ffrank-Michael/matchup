@@ -1,5 +1,3 @@
-import { ROUND_SECONDS } from "./markets";
-
 /**
  * A round nobody settles (for example when only one side was called) is refunded in full by the contract once the
  * 1-hour settle window after the round's end has passed (SETTLE_WINDOW in PredictionArena.sol; claim() works
@@ -18,7 +16,7 @@ export function formatHm(unixSec: number) {
 }
 
 /** For the next round of a market: the text under the call panel, from the clock and the schedule only. */
-export function nextRoundRefundText(nowSec: number, secondsToLock: number, roundSeconds = ROUND_SECONDS) {
+export function nextRoundRefundText(nowSec: number, secondsToLock: number, roundSeconds: number) {
   const endSec = nowSec + secondsToLock + roundSeconds;
   return `Refund available at ${formatHm(refundAvailableAt(endSec))}`;
 }

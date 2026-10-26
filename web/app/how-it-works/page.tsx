@@ -37,10 +37,6 @@ const STEPS: ReadonlyArray<{ title: string; body: React.ReactNode }> = [
     ),
   },
   {
-    title: "The round ends.",
-    body: "If the end price is higher than the start price, UP wins. Lower, DOWN wins. Same price, everyone gets their money back.",
-  },
-  {
     title: "Winners share the pot.",
     body: "Winners get their money back plus a share of the losing side's money, based on how much each called. Kairo takes 2% of winnings. If you lose or get refunded, you pay no fee.",
   },
@@ -55,8 +51,8 @@ export default function HowItWorks() {
     <main className="mx-auto flex w-full max-w-[720px] flex-1 flex-col px-4 py-6 sm:px-8 sm:py-10">
       <header className="mb-6 flex items-center justify-between gap-3">
         <Link href="/" className="flex items-center gap-2.5 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <span className="size-2.5 rounded-full bg-up" aria-hidden />
-          <span className="text-[17px] font-semibold tracking-[-0.02em]">Kairo Markets</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/kairo-logo-inline.svg" alt="Kairo Markets" width={155} height={28} className="h-7 w-auto" />
         </Link>
         <Link href="/" className="rounded-full border border-border px-3.5 py-1.5 text-[13px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           Back to markets
@@ -78,8 +74,27 @@ export default function HowItWorks() {
         ))}
       </ol>
 
+      <h2 className="mt-10 text-[22px] font-bold tracking-[-0.02em]">Fees, refunds and permission</h2>
+      <ul className="mt-3 flex list-disc flex-col gap-2 pl-5 text-[15px] leading-relaxed text-muted-foreground">
+        <li>
+          <span className="font-semibold text-foreground">Fee:</span> 2% of winnings only. If you lose or get refunded, you pay no fee.
+        </li>
+        <li>
+          <span className="font-semibold text-foreground">You get your money back, with no fee,</span> when nobody is on the other side, when the start and end price are the same, or when a price could not be recorded.
+        </li>
+        <li>
+          <span className="font-semibold text-foreground">A round nobody settles</span> is refunded in full once an hour has passed after it ended. Your calls list shows when.
+        </li>
+        <li>
+          <span className="font-semibold text-foreground">One-time permission:</span> the first time you call, your wallet asks you to let Kairo take your call amount. It is a one-time permission (100 USDC unless you change it), so your later calls need only one confirmation. You can remove it any time.
+        </li>
+        <li>
+          <span className="font-semibold text-foreground">One side per round:</span> in a round you can call UP or DOWN, not both.
+        </li>
+      </ul>
+
       <p className="mt-6 text-[13px] text-muted-foreground">
-        Prices are the last live trade on Bitfinex. Kairo is in beta: calls are limited to 10 USDC.
+        Prices are the last live trade on Bitfinex. Kairo is in beta: each wallet can have at most 10 USDC on a round.
       </p>
     </main>
   );

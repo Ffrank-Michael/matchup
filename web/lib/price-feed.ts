@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { MARKETS, type MarketKey } from "@/lib/markets";
+import { COINS, type MarketKey } from "@/lib/markets";
 
 // The ONE source of prices on the site: Bitfinex's free public websocket (no key).
 //   wss://api-pub.bitfinex.com/ws/2   channel "candles", key "trade:1m:tBTCUSD" (and ETH, SOL)
@@ -72,7 +72,7 @@ function connect() {
 
   socket.onopen = () => {
     lastMessageAt = Date.now();
-    for (const m of MARKETS) {
+    for (const m of COINS) {
       socket.send(JSON.stringify({ event: "subscribe", channel: "candles", key: `trade:1m:${SYMBOL[m.key]}` }));
     }
   };
@@ -88,7 +88,7 @@ function connect() {
     if (!Array.isArray(d)) {
       const e = d as { event?: string; key?: string; chanId?: number; code?: number };
       if (e.event === "subscribed" && typeof e.chanId === "number" && typeof e.key === "string") {
-        const m = MARKETS.find((x) => e.key === `trade:1m:${SYMBOL[x.key]}`);
+        const m = COINS.find((x) => e.key === `trade:1m:${SYMBOL[x.key]}`);
         if (m) channels.set(e.chanId, m.key);
       } else if (e.event === "info" && e.code === 20051) {
         socket.close(); // Bitfinex asks clients to reconnect

@@ -99,7 +99,9 @@ export function priceDue(m, now, cfg) {
 
 /** Seconds to wait before the next look: short while any market is waiting for a start or end price. */
 export function tickDelay(snap, cfg) {
-  return snap.markets.some((m) => priceDue(m, snap.now, cfg)) ? cfg.fastTickSeconds : cfg.tickSeconds;
+  // Look one slow tick (plus a few seconds for reading the chain) ahead, so the first look inside the end window is not late.
+  const ahead = cfg.tickSeconds + 5;
+  return snap.markets.some((m) => priceDue(m, snap.now, cfg) || priceDue(m, snap.now + ahead, cfg)) ? cfg.fastTickSeconds : cfg.tickSeconds;
 }
 
 export function planTick(snap, cfg, decided = new Set()) {
@@ -135,7 +137,7 @@ export function planTick(snap, cfg, decided = new Set()) {
         // First trade whose own time is at least startAfter seconds after the lock (the executor asks Bitfinex for exactly that trade).
         actions.push({ type: 'pushPrice', ...where, why: 'start price', firstTradeAfter: lockTime(m, r) + cfg.startAfter });
       } else {
-        actions.push({ type: 'pushPrice', ...where, why: 'end price' });
+        actions.push({ type: 'pushPrice', ...where, why: 'end price', endsAt: endTime(m, r) });
       }
     }
 
