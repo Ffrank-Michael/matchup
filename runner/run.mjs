@@ -13,6 +13,7 @@ import { CFG } from './config.mjs';
 import { planTick, tickDelay } from './plan.mjs';
 import { loadDeployments, makeReader } from './chain.mjs';
 import { makeExecutor, describe } from './wallets.mjs';
+import { createCandles } from './candles.mjs';
 
 const LIVE = process.argv.includes('--live');
 const ONCE = process.argv.includes('--once');
@@ -29,6 +30,9 @@ const log = (msg) => console.log(`${stamp()}  ${msg}`);
 
 console.log(LIVE ? '*** LIVE MODE: real testnet transactions will be sent ***' : '--- DRY RUN: nothing will be sent ---');
 
+const candleSource = createCandles();
+let candleData = null;       // closed 1-minute candles per coin, for the chart reader
+let candleRefresh = null;
 const decided = new Set();   // decisions already taken (a skip counts), so no agent decides twice per round
 const failedUntil = new Map(); // action text -> time before which we do not retry it
 let execute;
@@ -38,6 +42,11 @@ const inflight = new Set();   // action texts being executed right now
 async function tick() {
   const snap = await readSnapshot();
   execute ||= makeExecutor({ live: LIVE, env, deployments, pub, wallet, usdc, arenaAbi: snap.art.arena.abi, feedAbi: snap.art.feed.abi, relayAbi: snap.art.relay?.abi, explorer: chain.blockExplorers.default.url, chainId: chain.id });
+  // Candles: waited for once (a missing chart would make the chart reader skip its round), then refreshed in the background so a price push is never held up.
+  const pairs = snap.markets.map((m) => m.name.split(' ')[0]);
+  if (!candleRefresh) candleRefresh = candleSource.getAll(pairs).then((c) => { candleData = c; }).finally(() => { candleRefresh = null; });
+  if (candleData === null) await candleRefresh;
+  snap.candles = candleData ?? {};
   const { actions, decisions } = planTick(snap, { ...CFG, random: Math.random }, decided);
   const delay = tickDelay(snap, CFG);
 

@@ -48,7 +48,7 @@ const HEAD: Record<AgentKey, { rx: number; antenna: (c: string) => React.ReactNo
     ),
   },
   // medium head, a fin on top, bolts as ears
-  "streak-hunter": {
+  "chart-reader": {
     rx: 11,
     antenna: (c) => <path d="M25 14L32 5L39 14Z" fill={c} strokeLinejoin="round" stroke={c} strokeWidth="1.6" />,
     ears: (c) => (
@@ -100,16 +100,15 @@ const ART: Record<AgentKey, (c: string) => React.ReactNode> = {
       </g>
     </>
   ),
-  // three bars rising one after another, then a crosshair locks onto the third (drawn big)
-  "streak-hunter": (c) => (
+  // three candlesticks (a thin wick, a body) that grow one after another, the last one lit
+  "chart-reader": (c) => (
     <>
-      <rect className="kairo-bar-1" x="18.5" y="34" width="7" height="9" rx="2" fill={c} opacity="0.55" />
-      <rect className="kairo-bar-2" x="28.5" y="29" width="7" height="14" rx="2" fill={c} opacity="0.78" />
-      <rect className="kairo-bar-3" x="38.5" y="25" width="7" height="18" rx="2" fill={c} />
-      <g className="kairo-lock" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round">
-        <circle cx="42" cy="32" r="6.2" />
-        <path d="M42 22.5v4.5M42 37v4.5M32.5 32H37M47 32h4.5" />
+      <g stroke={c} strokeWidth="1.6" strokeLinecap="round" opacity="0.9">
+        <path d="M22 28V46M32 24V44M42 21V40" />
       </g>
+      <rect className="kairo-bar-1" x="18.5" y="34" width="7" height="8" rx="1.6" fill={c} opacity="0.55" />
+      <rect className="kairo-bar-2" x="28.5" y="30" width="7" height="10" rx="1.6" fill={c} opacity="0.78" />
+      <rect className="kairo-bar-3" x="38.5" y="24" width="7" height="13" rx="1.6" fill="white" style={{ filter: `drop-shadow(0 0 3px ${c})` }} />
     </>
   ),
   // a coin with two different faces, flipping with a hop

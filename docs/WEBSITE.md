@@ -19,7 +19,7 @@ The wider website plan (live price chart, start price line, wording, per-round p
 |---|---|
 | Hero (greeting and net worth) | the live round: market, countdown to lock, total pot |
 | 30-day PnL bars | the last 30 rounds: lime for UP wins, lilac for DOWN |
-| Card stack | the four agents as cards: Agent 1 · Trend Follower, Agent 2 · Contrarian, Agent 3 · Streak Hunter, Agent 4 · Coin Flipper |
+| Card stack | the four agents as cards: Agent 1 · Trend Follower, Agent 2 · Contrarian, Agent 3 · Chart Reader, Agent 4 · Coin Flipper |
 | Gas gauge | an UP vs DOWN meter for the current round |
 | Portfolio vs ETH chart | each agent's profit vs the coin flipper |
 | Allocation bar | how this round's pot splits between UP and DOWN |
@@ -75,9 +75,9 @@ Line / Candles toggle with 1-minute candles (Bitfinex candles are already in the
 - **Next:** Google / email sign-in (Circle user-controlled wallets). Then rebuild the page to the agreed layout above, one small step at a time (phone first).
 
 ## Agent avatars and cards (decided 2026-10-26, built)
-- Each agent is an animated SVG avatar (`web/components/kairo/agent-avatar.tsx`, keyframes in `web/app/globals.css`): a glowing circle in the agent's colour with a loop that acts out its personality. Trend Follower (teal) a wave flowing forward; Contrarian (coral) a cluster of dots drifting one way and one bright dot the other way; Streak Hunter (amber) three bars rising one after another, then a crosshair locks onto the third; Coin Flipper (sky blue) a coin flipping in 3D.
+- Each agent is an animated SVG avatar (`web/components/kairo/agent-avatar.tsx`, keyframes in `web/app/globals.css`): a glowing circle in the agent's colour with a loop that acts out its personality. Trend Follower (teal) a wave flowing forward; Contrarian (coral) a cluster of dots drifting one way and one bright dot the other way; Chart Reader (amber) three candlesticks growing one after another, the last one lit; Coin Flipper (sky blue) a coin flipping in 3D.
 - Once an agent has made its call for the open round, its ring glows lime (UP) or lilac (DOWN). All animation stops for people who prefer reduced motion (they see a calm still pose).
-- Each agent card (`whos-calling.tsx`): big avatar on the left, name, tagline (Rides the trend, Fades the crowd, Hunts streaks, Leaves it to luck), the current call as a big UP or DOWN pill, the reason in quotes, win rate, profit, the last 5 calls as small dots, and a "Back this agent" button. Every number says "not live yet" until the contract is live (the card takes an `AgentLive` object from `web/lib/agents.ts`, empty for now).
+- Each agent card (`whos-calling.tsx`): big avatar on the left, name, tagline (Rides the trend, Fades the crowd, Reads the chart, Leaves it to luck), the current call as a big UP or DOWN pill, the reason in quotes, win rate, profit, the last 5 calls as small dots, and a "Back this agent" button. Every number says "not live yet" until the contract is live (the card takes an `AgentLive` object from `web/lib/agents.ts`, empty for now).
 
 ## Time frames (decided 2026-10-26; NOT built yet)
 - Each coin can have several markets with different round lengths. Each market card gets a row of time frame buttons (for example 5m, 15m, 1h) showing only the ones that exist on the network the site is pointed at. The list of markets comes from the deployment file / contract, never hard-coded in the screens.
@@ -88,7 +88,7 @@ Phone, top to bottom: (1) the three market cards in one row, each with a small l
 Files: `market-card.tsx`, `chart-sheet.tsx`, `price-chart.tsx`, `agent-strip.tsx`, `call-pill.tsx`, `whos-calling.tsx`, `lib/winning.ts`.
 
 ## Agent avatars v2 and one set of components (owner's feedback 2026-10-26, built)
-- **Avatars:** four robot heads that read as one team (same size, visor and chin lights), each slightly different (head corners, antenna, ears). The visor acts out the personality in a loop: Trend Follower (teal) a wave flowing across; Contrarian (orange) a row of small arrows going one way and one bigger arrow going the other way; Streak Hunter (amber) three bars rising and a big crosshair locking onto the third; Coin Flipper (sky blue) a coin with two different faces clearly flipping. The head outline glows lime (UP) or lilac (DOWN) once an agent has called. Animation stops for reduced motion. Phone labels are short: Trend, Contrarian, Streak, Coin Flip.
+- **Avatars:** four robot heads that read as one team (same size, visor and chin lights), each slightly different (head corners, antenna, ears). The visor acts out the personality in a loop: Trend Follower (teal) a wave flowing across; Contrarian (orange) a row of small arrows going one way and one bigger arrow going the other way; Chart Reader (amber) three candlesticks with wicks growing one after another, the last one lit; Coin Flipper (sky blue) a coin with two different faces clearly flipping. The head outline glows lime (UP) or lilac (DOWN) once an agent has called. Animation stops for reduced motion. Phone labels are short: Trend, Contrarian, Chart, Coin Flip.
 - **Same components on phone and laptop, only arranged differently:** market cards, the agent strip ("Who's calling?"), Your call, Live calls, Your calls, the agent leaderboard, and the full chart (a sheet from the bottom on a phone, a centred panel on a laptop). Phone is one column in that order. Laptop: cards; agents beside Your call; Live calls beside Your calls; the leaderboard as a row of four cards. (This replaces the earlier laptop-only "Who's calling?" tile with tabs.)
 
 ## Built 2026-10-26 (later)

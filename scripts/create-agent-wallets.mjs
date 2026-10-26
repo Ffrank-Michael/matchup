@@ -11,7 +11,7 @@ const STATE = path.join(ROOT, 'deployments', 'circle-testnet.json');
 const AGENTS = [
   { key: 'trend-follower', name: 'Kairo Trend follower' },
   { key: 'contrarian', name: 'Kairo Contrarian' },
-  { key: 'streak-hunter', name: 'Kairo Streak hunter' },
+  { key: 'chart-reader', name: 'Kairo Chart reader' },
   { key: 'coin-flipper', name: 'Kairo Coin flipper' },
 ];
 

@@ -5,23 +5,55 @@ import { useConnection } from "wagmi";
 
 import { MARKETS } from "@/lib/markets";
 import { refundReasonText } from "@/lib/refund-reason";
-import { claimLabel, CLAIM_STATUS_TEXT, pushKey, settledPayout, settlementKey, txLink, usdc, useClaim, usePricePushes, useSettlements, type MyPosition, type PricePush, type Round } from "@/onchain";
+import {
+  claimLabel,
+  CLAIM_STATUS_TEXT,
+  settledPayout,
+  settlementKey,
+  txLink,
+  usdc,
+  useClaim,
+  useSettlements,
+  type MyPosition,
+  type Round,
+} from "@/onchain";
 
-import { PriceProof } from "./price-proof";
-
+import { StartEnd } from "./price-proof";
+import { RoundBadge, roundStatusOf } from "./round-badge";
 import { Tile } from "./tile";
 
-const clock = (unixSec: number) => new Date(unixSec * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+const clock = (unixSec: number) =>
+  new Date(unixSec * 1000).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 const INK = "oklch(0.24 0.06 135)";
 
 /** How a position stands, in words, from the round's real state. */
-function describe(p: MyPosition, round: Round | undefined): { text: string; tone: "open" | "claim" | "done" | "lost" } {
+function describe(
+  p: MyPosition,
+  round: Round | undefined,
+): { text: string; tone: "open" | "claim" | "done" | "lost" } {
   if (!round) return { text: "…", tone: "open" };
-  if (p.claimed) return { text: round.state === "refunded" ? "Refunded" : "Paid out", tone: "done" };
+  if (p.claimed)
+    return {
+      text: round.state === "refunded" ? "Refunded" : "Paid out",
+      tone: "done",
+    };
   if (p.claimableKind === "win") return { text: "Won", tone: "claim" };
   if (p.claimableKind === "refund") return { text: "Refunded", tone: "claim" };
-  if (round.state === "up" || round.state === "down") return { text: "Lost", tone: "lost" };
-  return { text: round.state === "open" ? "Open" : round.state === "locked" ? "Running" : "Waiting for the result", tone: "open" };
+  if (round.state === "up" || round.state === "down")
+    return { text: "Lost", tone: "lost" };
+  return {
+    text:
+      round.state === "open"
+        ? "Open"
+        : round.state === "locked"
+          ? "Running"
+          : "Waiting for the result",
+    tone: "open",
+  };
 }
 
 /**
@@ -31,12 +63,14 @@ function describe(p: MyPosition, round: Round | undefined): { text: string; tone
 export function YourCalls({
   positions,
   roundsByMarket,
+  nowSec,
   onOpen,
   index,
   className,
 }: {
   positions: MyPosition[] | null;
   roundsByMarket: Record<number, Round[]> | null;
+  nowSec: number | null;
   onOpen: (marketId: number, roundIndex: number) => void;
   index: number;
   className?: string;
@@ -45,16 +79,35 @@ export function YourCalls({
   const { claim, claimAll, status, txHash, errorMessage, reset } = useClaim();
   const busy = status === "claim-wallet" || status === "claim-confirming";
   const settlements = useSettlements();
-  const pushes = usePricePushes(MARKETS.map((m) => m.feed));
 
   const rows = React.useMemo(() => {
-    const list = (positions ?? []).map((p) => ({ p, round: roundsByMarket?.[p.marketId]?.find((r) => r.roundIndex === p.roundIndex) }));
+    const list = (positions ?? []).map((p) => ({
+      p,
+      round: roundsByMarket?.[p.marketId]?.find(
+        (r) => r.roundIndex === p.roundIndex,
+      ),
+    }));
     const rank = (x: (typeof list)[number]) =>
-      x.p.claimableKind !== "none" && !x.p.claimed ? 0 : x.round && (x.round.state === "open" || x.round.state === "locked" || x.round.state === "unsettled") ? 1 : 2;
-    return list.sort((a, b) => rank(a) - rank(b) || (b.round?.endTimeSec ?? 0) - (a.round?.endTimeSec ?? 0)).slice(0, 12);
+      x.p.claimableKind !== "none" && !x.p.claimed
+        ? 0
+        : x.round &&
+            (x.round.state === "open" ||
+              x.round.state === "locked" ||
+              x.round.state === "unsettled")
+          ? 1
+          : 2;
+    return list
+      .sort(
+        (a, b) =>
+          rank(a) - rank(b) ||
+          (b.round?.endTimeSec ?? 0) - (a.round?.endTimeSec ?? 0),
+      )
+      .slice(0, 12);
   }, [positions, roundsByMarket]);
 
-  const claimable = (positions ?? []).filter((p) => p.claimableKind !== "none" && !p.claimed && p.claimableAmount > 0n);
+  const claimable = (positions ?? []).filter(
+    (p) => p.claimableKind !== "none" && !p.claimed && p.claimableAmount > 0n,
+  );
 
   return (
     <Tile
@@ -74,11 +127,15 @@ export function YourCalls({
     >
       {!address ? (
         <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border p-6 text-center">
-          <p className="text-[13px] text-muted-foreground">Connect your wallet to see your calls.</p>
+          <p className="text-[13px] text-muted-foreground">
+            Connect your wallet to see your calls.
+          </p>
         </div>
       ) : positions === null ? (
         <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border p-6">
-          <span className="font-mono text-[12px] text-muted-foreground">loading…</span>
+          <span className="font-mono text-[12px] text-muted-foreground">
+            loading…
+          </span>
         </div>
       ) : rows.length === 0 ? (
         <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border p-6 text-center text-[13px] text-muted-foreground">
@@ -88,40 +145,124 @@ export function YourCalls({
         <ul className="flex flex-col divide-y divide-border">
           {rows.map(({ p, round }) => {
             const d = describe(p, round);
+            const live =
+              !!round &&
+              nowSec !== null &&
+              nowSec >= round.lockTimeSec &&
+              nowSec < round.endTimeSec;
             const market = MARKETS.find((m) => m.id === p.marketId);
             const side = p.up > 0n ? "UP" : "DOWN";
             const mine = p.up > 0n ? p.up : p.down;
             const s = settlements?.get(settlementKey(p.marketId, p.roundIndex));
-            const push = (id: bigint | undefined): PricePush | null => (market && id && id > 0n ? (pushes?.get(pushKey(market.feed, id)) ?? null) : null);
             // what the call earned or cost, from the round's totals (the same sum as the contract's claim)
-            const winnerTotal = round ? (round.state === "up" ? round.upTotal : round.downTotal) : 0n;
-            const loserTotal = round ? (round.state === "up" ? round.downTotal : round.upTotal) : 0n;
+            const winnerTotal = round
+              ? round.state === "up"
+                ? round.upTotal
+                : round.downTotal
+              : 0n;
+            const loserTotal = round
+              ? round.state === "up"
+                ? round.downTotal
+                : round.upTotal
+              : 0n;
             const decided = round?.state === "up" || round?.state === "down";
-            const wonIt = decided && round?.state === (side === "UP" ? "up" : "down");
-            const delta = !decided ? null : wonIt ? settledPayout(mine, winnerTotal, loserTotal) - mine : -mine;
+            const wonIt =
+              decided && round?.state === (side === "UP" ? "up" : "down");
+            const delta = !decided
+              ? null
+              : wonIt
+                ? settledPayout(mine, winnerTotal, loserTotal) - mine
+                : -mine;
             return (
-              <li key={`${p.marketId}-${p.roundIndex}`} className="flex items-center justify-between gap-3 py-2.5 text-[13px]">
-                <button type="button" onClick={() => onOpen(p.marketId, p.roundIndex)} className="min-w-0 flex-1 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <span className="flex items-center gap-2">
-                    <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: side === "UP" ? "var(--color-up)" : "var(--color-down)", color: INK }}>
-                      {side === "UP" ? "▲ UP" : "▼ DOWN"}
+              <li
+                key={`${p.marketId}-${p.roundIndex}`}
+                className="flex items-center justify-between gap-3 py-2.5 text-[13px]"
+              >
+                <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => onOpen(p.marketId, p.roundIndex)}
+                    className="block w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span className="flex items-center gap-2">
+                      <span
+                        className="rounded-full px-2 py-0.5 text-[11px] font-bold"
+                        style={{
+                          background:
+                            side === "UP"
+                              ? "var(--color-up)"
+                              : "var(--color-down)",
+                          color: INK,
+                        }}
+                      >
+                        {side === "UP" ? "▲ UP" : "▼ DOWN"}
+                      </span>
+                      <span className="font-mono tabular-nums">
+                        {usdc(mine)}
+                      </span>
                     </span>
-                    <span className="font-mono tabular-nums">{usdc(mine)}</span>
-                  </span>
-                  <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                    {market?.name ?? `Market ${p.marketId}`}
-                    {round ? ` · ${clock(round.lockTimeSec)} to ${clock(round.endTimeSec)}` : ""} · {d.text}
-                    {delta !== null ? <span className={delta > 0n ? " font-semibold text-up" : " font-semibold"}>{` · ${delta > 0n ? "won" : "lost"} ${usdc(delta < 0n ? -delta : delta)}`}</span> : null}
-                    {round?.state === "refunded" ? ` · ${refundReasonText(s?.reason)}` : ""}
-                  </span>
-                  {market && s && (s.startPrice !== null || s.endPrice !== null) ? (
-                    <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
-                      <PriceProof coin={market.key} price={s.startPrice} push={push(s.startRoundId)} detail={false} />
-                      <span aria-hidden>→</span>
-                      <PriceProof coin={market.key} price={s.endPrice} push={push(s.endRoundId)} detail={false} />
+                    <span className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                      {round ? (
+                        <RoundBadge
+                          status={roundStatusOf(
+                            round.lockTimeSec,
+                            round.endTimeSec,
+                            nowSec,
+                            round.state === "up"
+                              ? "UP"
+                              : round.state === "down"
+                                ? "DOWN"
+                                : round.state === "refunded"
+                                  ? "Refunded"
+                                  : null,
+                          )}
+                        />
+                      ) : null}
+                      <span className="truncate">
+                        {market?.name ?? `Market ${p.marketId}`}
+                        {round
+                          ? ` · ${clock(round.lockTimeSec)} to ${clock(round.endTimeSec)}`
+                          : ""}{" "}
+                        · {d.text}
+                        {delta !== null ? (
+                          <span
+                            className={
+                              delta > 0n
+                                ? " font-semibold text-up"
+                                : " font-semibold"
+                            }
+                          >{` · ${delta > 0n ? "won" : "lost"} ${usdc(delta < 0n ? -delta : delta)}`}</span>
+                        ) : null}
+                        {round?.state === "refunded"
+                          ? ` · ${refundReasonText(s?.reason)}`
+                          : ""}
+                      </span>
+                    </span>
+                  </button>
+                  {market &&
+                  s &&
+                  (s.startPrice !== null || s.endPrice !== null) ? (
+                    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                      <StartEnd
+                        start={s.startPrice}
+                        end={s.endPrice}
+                        round={{
+                          marketId: p.marketId,
+                          roundIndex: p.roundIndex,
+                        }}
+                      />
                     </span>
                   ) : null}
-                </button>
+                </div>
+                {live ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpen(p.marketId, p.roundIndex)}
+                    className="shrink-0 rounded-full border border-border px-3 py-1.5 text-[12px] font-semibold hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    Watch
+                  </button>
+                ) : null}
                 {d.tone === "claim" ? (
                   <button
                     type="button"
@@ -142,18 +283,29 @@ export function YourCalls({
         <p className="mt-3 text-[12px] text-muted-foreground" role="status">
           {status === "failed" ? errorMessage : CLAIM_STATUS_TEXT[status]}{" "}
           {txHash ? (
-            <a href={txLink(txHash) ?? undefined} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+            <a
+              href={txLink(txHash) ?? undefined}
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2"
+            >
               View transaction
             </a>
           ) : null}{" "}
           {status === "done" || status === "failed" ? (
-            <button type="button" onClick={reset} className="underline underline-offset-2">
+            <button
+              type="button"
+              onClick={reset}
+              className="underline underline-offset-2"
+            >
               Dismiss
             </button>
           ) : null}
         </p>
       ) : (
-        <p className="mt-3 text-[11px] text-muted-foreground">Open calls first, then finished ones marked won, lost or refunded.</p>
+        <p className="mt-3 text-[11px] text-muted-foreground">
+          Open calls first, then finished ones marked won, lost or refunded.
+        </p>
       )}
     </Tile>
   );

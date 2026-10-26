@@ -5,17 +5,31 @@ import * as React from "react";
 import { useConnection } from "wagmi";
 
 import { AGENTS, type AgentKey } from "@/lib/agents";
-import { COINS, DEFAULT_FRAME, marketFor, secondsToNextLock, TIME_FRAMES, type MarketKey } from "@/lib/markets";
+import {
+  COINS,
+  DEFAULT_FRAME,
+  marketFor,
+  secondsToNextLock,
+  TIME_FRAMES,
+  type MarketKey,
+} from "@/lib/markets";
 import { hourPoints, lastPrice, usePriceFeed } from "@/lib/price-feed";
 import { useNowSeconds } from "@/lib/use-now";
 import { useStartPrice } from "@/lib/use-start-price";
-import { useAgentStats, useAllRounds, useMarkets, useMyPositions } from "@/onchain";
+import {
+  useAgentStats,
+  useAllRounds,
+  useMarkets,
+  useMyPositions,
+} from "@/onchain";
 
 import { AgentLeaderboard } from "./agent-leaderboard";
 import { AgentStrip } from "./agent-strip";
 import { ChartSheet } from "./chart-sheet";
 import { LiveCalls } from "./live-calls";
+import { LivePill } from "./live-pill";
 import { MarketCard } from "./market-card";
+import { RoundCardProvider } from "./round-card";
 import { WalletButton } from "./wallet-button";
 import { YourCall, type Side } from "./your-call";
 import { WatchSheet, type Watch } from "./watch-sheet";
@@ -40,7 +54,11 @@ export function KairoHome() {
   const [chartOpen, setChartOpen] = React.useState(false);
   // the round open in the watch sheet (after a call, or when a call is tapped in Your calls or Live calls)
   const [watch, setWatch] = React.useState<Watch | null>(null);
-  const openWatch = React.useCallback((marketId: number, roundIndex: number) => setWatch({ marketId, roundIndex }), []);
+  const openWatch = React.useCallback(
+    (marketId: number, roundIndex: number) =>
+      setWatch({ marketId, roundIndex }),
+    [],
+  );
   const closeWatch = React.useCallback(() => setWatch(null), []);
   const { address: me } = useConnection();
   const backingAgent = AGENTS.find((a) => a.key === backing) ?? null;
@@ -53,131 +71,239 @@ export function KairoHome() {
   const { markets: chainMarkets } = useMarkets();
   const { roundsByMarket } = useAllRounds(chainMarkets);
   const { positions } = useMyPositions(chainMarkets, roundsByMarket ?? {});
-  const chainOf = (id: number) => chainMarkets?.find((c) => c.id === id) ?? null;
+  const chainOf = (id: number) =>
+    chainMarkets?.find((c) => c.id === id) ?? null;
   // The start price of the round running now (the one before the next bettable round), once the contract has recorded it.
   const selectedChain = chainOf(market.id);
   // each agent's record and its call for the selected market's open round, read from the chain
-  const agentLive = useAgentStats(roundsByMarket, (id) => chainOf(id)?.nextRound ?? null, market.id);
+  const agentLive = useAgentStats(
+    roundsByMarket,
+    (id) => chainOf(id)?.nextRound ?? null,
+    market.id,
+  );
   // The contract records a round's start price when it settles it; while the round runs the site finds the same trade the runner uses.
-  const runningRound = selectedChain ? roundsByMarket?.[market.id]?.find((x) => x.roundIndex === selectedChain.nextRound - 1) : undefined;
-  const startPrice = useStartPrice(market.key, runningRound?.lockTimeSec ?? null, now, runningRound && runningRound.startPrice !== null ? runningRound.startPrice / 1e8 : null);
+  const runningRound = selectedChain
+    ? roundsByMarket?.[market.id]?.find(
+        (x) => x.roundIndex === selectedChain.nextRound - 1,
+      )
+    : undefined;
+  const startPrice = useStartPrice(
+    market.key,
+    runningRound?.lockTimeSec ?? null,
+    now,
+    runningRound && runningRound.startPrice !== null
+      ? runningRound.startPrice / 1e8
+      : null,
+  );
   // The money on the round that can be called now (the contract's next round).
-  const nextRound = selectedChain ? roundsByMarket?.[market.id]?.find((x) => x.roundIndex === selectedChain.nextRound) : undefined;
+  const nextRound = selectedChain
+    ? roundsByMarket?.[market.id]?.find(
+        (x) => x.roundIndex === selectedChain.nextRound,
+      )
+    : undefined;
   const priceOf = (key: MarketKey) => lastPrice(feed.candles[key]);
-  const pointsOf = (key: MarketKey) => (nowMs === null ? null : hourPoints(feed.candles[key], nowMs));
-  const feedFailed = feed.status === "reconnecting" && COINS.every((c) => feed.candles[c.key] === null);
+  const pointsOf = (key: MarketKey) =>
+    nowMs === null ? null : hourPoints(feed.candles[key], nowMs);
+  const feedFailed =
+    feed.status === "reconnecting" &&
+    COINS.every((c) => feed.candles[c.key] === null);
 
   return (
-    <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-4 sm:px-8 sm:py-8">
-      {/* Top bar */}
-      <header className="kairo-rise mb-3 flex flex-nowrap items-center justify-between gap-3 px-1">
-        <Link href="/" aria-label="Kairo Markets, home" className="flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/kairo-logo-inline.svg" alt="Kairo Markets" width={155} height={28} className="h-7 w-auto max-w-none" />
-        </Link>
-        <div className="flex shrink-0 items-center gap-2">
+    <RoundCardProvider roundsByMarket={roundsByMarket} nowSec={now} me={me}>
+      <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-4 sm:px-8 sm:py-8">
+        {/* Top bar */}
+        <header className="kairo-rise mb-3 flex flex-nowrap items-center justify-between gap-3 px-1">
           <Link
-            href="/how-it-works"
-            aria-label="How it works"
-            className="grid size-8 place-items-center rounded-full border border-border text-[14px] font-semibold text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-auto sm:border-0 sm:px-3 sm:py-1.5 sm:text-[13px] sm:font-medium"
+            href="/"
+            aria-label="Kairo Markets, home"
+            className="flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <span className="sm:hidden" aria-hidden>
-              ?
-            </span>
-            <span className="hidden sm:inline">How it works</span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/kairo-logo-inline.svg"
+              alt="Kairo Markets"
+              width={155}
+              height={28}
+              className="h-7 w-auto max-w-none"
+            />
           </Link>
-          <WalletButton />
-        </div>
-      </header>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link
+              href="/how-it-works"
+              aria-label="How it works"
+              className="grid size-8 place-items-center rounded-full border border-border text-[14px] font-semibold text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-auto sm:border-0 sm:px-3 sm:py-1.5 sm:text-[13px] sm:font-medium"
+            >
+              <span className="sm:hidden" aria-hidden>
+                ?
+              </span>
+              <span className="hidden sm:inline">How it works</span>
+            </Link>
+            <WalletButton />
+          </div>
+        </header>
 
-      <div className="flex flex-col gap-3">
-        {/* 1. One card per coin (name, live price, last hour): all three in ONE row, also on a phone. Tapping one picks that market in the call panel. */}
-        <div role="group" aria-label="Markets" className="grid grid-cols-3 gap-2 lg:gap-3">
-          {COINS.map((c, i) => {
-            const m = marketFor(c.key, frame);
-            return (
-              <MarketCard
-                key={c.key}
-                market={m}
-                price={priceOf(c.key)}
-                points={pointsOf(c.key)}
-                nowMs={nowMs}
-                feedFailed={feedFailed}
-                selected={c.key === selected}
-                onSelect={() => setSelected(c.key)}
-                onOpenChart={() => setChartOpen(true)}
-                index={i}
-              />
-            );
-          })}
-        </div>
+        <div className="flex flex-col gap-3">
+          {/* 1. One card per coin (name, live price, last hour): all three in ONE row, also on a phone. Tapping one picks that market in the call panel. */}
+          <div
+            role="group"
+            aria-label="Markets"
+            className="grid grid-cols-3 gap-2 lg:gap-3"
+          >
+            {COINS.map((c, i) => {
+              const m = marketFor(c.key, frame);
+              return (
+                <MarketCard
+                  key={c.key}
+                  market={m}
+                  price={priceOf(c.key)}
+                  points={pointsOf(c.key)}
+                  nowMs={nowMs}
+                  feedFailed={feedFailed}
+                  selected={c.key === selected}
+                  onSelect={() => setSelected(c.key)}
+                  onOpenChart={() => setChartOpen(true)}
+                  index={i}
+                />
+              );
+            })}
+          </div>
 
-        {/* 2 to 6. The same tiles on phone and laptop, only arranged differently.
+          {/* 2 to 6. The same tiles on phone and laptop, only arranged differently.
             Phone: one column in this order: agents, your call, live calls, your calls, leaderboard (the order classes).
             Laptop: two columns, rows stretch to the same height: [agents + live calls | your call], [your calls | leaderboard].
             The wrapper is "contents" on a phone, so its tiles take part in the one-column order. */}
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <div className="contents lg:flex lg:flex-col lg:gap-3">
-            <AgentStrip backing={backing} onBack={setBacking} live={agentLive} className="order-1 lg:order-none" />
-            <LiveCalls market={market} nowSec={now} onOpen={openWatch} index={6} className="order-3 min-h-[200px] lg:order-none lg:flex-1" />
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <div className="contents lg:flex lg:flex-col lg:gap-3">
+              <AgentStrip
+                backing={backing}
+                onBack={setBacking}
+                live={agentLive}
+                className="order-1 lg:order-none"
+              />
+              <LiveCalls
+                market={market}
+                nowSec={now}
+                onOpen={openWatch}
+                index={6}
+                className="order-3 min-h-[200px] lg:order-none lg:flex-1"
+              />
+            </div>
+            <YourCall
+              frames={TIME_FRAMES}
+              frame={market.roundSeconds}
+              onFrame={setFrame}
+              market={market}
+              secondsLeft={
+                now === null
+                  ? null
+                  : secondsToNextLock(
+                      now,
+                      market.lockOffset,
+                      market.roundSeconds,
+                    )
+              }
+              side={side}
+              onSide={setSide}
+              amount={amount}
+              onAmount={setAmount}
+              backing={backingAgent}
+              onClearBacking={() => setBacking(null)}
+              onCalled={openWatch}
+              chain={
+                selectedChain
+                  ? {
+                      nextRound: selectedChain.nextRound,
+                      minStake: selectedChain.minStake,
+                      paused: selectedChain.paused,
+                      upTotal: nextRound?.upTotal ?? 0n,
+                      downTotal: nextRound?.downTotal ?? 0n,
+                    }
+                  : null
+              }
+              index={5}
+              className="order-2 lg:order-none"
+            />
+            <YourCalls
+              positions={positions}
+              roundsByMarket={roundsByMarket}
+              nowSec={now}
+              onOpen={openWatch}
+              index={7}
+              className="order-4 min-h-[200px] lg:order-none"
+            />
+            <AgentLeaderboard
+              backing={backing}
+              onBack={setBacking}
+              live={agentLive}
+              index={8}
+              className="order-5 lg:order-none"
+            />
           </div>
-          <YourCall
-            frames={TIME_FRAMES}
-            frame={market.roundSeconds}
-            onFrame={setFrame}
-            market={market}
-            secondsLeft={now === null ? null : secondsToNextLock(now, market.lockOffset, market.roundSeconds)}
-            side={side}
-            onSide={setSide}
-            amount={amount}
-            onAmount={setAmount}
-            backing={backingAgent}
-            onClearBacking={() => setBacking(null)}
-            onCalled={openWatch}
-            chain={selectedChain ? { nextRound: selectedChain.nextRound, minStake: selectedChain.minStake, paused: selectedChain.paused, upTotal: nextRound?.upTotal ?? 0n, downTotal: nextRound?.downTotal ?? 0n } : null}
-            index={5}
-            className="order-2 lg:order-none"
-          />
-          <YourCalls positions={positions} roundsByMarket={roundsByMarket} onOpen={openWatch} index={7} className="order-4 min-h-[200px] lg:order-none" />
-          <AgentLeaderboard backing={backing} onBack={setBacking} live={agentLive} index={8} className="order-5 lg:order-none" />
         </div>
+
+        <WatchSheet
+          watch={watch}
+          onClose={closeWatch}
+          roundsByMarket={roundsByMarket}
+          positions={positions}
+          candlesFor={(m) => feed.candles[m.key]}
+          nowSec={now}
+          me={me}
+          onNext={(m) => {
+            setSelected(m.key);
+            setFrame(m.roundSeconds);
+            document
+              .getElementById("your-call")
+              ?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
+        />
+
+        <LivePill
+          positions={positions}
+          roundsByMarket={roundsByMarket}
+          nowSec={now}
+          hidden={watch !== null}
+          onWatch={openWatch}
+        />
+
+        <ChartSheet
+          open={chartOpen}
+          onClose={() => setChartOpen(false)}
+          market={market}
+          price={priceOf(market.key)}
+          points={pointsOf(market.key)}
+          candles={feed.candles[market.key]}
+          nowMs={nowMs}
+          feedFailed={feedFailed}
+          startPrice={startPrice}
+        />
+
+        <footer className="mt-4 px-1 text-[11px] text-muted-foreground">
+          Prices: last trade on{" "}
+          <a
+            href="https://www.bitfinex.com"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            Bitfinex
+          </a>
+          , live.{" "}
+          {feed.status === "reconnecting" && !feedFailed
+            ? "Connection lost just now, showing the last prices while it reconnects."
+            : null}
+          Charts by{" "}
+          <a
+            href="https://www.tradingview.com/lightweight-charts/"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            TradingView Lightweight Charts™
+          </a>
+          .
+        </footer>
       </div>
-
-      <WatchSheet
-        watch={watch}
-        onClose={closeWatch}
-        roundsByMarket={roundsByMarket}
-        positions={positions}
-        candlesFor={(m) => feed.candles[m.key]}
-        nowSec={now}
-        me={me}
-        onNext={(m) => {
-          setSelected(m.key);
-          setFrame(m.roundSeconds);
-          document.getElementById("your-call")?.scrollIntoView({ behavior: "smooth", block: "start" });
-        }}
-      />
-
-      <ChartSheet
-        open={chartOpen}
-        onClose={() => setChartOpen(false)}
-        market={market}
-        price={priceOf(market.key)}
-        points={pointsOf(market.key)}
-        candles={feed.candles[market.key]}
-        nowMs={nowMs}
-        feedFailed={feedFailed}
-        startPrice={startPrice}
-      />
-
-      <footer className="mt-4 px-1 text-[11px] text-muted-foreground">
-        Prices: last trade on{" "}
-        <a href="https://www.bitfinex.com" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">
-          Bitfinex
-        </a>
-        , live.{" "}
-        {feed.status === "reconnecting" && !feedFailed ? "Connection lost just now, showing the last prices while it reconnects." : null}
-      </footer>
-    </div>
+    </RoundCardProvider>
   );
 }

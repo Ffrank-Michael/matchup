@@ -21,8 +21,8 @@
       "accountType": "EOA"
     },
     {
-      "key": "streak-hunter",
-      "name": "Kairo Streak hunter",
+      "key": "chart-reader",
+      "name": "Kairo Chart reader",
       "walletId": "dbf78fde-562a-5c05-84ae-101568e637f5",
       "address": "0xe4c5d2cb10336c5512d78671ae34741475a047f9",
       "blockchain": "ARC-TESTNET",

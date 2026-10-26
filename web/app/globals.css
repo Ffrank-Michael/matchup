@@ -205,7 +205,7 @@
   animation: kairo-drift-left 2.6s linear infinite;
 }
 
-/* Streak Hunter: three bars rise one after another, then a crosshair locks onto the third */
+/* Chart Reader: three candlestick bodies grow one after another */
 @keyframes kairo-bar-1 {
   0%,
   4% {
@@ -373,6 +373,25 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .kairo-sheet {
+    animation: none;
+  }
+}
+
+/* LIVE badge: the dot blinks (steady for people who ask for less motion) */
+@keyframes kairo-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+.kairo-blink {
+  animation: kairo-blink 1.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .kairo-blink {
     animation: none;
   }
 }

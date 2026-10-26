@@ -3,8 +3,10 @@
 import * as React from "react";
 
 import { formatUsd } from "@/lib/markets";
-import type { Point } from "@/lib/price-feed";
+import type { Candle, Point } from "@/lib/price-feed";
 import { cn } from "@/lib/utils";
+
+import { LwChart } from "./lw-chart";
 
 // The live chart of one round. The x axis is the whole round (lock to end), so you see how much time is left; the price
 // line is drawn up to now. A dashed line marks the round's start price: where the price is above it the picture is lime
@@ -18,6 +20,7 @@ export function RoundChart({
   toMs,
   nowMs,
   points,
+  candles = [],
   startPrice,
   endPrice,
   myCall,
@@ -29,6 +32,8 @@ export function RoundChart({
   nowMs: number | null;
   /** The price over the round so far, oldest first (Bitfinex trades) */
   points: Point[];
+  /** The 1-minute candles of the round so far (for the Candles view) */
+  candles?: Candle[];
   /** The contract's start price for the round, if it has been recorded */
   startPrice: number | null;
   endPrice: number | null;
@@ -37,6 +42,7 @@ export function RoundChart({
   className?: string;
 }) {
   const uid = React.useId().replace(/:/g, "");
+  const [mode, setMode] = React.useState<"line" | "candles">("line");
   // draw at the real width, so the text stays the size it is written in (a scaled-down picture makes it tiny on a phone)
   const box = React.useRef<HTMLDivElement>(null);
   const [W, setW] = React.useState(640);
@@ -82,8 +88,63 @@ export function RoundChart({
   const last = points[points.length - 1];
   const nowX = nowMs !== null ? x(nowMs) : null;
 
+  const toggle = (
+    <div
+      role="group"
+      aria-label="Chart type"
+      className="mb-1 ml-auto grid w-fit grid-cols-2 gap-0.5 rounded-full border border-border bg-muted/40 p-0.5 text-[12px] font-medium"
+    >
+      {(
+        [
+          ["line", "Line"],
+          ["candles", "Candles"],
+        ] as const
+      ).map(([key, label]) => (
+        <button
+          key={key}
+          type="button"
+          aria-pressed={mode === key}
+          onClick={() => setMode(key)}
+          className={cn(
+            "rounded-full px-3 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            mode === key
+              ? "bg-foreground text-background"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (mode === "candles") {
+    return (
+      <div ref={box} className={cn("w-full", className)}>
+        {toggle}
+        {candles.length > 0 ? (
+          <LwChart
+            mode="candles"
+            candles={candles}
+            points={[]}
+            startPrice={startPrice}
+            height={H}
+          />
+        ) : (
+          <p
+            className="grid place-items-center font-mono text-[12px] text-muted-foreground"
+            style={{ height: H }}
+          >
+            The first candle appears when a minute of the round is over
+          </p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div ref={box} className={cn("w-full", className)}>
+      {toggle}
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width={W}

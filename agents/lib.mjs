@@ -9,6 +9,7 @@
 //             { up: 1500000, down: 500000 }  means 1.50 USDC on UP and 0.50 USDC on DOWN
 //   minStake  the market minimum bet in micro-units (100000 = 0.10 USDC)
 //   balance   (optional) the USDC the agent has, in micro-units; it never stakes more than this
+//   candles   (optional) closed 1-minute candles of the coin, OLDEST FIRST: [{ open, close }, ...]; only the chart reader uses them
 //   random    (optional) a function returning a number in [0, 1); only the coin flipper uses it
 //
 // What every agent returns:

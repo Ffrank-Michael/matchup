@@ -16,7 +16,7 @@ export function mulberry32(seed) {
   };
 }
 
-const KEYS = ['trend-follower', 'contrarian', 'streak-hunter', 'coin-flipper'];
+const KEYS = ['trend-follower', 'contrarian', 'chart-reader', 'coin-flipper'];
 // The three testnet markets: 10-minute rounds, BTC locks at :00, ETH at :03, SOL at :06.
 // The start prices are made up: this is a pretend chain, nothing here touches a real price.
 const MARKETS = [
@@ -117,6 +117,19 @@ function apply(world, a) {
   }
 }
 
+/** Pretend 1-minute candles for the chart reader: 20 candles of a small random walk, a new set every minute (own random numbers, so the rest of the simulation is not disturbed). */
+function pretendCandles(world, t, seed) {
+  const out = {};
+  for (const m of world.markets) {
+    const pair = m.name.split(' ')[0];
+    if (out[pair]) continue;
+    const rand = mulberry32(seed * 1_000_003 + Math.floor(t / 60) * 31 + pair.charCodeAt(0));
+    let close = MARKETS.find((x) => x.name === m.name).startUsd;
+    out[pair] = Array.from({ length: 20 }, () => { const open = close; close = open * (1 + (rand() - 0.5) * 0.002); return { open, close }; });
+  }
+  return out;
+}
+
 /** Runs the runner against the pretend chain. Returns { lines, world, failures }. */
 export function simulate({ hours = 3, seed = 1, startAt = 36000 } = {}) {
   const world = createWorld({ now: startAt, seed });
@@ -127,6 +140,7 @@ export function simulate({ hours = 3, seed = 1, startAt = 36000 } = {}) {
   for (let t = startAt; t < startAt + hours * 3600; t += cfg.tickSeconds) {
     world.now = t;
     for (const m of world.markets) m.nextRound = nextRoundAt(m, t);
+    world.candles = pretendCandles(world, t, seed);
     const { actions, decisions } = planTick(world, cfg, decided);
     for (const d of decisions) {
       decided.add(d.id);

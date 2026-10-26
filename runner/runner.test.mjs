@@ -9,8 +9,8 @@ import { findSettleIds } from './settleIds.mjs';
 import { createWalk } from './priceWalk.mjs';
 import { simulate, createWorld, mulberry32 } from './simulate.mjs';
 
-const KEYS = ['trend-follower', 'contrarian', 'streak-hunter', 'coin-flipper'];
-const NAMES = ['Agent 1 · Trend Follower', 'Agent 2 · Contrarian', 'Agent 3 · Streak Hunter', 'Agent 4 · Coin Flipper'];
+const KEYS = ['trend-follower', 'contrarian', 'chart-reader', 'coin-flipper'];
+const NAMES = ['Agent 1 · Trend Follower', 'Agent 2 · Contrarian', 'Agent 3 · Chart Reader', 'Agent 4 · Coin Flipper'];
 const id = (n) => (1n << 64n) | BigInt(n);
 const upd = (n, updatedAt, usd) => ({ id: id(n), updatedAt, price: BigInt(Math.round(usd * 1e8)) });
 const ROUND = 600;
@@ -28,7 +28,9 @@ const market = (now, over = {}) => ({
 });
 const agent = (key, over = {}) => ({ key, balance: 5_000_000, allowance: 10_000_000, positions: {}, ...over });
 const agents = (over = {}) => KEYS.map((k) => agent(k, over[k] || {}));
-const snap = (now, m = market(now), a = agents()) => ({ now, markets: [m], agents: a });
+// 20 closed 1-minute candles that rise, so the chart reader calls UP
+const RISING = Array.from({ length: 20 }, (_, i) => ({ open: 100 + i - 1, close: 100 + i }));
+const snap = (now, m = market(now), a = agents()) => ({ now, markets: [m], agents: a, candles: { 'BTC/USD': RISING } });
 const cfg = (over = {}) => ({ ...CFG, random: mulberry32(7), ...over });
 const bets = (r) => r.actions.filter((a) => a.type === 'bet');
 const kinds = (r) => r.actions.map((a) => a.type);
@@ -52,10 +54,10 @@ test('settings: the look-back covers the contract\'s whole 1-hour settle window'
 // ---------------------------------------------------------------- betting order and timing
 // Round 11 can be bet on from lock(10) = 6000 until lock(11) = 6600.
 
-test('early agents wait a minute after the round opens, then bet in order: trend follower, streak hunter, coin flipper', () => {
+test('early agents wait a minute after the round opens, then bet in order: trend follower, chart reader, coin flipper', () => {
   assert.deepEqual(bets(planTick(snap(6059), cfg())), []);
   const r = planTick(snap(6060), cfg());
-  assert.deepEqual(bets(r).map((b) => b.agent), ['trend-follower', 'streak-hunter', 'coin-flipper']);
+  assert.deepEqual(bets(r).map((b) => b.agent), ['trend-follower', 'chart-reader', 'coin-flipper']);
   assert.ok(bets(r).every((b) => b.round === 11 && b.market === 0));
 });
 
@@ -86,7 +88,7 @@ test('no early bets in the last minute before lock', () => {
 });
 
 test('the contrarian bets about 2 minutes before lock, and only after the early agents are done', () => {
-  const done = new Set(['0:11:trend-follower', '0:11:streak-hunter', '0:11:coin-flipper']);
+  const done = new Set(['0:11:trend-follower', '0:11:chart-reader', '0:11:coin-flipper']);
   const m = (now) => market(now, { rounds: { 11: { state: 'Unsettled', up: 800_000, down: 200_000, startPrice: 0n, endPrice: 0n } } });
   assert.deepEqual(bets(planTick(snap(6479, m(6479)), cfg(), done)), []);
   const r = planTick(snap(6480, m(6480)), cfg(), done);
@@ -95,12 +97,12 @@ test('the contrarian bets about 2 minutes before lock, and only after the early 
   // not in the last 30 seconds
   assert.deepEqual(bets(planTick(snap(6570, m(6570)), cfg(), done)), []);
   // an early agent that has not finished holds the contrarian back
-  const notDone = new Set(['0:11:trend-follower', '0:11:streak-hunter']);
+  const notDone = new Set(['0:11:trend-follower', '0:11:chart-reader']);
   assert.deepEqual(bets(planTick(snap(6480, m(6480)), cfg(), notDone)).map((b) => b.agent).filter((a) => a === 'contrarian'), []);
 });
 
 test('the contrarian skips when nobody has bet (and says so)', () => {
-  const done = new Set(['0:11:trend-follower', '0:11:streak-hunter', '0:11:coin-flipper']);
+  const done = new Set(['0:11:trend-follower', '0:11:chart-reader', '0:11:coin-flipper']);
   const r = planTick(snap(6480), cfg(), done);
   assert.deepEqual(bets(r), []);
   const d = r.decisions.find((x) => x.agent === 'contrarian');
@@ -117,7 +119,7 @@ test('an agent decides once per round: decided ids are not decided again', () =>
 test('one side per round: an agent that already has a position never bets again', () => {
   const a = agents({ 'trend-follower': { positions: { '0:11': { up: 0, down: 300_000, claimed: false } } } });
   const r = planTick(snap(6060, market(6060), a), cfg());
-  assert.deepEqual(bets(r).map((b) => b.agent), ['streak-hunter', 'coin-flipper']);
+  assert.deepEqual(bets(r).map((b) => b.agent), ['chart-reader', 'coin-flipper']);
 });
 
 test('a paused market gets no bets', () => {
@@ -421,14 +423,14 @@ test('simulation: in every round of every market the contrarian bets after the t
     const c = names.indexOf('Agent 2 · Contrarian');
     if (c >= 0) assert.equal(c, names.length - 1, `contrarian was not last: ${names}`);
     const early = names.filter((n) => n !== 'Agent 2 · Contrarian');
-    assert.deepEqual(early, ['Agent 1 · Trend Follower', 'Agent 3 · Streak Hunter', 'Agent 4 · Coin Flipper'].filter((n) => early.includes(n)), `early order: ${early}`);
+    assert.deepEqual(early, ['Agent 1 · Trend Follower', 'Agent 3 · Chart Reader', 'Agent 4 · Coin Flipper'].filter((n) => early.includes(n)), `early order: ${early}`);
   }
 });
 
 test('simulation: log lines use the agent names and have no words stuck together', () => {
   const { lines } = simulate({ hours: 3, seed: 2 });
   const text = lines.join('\n');
-  assert.doesNotMatch(text, /trend-follower|streak-hunter|coin-flipper/);
+  assert.doesNotMatch(text, /trend-follower|chart-reader|coin-flipper/);
   assert.doesNotMatch(text, /(UP|DOWN)[a-z]|[a-z](UP|DOWN)\b/);
   assert.doesNotMatch(text, /[a-z,.:] {2,}[a-z]/); // no double spaces inside a sentence
 });

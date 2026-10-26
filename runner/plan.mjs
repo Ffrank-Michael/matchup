@@ -10,6 +10,7 @@
 //               feed: { updates: [{ id: BigInt, updatedAt, price: BigInt }] },   // oldest first
 //               rounds: { [k]: { state, up, down, startPrice, endPrice } } }],  // state: 'Unsettled' | 'SettledUp' | 'SettledDown' | 'Refunded'
 //   agents:  [{ key, balance, allowance, positions: { 'marketId:k': { up, down, claimed } } }],
+//   candles: { 'BTC/USD': [{ open, close }, ...] }   closed 1-minute Bitfinex candles, oldest first (for the chart reader; optional)
 // }
 // decided = Set of decision ids ("market:round:agent") that were already taken this round, so an
 //           agent never decides twice (a skip counts as a decision).
@@ -17,18 +18,18 @@
 // Actions:  pushPrice | approve | bet | settle | claim   (the executor turns them into transactions)
 //           pushPrice carries { round } = the running round the price belongs to; every live push is written to the public price log (priceLog.mjs)
 import * as trendFollower from '../agents/trendFollower.mjs';
-import * as streakHunter from '../agents/streakHunter.mjs';
+import * as chartReader from '../agents/chartReader.mjs';
 import * as coinFlipper from '../agents/coinFlipper.mjs';
 import * as contrarian from '../agents/contrarian.mjs';
 import { findSettleIds } from './settleIds.mjs';
 
 const LOGIC = {
   'trend-follower': trendFollower,
-  'streak-hunter': streakHunter,
+  'chart-reader': chartReader,
   'coin-flipper': coinFlipper,
   contrarian,
 };
-export const EARLY = ['trend-follower', 'streak-hunter', 'coin-flipper']; // bet early, in this order
+export const EARLY = ['trend-follower', 'chart-reader', 'coin-flipper']; // bet early, in this order
 export const LATE = 'contrarian'; // bets last, about 2 minutes before lock
 
 /** How many past rounds to look at: enough to cover the contract's whole settle window (cfg.lookback is the minimum). */
@@ -59,11 +60,12 @@ function historyFor(m, cfg) {
   return out;
 }
 
-function planBet(m, k, agent, cfg, actions, decisions) {
+function planBet(m, k, agent, cfg, actions, decisions, candles) {
   const round = m.rounds[k];
   const d = LOGIC[agent.key].decide({
     market: m.name,
     history: historyFor(m, cfg),
+    candles: candles?.[m.name.split(' ')[0]] ?? [],
     bets: { up: round ? round.up : 0, down: round ? round.down : 0 },
     minStake: m.minStake,
     balance: Math.max(0, agent.balance - cfg.gasReserve),
@@ -152,14 +154,14 @@ export function planTick(snap, cfg, decided = new Set()) {
 
       if (now >= opensAt(m, k) + cfg.earlyDelay && now < lockK - cfg.earlyCutoff) {
         for (const key of EARLY) {
-          if (!finished(key)) planBet(m, k, agentByKey[key], cfg, actions, decisions);
+          if (!finished(key)) planBet(m, k, agentByKey[key], cfg, actions, decisions, snap.candles);
         }
       }
       // The contrarian only acts once every early agent has bet or skipped (in an earlier tick), so
       // it sees their real money.
       if (now >= lockK - cfg.contrarianLead && now < lockK - cfg.contrarianCutoff
           && EARLY.every(finished) && !finished(LATE)) {
-        planBet(m, k, agentByKey[LATE], cfg, actions, decisions);
+        planBet(m, k, agentByKey[LATE], cfg, actions, decisions, snap.candles);
       }
     }
 

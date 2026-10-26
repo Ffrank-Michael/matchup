@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 import * as trend from './trendFollower.mjs';
 import * as contrarian from './contrarian.mjs';
-import * as streak from './streakHunter.mjs';
+import * as reader from './chartReader.mjs';
 import * as flipper from './coinFlipper.mjs';
 import { agents, displayName } from './index.mjs';
 import { currentStreak } from './lib.mjs';
@@ -117,68 +117,79 @@ test('contrarian: stake respects the balance', () => {
   assert.equal(contrarian.decide(ctx({ bets: { up: 1, down: 0 }, balance: 90_000 })).action, 'SKIP');
 });
 
-// ---------------------------------------------------------------- streak hunter
+// ---------------------------------------------------------------- chart reader
 
-test('streak hunter: 3 UP rounds in a row -> bets DOWN (the boundary)', () => {
-  const history = [up(100000, 101000), up(101000, 102000), up(102000, 103000)];
-  const d = streak.decide(ctx({ history }));
+// 20 one-minute candles built from closes; each candle opens at the previous close, the last one can be set apart.
+const candlesFrom = (closes, lastOpen) => closes.map((close, i) => ({ open: i === closes.length - 1 && lastOpen !== undefined ? lastOpen : (i === 0 ? close : closes[i - 1]), close }));
+const rising = () => candlesFrom(Array.from({ length: 20 }, (_, i) => 100 + i)); // 100 ... 119, last candle closes higher
+const falling = () => candlesFrom(Array.from({ length: 20 }, (_, i) => 120 - i)); // 120 ... 101, last candle closes lower
+
+test('chart reader: 5-candle average above the 20-candle average and the last candle closed higher -> UP', () => {
+  const d = reader.decide(ctx({ candles: rising() }));
+  assert.equal(d.action, 'BET');
+  assert.equal(d.side, 'UP');
+  assert.equal(d.stake, 500_000);
+  assert.equal(d.reason, 'BTC/USD 5-candle average 117.00, 20-candle average 109.50, last candle 118.00 -> 119.00: the short average is above the long one and the last candle closed higher, so I call UP.');
+});
+
+test('chart reader: 5-candle average below the 20-candle average and the last candle closed lower -> DOWN', () => {
+  const d = reader.decide(ctx({ candles: falling() }));
   assert.equal(d.action, 'BET');
   assert.equal(d.side, 'DOWN');
-  assert.equal(d.stake, 600_000);
-  assert.equal(d.reason, 'BTC/USD went UP 3 rounds in a row (100,000.00 -> 103,000.00, +3.00%), a streak of 3 or more, so I bet against it: DOWN.');
 });
 
-test('streak hunter: a long DOWN streak -> bets UP, counting the whole streak', () => {
-  const history = [up(90, 100), down(100, 98), down(98, 96), down(96, 94), down(94, 92), down(92, 90)];
-  const d = streak.decide(ctx({ history }));
+test('chart reader: the averages say UP but the last candle closed lower -> skips', () => {
+  const closes = Array.from({ length: 20 }, (_, i) => 100 + i);
+  const d = reader.decide(ctx({ candles: candlesFrom(closes, 125) })); // opened at 125, closed at 119
+  assert.equal(d.action, 'SKIP');
+  assert.match(d.reason, /does not agree with itself/);
+});
+
+test('chart reader: the averages say DOWN but the last candle closed higher -> skips', () => {
+  const closes = Array.from({ length: 20 }, (_, i) => 120 - i);
+  assert.equal(reader.decide(ctx({ candles: candlesFrom(closes, 90) })).action, 'SKIP'); // opened at 90, closed at 101
+});
+
+test('chart reader: equal averages (a flat chart) -> skips', () => {
+  const flatCandles = Array.from({ length: 20 }, () => ({ open: 100, close: 100 }));
+  assert.equal(reader.decide(ctx({ candles: flatCandles })).action, 'SKIP');
+});
+
+test('chart reader: the last candle closing exactly where it opened never counts as higher or lower', () => {
+  const closes = Array.from({ length: 20 }, (_, i) => 100 + i);
+  assert.equal(reader.decide(ctx({ candles: candlesFrom(closes, 119) })).action, 'SKIP');
+});
+
+test('chart reader: fewer than 20 candles, or none -> skips and says why', () => {
+  const d = reader.decide(ctx({ candles: rising().slice(-19) }));
+  assert.equal(d.action, 'SKIP');
+  assert.equal(d.reason, 'BTC/USD: only 19 one-minute candles so far, and I need 20 to read the chart.');
+  assert.equal(reader.decide(ctx()).action, 'SKIP');
+});
+
+test('chart reader: uses only the newest 20 candles when it is given more', () => {
+  const old = Array.from({ length: 10 }, () => ({ open: 500, close: 500 }));
+  const d = reader.decide(ctx({ candles: [...old, ...rising()] }));
   assert.equal(d.side, 'UP');
-  assert.match(d.reason, /went DOWN 5 rounds in a row \(100\.00 -> 90\.00, -10\.00%\)/);
+  assert.match(d.reason, /20-candle average 109.50/);
 });
 
-test('streak hunter: only 2 in a row -> follows the trend instead', () => {
-  const history = [down(100000, 99000), up(100000, 101000), up(101000, 102000)];
-  const d = streak.decide(ctx({ history }));
-  assert.equal(d.side, 'UP');
-  assert.equal(d.stake, 300_000);
-  assert.equal(d.reason, 'BTC/USD has only gone UP 2 rounds in a row (100,000.00 -> 102,000.00, +2.00%), under 3, so I follow the trend: UP.');
+test('chart reader: ignores the rounds history and the money on each side', () => {
+  const history = [up(1, 2), up(2, 3), up(3, 4)];
+  assert.equal(reader.decide(ctx({ candles: rising(), history, bets: { up: 0, down: 9_000_000 } })).side, 'UP');
+  assert.equal(reader.decide(ctx({ candles: falling(), history, bets: { up: 9_000_000, down: 0 } })).side, 'DOWN');
 });
 
-test('streak hunter: one round -> singular wording, follows the trend', () => {
-  const d = streak.decide(ctx({ history: [down(100000, 99000)] }));
-  assert.equal(d.side, 'DOWN');
-  assert.match(d.reason, /only gone DOWN 1 round in a row/);
+test('chart reader: stake respects the minimum and the balance', () => {
+  assert.equal(reader.decide(ctx({ candles: rising(), minStake: 700_000 })).stake, 700_000);
+  assert.equal(reader.decide(ctx({ candles: rising(), balance: 250_000, minStake: 100_000 })).stake, 250_000);
+  assert.equal(reader.decide(ctx({ candles: rising(), balance: 99_999 })).action, 'SKIP');
 });
 
-test('streak hunter: a broken streak does not count (UP UP DOWN UP UP is a streak of 2)', () => {
-  const history = [up(1, 2), up(2, 3), down(3, 2), up(2, 3), up(3, 4)];
-  assert.deepEqual(currentStreak(history), { side: 'UP', length: 2 });
-  assert.equal(streak.decide(ctx({ history })).side, 'UP'); // follows, does not fade
-});
-
-test('streak hunter: a flat round ends a streak, and a flat LAST round means skip', () => {
+test('current streak helper: a flat round ends a streak, and a broken streak does not count', () => {
   assert.deepEqual(currentStreak([up(1, 2), up(2, 3), up(3, 4), flat(4)]), { side: null, length: 0 });
-  const d = streak.decide(ctx({ history: [up(1, 2), up(2, 3), up(3, 4), flat(4)] }));
-  assert.equal(d.action, 'SKIP');
-  assert.match(d.reason, /flat/);
   assert.deepEqual(currentStreak([up(1, 2), up(2, 3), flat(3), up(3, 4), up(4, 5), up(5, 6)]), { side: 'UP', length: 3 });
-});
-
-test('streak hunter: no history -> skips', () => {
-  const d = streak.decide(ctx());
-  assert.equal(d.action, 'SKIP');
-  assert.match(d.reason, /no finished rounds/);
-});
-
-test('streak hunter: ignores how much money is on each side', () => {
-  const history = [up(1, 2), up(2, 3), up(3, 4)];
-  assert.equal(streak.decide(ctx({ history, bets: { up: 0, down: 9_000_000 } })).side, 'DOWN');
-  assert.equal(streak.decide(ctx({ history, bets: { up: 9_000_000, down: 0 } })).side, 'DOWN');
-});
-
-test('streak hunter: stake respects the balance', () => {
-  const history = [up(1, 2), up(2, 3), up(3, 4)];
-  assert.equal(streak.decide(ctx({ history, balance: 250_000 })).stake, 250_000);
-  assert.equal(streak.decide(ctx({ history, balance: 99_999 })).action, 'SKIP');
+  assert.deepEqual(currentStreak([up(1, 2), up(2, 3), down(3, 2), up(2, 3), up(3, 4)]), { side: 'UP', length: 2 });
 });
 
 // ---------------------------------------------------------------- coin flipper
@@ -232,7 +243,7 @@ test('every agent: any BET is UP or DOWN, a whole number of micro-USDC, within l
   const history = [up(100000, 101000), up(101000, 102000), up(102000, 103000), down(103000, 102500)];
   const bets = { up: 1_200_000, down: 300_000 };
   for (const a of agents) {
-    const d = a.decide(ctx({ history, bets, balance: 5_000_000, random: sequence(0.3, 0.4) }));
+    const d = a.decide(ctx({ history, bets, candles: rising(), balance: 5_000_000, random: sequence(0.3, 0.4) }));
     assert.equal(d.action, 'BET', `${a.name} should bet here`);
     assert.ok(d.side === 'UP' || d.side === 'DOWN');
     assert.ok(Number.isInteger(d.stake) && d.stake >= MIN && d.stake <= 5_000_000, `${a.name} stake ${d.stake}`);
@@ -242,7 +253,7 @@ test('every agent: any BET is UP or DOWN, a whole number of micro-USDC, within l
 });
 
 test('every agent: the four have different names, and none touches the input', () => {
-  assert.deepEqual(agents.map((a) => a.name), ['Agent 1 · Trend Follower', 'Agent 2 · Contrarian', 'Agent 3 · Streak Hunter', 'Agent 4 · Coin Flipper']);
+  assert.deepEqual(agents.map((a) => a.name), ['Agent 1 · Trend Follower', 'Agent 2 · Contrarian', 'Agent 3 · Chart Reader', 'Agent 4 · Coin Flipper']);
   const input = ctx({ history: [up(1, 2), up(2, 3), up(3, 4)], bets: { up: 5, down: 1 } });
   const copy = JSON.stringify(input);
   for (const a of agents) a.decide({ ...input, random: sequence(0.5, 0.5) });
@@ -262,7 +273,7 @@ test('every agent: reasons read as normal sentences (words never stuck together,
   let checked = 0;
   for (const a of agents) for (const history of histories) for (const bets of crowds) for (const balance of [undefined, 5_000_000, 50_000]) {
     for (let r = 0; r < 4; r++) {
-      const d = a.decide(ctx({ history, bets, balance, random: sequence(r / 4, (r + 1) / 5) }));
+      const d = a.decide(ctx({ history, bets, candles: [rising(), falling(), []][r % 3], balance, random: sequence(r / 4, (r + 1) / 5) }));
       const text = d.reason;
       assert.ok(typeof text === 'string' && text.length > 10, `${a.name}: empty reason`);
       assert.doesNotMatch(text, /(UP|DOWN)[a-z]|[a-z](UP|DOWN)\b/, `${a.name}: UP/DOWN stuck to a word: ${text}`);
@@ -278,7 +289,7 @@ test('every agent: reasons read as normal sentences (words never stuck together,
 test('agent names: Agent 1 to 4, and the wallet keys map to them', () => {
   assert.equal(displayName('trend-follower'), 'Agent 1 · Trend Follower');
   assert.equal(displayName('contrarian'), 'Agent 2 · Contrarian');
-  assert.equal(displayName('streak-hunter'), 'Agent 3 · Streak Hunter');
+  assert.equal(displayName('chart-reader'), 'Agent 3 · Chart Reader');
   assert.equal(displayName('coin-flipper'), 'Agent 4 · Coin Flipper');
   assert.equal(displayName('someone-else'), 'someone-else');
 });

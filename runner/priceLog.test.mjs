@@ -148,14 +148,14 @@ test('the planner tells the executor which round each price belongs to', () => {
     id: 0, name: 'BTC/USD', roundLength: 600, startOffset: 0, minStake: 100_000, paused: false,
     nextRound: 11, feed: { updates: [{ id: id(1), updatedAt: 5990, price: 1n }] }, rounds: {},
   };
-  const r = planTick({ now: 6000 + CFG.startAfter, markets: [m], agents: ['trend-follower', 'contrarian', 'streak-hunter', 'coin-flipper'].map((key) => ({ key, balance: 5_000_000, allowance: 10_000_000, positions: {} })) }, { ...CFG, random: Math.random });
+  const r = planTick({ now: 6000 + CFG.startAfter, markets: [m], agents: ['trend-follower', 'contrarian', 'chart-reader', 'coin-flipper'].map((key) => ({ key, balance: 5_000_000, allowance: 10_000_000, positions: {} })) }, { ...CFG, random: Math.random });
   const p = r.actions.find((a) => a.type === 'pushPrice');
   assert.equal(p.round, 10); // round 10 is the one running (round 11 is the one open for calls)
 });
 
 test('start and end prices carry the running round and the right kind', () => {
   const id = (n) => (1n << 64n) | BigInt(n);
-  const agentsList = ['trend-follower', 'contrarian', 'streak-hunter', 'coin-flipper'].map((key) => ({ key, balance: 5_000_000, allowance: 10_000_000, positions: {} }));
+  const agentsList = ['trend-follower', 'contrarian', 'chart-reader', 'coin-flipper'].map((key) => ({ key, balance: 5_000_000, allowance: 10_000_000, positions: {} }));
   const at = (now, updates) => {
     const m = { id: 0, name: 'BTC/USD', roundLength: 600, startOffset: 0, minStake: 100_000, paused: false, nextRound: 11, feed: { updates }, rounds: {} };
     return planTick({ now, markets: [m], agents: agentsList }, { ...CFG, random: Math.random }).actions.filter((a) => a.type === 'pushPrice');

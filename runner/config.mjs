@@ -5,7 +5,7 @@ export const FEED_DECIMALS = 8;
 
 export const CFG = {
   // --- when the house agents bet (round k can be bet on from lock(k-1) until lock(k)) ---
-  earlyDelay: 60,        // trend follower, streak hunter and coin flipper bet 1 minute after the round opens
+  earlyDelay: 60,        // trend follower, chart reader and coin flipper bet 1 minute after the round opens
   earlyCutoff: 60,       // ... and not in the last minute before lock
   contrarianLead: 120,   // the contrarian bets about 2 minutes before lock, so there is a crowd to bet against
   contrarianCutoff: 30,  // ... and never in the last 30 seconds
