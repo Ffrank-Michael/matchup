@@ -24,21 +24,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install Slither and solc 0.8.28 (official static binary)
-        run: |
-          pip install slither-analyzer==0.10.4
-          curl -fsSL -o solc https://github.com/ethereum/solidity/releases/download/v0.8.28/solc-static-linux
-          chmod +x solc
-          sudo mv solc /usr/local/bin/solc
-          solc --version
-      - name: Run Slither on the contract and its test price feed
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Install Slither
+        run: pip install slither-analyzer==0.10.4
+      - name: Run Slither on the contract (forge builds it with the project's own settings; tests, scripts and OpenZeppelin are left out)
         shell: bash
         run: |
-          slither contracts/PredictionArena.sol \
-            --compile-force-framework solc \
-            --solc-remaps "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/" \
-            --solc-args "--evm-version cancun --optimize --optimize-runs 200" \
-            --filter-paths "node_modules" \
+          slither . \
+            --filter-paths "node_modules|lib/|contracts/test|contracts/mocks" \
             --no-fail-pedantic \
             --json slither.json \
             --checklist > slither-report.md 2> slither-stderr.txt || echo "slither exited with $?"
