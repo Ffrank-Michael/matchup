@@ -21,3 +21,4 @@ export * from "./useRoundCalls";
 export * from "./explorerLogs";
 export * from "./useSettlements";
 export * from "./useAgentStats";
+export * from "./useRoundHistory";

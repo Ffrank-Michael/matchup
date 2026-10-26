@@ -17,7 +17,7 @@ const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 const SETTLE_WINDOW_SEC = 3_600;
 const STATES = ["unsettled", "up", "down", "refunded"] as const;
 
-function displayState(stateNo: number, lock: number, end: number, now: number): RoundDisplayState {
+export function displayState(stateNo: number, lock: number, end: number, now: number): RoundDisplayState {
   const s = STATES[stateNo];
   if (s !== "unsettled") return s;
   if (now < lock) return "open";

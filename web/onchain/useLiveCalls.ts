@@ -11,7 +11,7 @@ import { ARENA_ADDRESSES } from "./addresses";
 import { NETWORK } from "./env";
 
 const LOOK_BACK_BLOCKS = 4_000n; // the public RPC refuses a range above about 5,000 blocks (about 50 minutes on Arc)
-const SHOW = 8;
+const SHOW = 60; // enough for the three rounds the Live calls tile shows
 
 export interface LiveCall {
   txHash: `0x${string}`;

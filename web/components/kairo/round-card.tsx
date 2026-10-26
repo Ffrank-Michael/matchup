@@ -120,7 +120,7 @@ function RoundCard({
 
   const market = w ? MARKETS.find((m) => m.id === w.marketId) : undefined;
   const round = w
-    ? roundsByMarket?.[w.marketId]?.find((r) => r.roundIndex === w.roundIndex)
+    ? (roundsByMarket?.[w.marketId]?.find((r) => r.roundIndex === w.roundIndex) ?? w.round)
     : undefined;
   const lock = round?.lockTimeSec ?? null;
   const end = round?.endTimeSec ?? null;

@@ -134,6 +134,12 @@ function Row({
  * (about 40% of the width) that leaves the rest of the page usable. It shows the round: your call, the live chart against the
  * start price, the time left, everyone in the round, and at the end the result with a Claim button.
  */
+/** The candles the live chart shows: the last 30 minutes up to `toMs` (the forming minute included), so it is never empty at the start of a round. */
+const CANDLE_WINDOW_MS = 30 * 60_000;
+function candleWindow(all: Candle[], toMs: number): Candle[] {
+  return all.filter((c) => c.t >= toMs - CANDLE_WINDOW_MS && c.t < toMs);
+}
+
 export function WatchSheet({
   watch,
   onClose,
@@ -592,11 +598,9 @@ export function WatchSheet({
                       toMs={end * 1000}
                       nowMs={finished ? null : nowMs}
                       points={series}
-                      candles={(candles ?? []).filter(
-                        (c) =>
-                          c.t >= (lock ?? 0) * 1000 &&
-                          c.t < (end ?? 0) * 1000 &&
-                          c.t + 60_000 <= (nowMs ?? Infinity),
+                      candles={candleWindow(
+                        candles ?? [],
+                        finished ? (end ?? 0) * 1000 : Math.min(nowMs ?? 0, (end ?? 0) * 1000),
                       )}
                       startPrice={startPrice}
                       endPrice={endPrice}

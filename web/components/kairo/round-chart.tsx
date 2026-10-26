@@ -32,7 +32,7 @@ export function RoundChart({
   nowMs: number | null;
   /** The price over the round so far, oldest first (Bitfinex trades) */
   points: Point[];
-  /** The 1-minute candles of the round so far (for the Candles view) */
+  /** The last 30 minutes of 1-minute candles (for the Candles view) */
   candles?: Candle[];
   /** The contract's start price for the round, if it has been recorded */
   startPrice: number | null;
@@ -135,7 +135,7 @@ export function RoundChart({
             className="grid place-items-center font-mono text-[12px] text-muted-foreground"
             style={{ height: H }}
           >
-            The first candle appears when a minute of the round is over
+            Waiting for the first candles
           </p>
         )}
       </div>

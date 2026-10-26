@@ -12,6 +12,7 @@ import { usdc, useLiveCalls, useSettlements, settlementKey } from "@/onchain";
 import { AgentAvatar } from "./agent-avatar";
 import { StartEnd } from "./price-proof";
 import { RoundBadge, roundStatusOf } from "./round-badge";
+import { RoundHistory } from "./round-history";
 import { Tile } from "./tile";
 
 const hm = (unixSec: number) =>
@@ -23,19 +24,23 @@ const hm = (unixSec: number) =>
 const INK = "oklch(0.24 0.06 135)";
 
 /**
- * Every call as it comes in, read from the contract's events, grouped by the round it is for (newest round first). Each round
+ * The calls of three rounds of the selected market, read from the contract's events, newest round first: NEXT (taking calls),
+ * LIVE (running) and the last one that ENDED. Older rounds are in the "Round history" sheet. Each round
  * has a plain header: its time, how it is going or how it ended, and its start and end price with a "Verify" link to the
  * transaction that recorded each. A call shows who made it (an agent by name, "You", or "Player 0x37…C4"), the side, the
  * amount, and once the round is over ✓ Won, ✗ Lost or Refunded. Tapping a call opens that round in the watch sheet.
  */
 export function LiveCalls({
   market,
+  nextRound,
   nowSec,
   onOpen,
   index,
   className,
 }: {
   market: Market;
+  /** The round that takes calls now (the contract's next round) */
+  nextRound: number | null;
   nowSec: number | null;
   onOpen: (marketId: number, roundIndex: number) => void;
   index: number;
@@ -46,12 +51,15 @@ export function LiveCalls({
   const settlements = useSettlements();
   const backedOf = useBackedAgents(address);
 
+  const [historyOpen, setHistoryOpen] = React.useState(false);
+  // fixed when the sheet opens: the round just older than the three shown here
+  const [historyFrom, setHistoryFrom] = React.useState<number | null>(null);
   const groups = React.useMemo(() => {
-    const by = new Map<number, NonNullable<typeof calls>>();
-    for (const c of calls ?? [])
-      by.set(c.roundIndex, [...(by.get(c.roundIndex) ?? []), c]);
-    return [...by.entries()].sort((a, b) => b[0] - a[0]);
-  }, [calls]);
+    if (nextRound === null) return [];
+    return [nextRound, nextRound - 1, nextRound - 2]
+      .filter((k) => k >= 0)
+      .map((k): [number, NonNullable<typeof calls>] => [k, (calls ?? []).filter((c) => c.roundIndex === k)]);
+  }, [calls, nextRound]);
 
   return (
     <Tile
@@ -64,10 +72,6 @@ export function LiveCalls({
           <span className="font-mono text-[12px] text-muted-foreground">
             {isLoading ? "loading…" : "Could not load calls. Trying again."}
           </span>
-        </div>
-      ) : calls.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border p-6 text-center text-[13px] text-muted-foreground">
-          No calls on this market yet.
         </div>
       ) : (
         <div className="flex flex-col gap-4">
@@ -123,6 +127,9 @@ export function LiveCalls({
                     </p>
                   ) : null}
                 </header>
+                {list.length === 0 ? (
+                  <p className="px-3 py-2 text-[12px] text-muted-foreground">No calls in this round.</p>
+                ) : null}
                 <ul className="flex flex-col divide-y divide-border">
                   {list.map((c) => {
                     const who = whoIs(c.player, address);
@@ -204,8 +211,26 @@ export function LiveCalls({
               </section>
             );
           })}
+          <button
+            type="button"
+            onClick={() => {
+              setHistoryFrom(nextRound === null ? null : nextRound - 3);
+              setHistoryOpen(true);
+            }}
+            disabled={nextRound === null}
+            className="rounded-full border border-border px-4 py-2 text-[13px] font-semibold hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          >
+            Round history
+          </button>
         </div>
       )}
+      <RoundHistory
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        market={market}
+        newest={historyFrom}
+        nowSec={nowSec}
+      />
     </Tile>
   );
 }

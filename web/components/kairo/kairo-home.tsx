@@ -180,7 +180,7 @@ export function KairoHome() {
             Phone: one column in this order: agents, your call, live calls, your calls, leaderboard (the order classes).
             Laptop: two columns, rows stretch to the same height: [agents + live calls | your call], [your calls | leaderboard].
             The wrapper is "contents" on a phone, so its tiles take part in the one-column order. */}
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:items-start">
             <div className="contents lg:flex lg:flex-col lg:gap-3">
               <AgentStrip
                 backing={backing}
@@ -190,10 +190,11 @@ export function KairoHome() {
               />
               <LiveCalls
                 market={market}
+                nextRound={selectedChain?.nextRound ?? null}
                 nowSec={now}
                 onOpen={openWatch}
                 index={6}
-                className="order-3 min-h-[200px] lg:order-none lg:flex-1"
+                className="order-3 lg:order-none"
               />
             </div>
             <YourCall
@@ -235,7 +236,7 @@ export function KairoHome() {
                   : null
               }
               index={5}
-              className="order-2 lg:order-none"
+              className="order-2 lg:sticky lg:top-4 lg:order-none"
             />
             <YourCalls
               positions={positions}
@@ -243,14 +244,14 @@ export function KairoHome() {
               nowSec={now}
               onOpen={openWatch}
               index={7}
-              className="order-4 min-h-[200px] lg:order-none"
+              className="order-4 min-h-[200px] lg:order-none lg:self-stretch"
             />
             <AgentLeaderboard
               backing={backing}
               onBack={backAgent}
               live={agentLive}
               index={8}
-              className="order-5 lg:order-none"
+              className="order-5 lg:order-none lg:self-stretch"
             />
           </div>
         </div>
