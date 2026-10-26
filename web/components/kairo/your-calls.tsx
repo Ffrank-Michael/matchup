@@ -128,21 +128,23 @@ export function YourCalls({
       }
     >
       {!address ? (
-        <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border p-6 text-center">
-          <p className="text-[13px] text-muted-foreground">
-            Connect your wallet to see your calls.
-          </p>
-        </div>
+        <p className="rounded-xl border border-dashed border-border px-4 py-2.5 text-[13px] text-muted-foreground">
+          Connect your wallet to see your calls.
+        </p>
       ) : positions === null ? (
-        <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border p-6">
-          <span className="font-mono text-[12px] text-muted-foreground">
-            loading…
-          </span>
-        </div>
+        <p className="rounded-xl border border-dashed border-border px-4 py-2.5 font-mono text-[12px] text-muted-foreground">
+          loading…
+        </p>
       ) : rows.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-border p-6 text-center text-[13px] text-muted-foreground">
-          You have no calls in the last hour.
-        </div>
+        <p className="rounded-xl border border-dashed border-border px-4 py-2.5 text-[13px] text-muted-foreground">
+          No calls yet.{" "}
+          <a
+            href="#your-call"
+            className="font-semibold text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Make your first call →
+          </a>
+        </p>
       ) : (
         <ul className="flex flex-col divide-y divide-border">
           {rows.map(({ p, round }) => {
@@ -293,11 +295,11 @@ export function YourCalls({
             </button>
           ) : null}
         </p>
-      ) : (
+      ) : rows.length > 0 ? (
         <p className="mt-3 text-[11px] text-muted-foreground">
           Open calls first, then finished ones marked won, lost or refunded.
         </p>
-      )}
+      ) : null}
     </Tile>
   );
 }

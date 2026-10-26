@@ -178,10 +178,11 @@ export function KairoHome() {
 
           {/* 2 to 6. The same tiles on phone and laptop, only arranged differently.
             Phone: one column in this order: agents, your call, live calls, your calls, leaderboard (the order classes).
-            Laptop: two columns, rows stretch to the same height: [agents + live calls | your call], [your calls | leaderboard].
+            Laptop: two independent columns, each from the top at its natural height (nothing stretches, nothing sticks):
+            [agents, live calls, your calls | your call, leaderboard].
             The wrapper is "contents" on a phone, so its tiles take part in the one-column order. */}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:items-start">
-            <div className="contents lg:flex lg:flex-col lg:gap-3">
+            <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-3">
               <AgentStrip
                 backing={backing}
                 onBack={backAgent}
@@ -196,7 +197,16 @@ export function KairoHome() {
                 index={6}
                 className="order-3 lg:order-none"
               />
+              <YourCalls
+                positions={positions}
+                roundsByMarket={roundsByMarket}
+                nowSec={now}
+                onOpen={openWatch}
+                index={7}
+                className="order-4 lg:order-none"
+              />
             </div>
+            <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-3">
             <YourCall
               frames={TIME_FRAMES}
               frame={market.roundSeconds}
@@ -236,23 +246,16 @@ export function KairoHome() {
                   : null
               }
               index={5}
-              className="order-2 lg:sticky lg:top-4 lg:order-none"
-            />
-            <YourCalls
-              positions={positions}
-              roundsByMarket={roundsByMarket}
-              nowSec={now}
-              onOpen={openWatch}
-              index={7}
-              className="order-4 min-h-[200px] lg:order-none lg:self-stretch"
+              className="order-2 lg:order-none"
             />
             <AgentLeaderboard
               backing={backing}
               onBack={backAgent}
               live={agentLive}
               index={8}
-              className="order-5 lg:order-none lg:self-stretch"
+              className="order-5 lg:order-none"
             />
+            </div>
           </div>
         </div>
 
