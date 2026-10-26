@@ -133,7 +133,7 @@ export default function HowItWorks() {
         ))}
       </ul>
 
-      <h2 className="mt-10 text-[22px] font-bold tracking-[-0.02em]">
+      <h2 id="fees" className="mt-10 scroll-mt-4 text-[22px] font-bold tracking-[-0.02em]">
         Fees, refunds and permission
       </h2>
       <ul className="mt-3 flex list-disc flex-col gap-2 pl-5 text-[15px] leading-relaxed text-muted-foreground">

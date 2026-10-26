@@ -30,8 +30,10 @@ import { ChartSheet } from "./chart-sheet";
 import { LiveCalls } from "./live-calls";
 import { LivePill } from "./live-pill";
 import { MarketCard } from "./market-card";
+import { PhoneMenu } from "./phone-menu";
 import { RoundCardProvider } from "./round-card";
 import { WalletButton } from "./wallet-button";
+import { WelcomeBanner } from "./welcome-banner";
 import { YourCall, type Side } from "./your-call";
 import { WatchSheet, type Watch } from "./watch-sheet";
 import { YourCalls } from "./your-calls";
@@ -138,17 +140,15 @@ export function KairoHome() {
           <div className="flex shrink-0 items-center gap-2">
             <Link
               href="/how-it-works"
-              aria-label="How it works"
-              className="grid size-8 place-items-center rounded-full border border-border text-[14px] font-semibold text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-auto sm:border-0 sm:px-3 sm:py-1.5 sm:text-[13px] sm:font-medium"
+              className="hidden px-3 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:block"
             >
-              <span className="sm:hidden" aria-hidden>
-                ?
-              </span>
-              <span className="hidden sm:inline">How it works</span>
+              How it works
             </Link>
+            <PhoneMenu />
             <WalletButton />
           </div>
         </header>
+        <WelcomeBanner />
 
         <div className="flex flex-col gap-3">
           {/* 1. One card per coin (name, live price, last hour): all three in ONE row, also on a phone. Tapping one picks that market in the call panel. */}

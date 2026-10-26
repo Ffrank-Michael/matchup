@@ -157,7 +157,7 @@ function ConnectView({ onDone }: { onDone: () => void }) {
 }
 
 /** The one-time permission ("spending limit"): how much Kairo may take from the wallet. Change it or remove it here. */
-function SpendingLimit() {
+export function SpendingLimit() {
   const wallet = useUsdc();
   const approval = useRevokeApproval();
   const [value, setValue] = React.useState(String(DEFAULT_APPROVAL_USDC));

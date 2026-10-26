@@ -129,7 +129,14 @@ export function YourCall({
             ? "Connect your wallet to call"
             : wrongNetwork
               ? "Switch network in your wallet"
-              : `${backing ? `Back ${backing.name}` : "Call"}${backing ? " · " : " "}${side} on ${market.key} · ${frameWords(market.roundSeconds)} · ${dollars(parsed)}`;
+              : backing
+                ? (
+                    <>
+                      <span className="sm:hidden">{`Back ${backing.name} · ${side} · ${dollars(parsed)}`}</span>
+                      <span className="hidden sm:inline">{`Back ${backing.name} · ${side} on ${market.key} · ${frameWords(market.roundSeconds)} · ${dollars(parsed)}`}</span>
+                    </>
+                  )
+                : `Call ${side} on ${market.key} · ${frameWords(market.roundSeconds)} · ${dollars(parsed)}`;
 
   return (
     <Tile
