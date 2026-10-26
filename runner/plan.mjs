@@ -31,6 +31,9 @@ const LOGIC = {
 export const EARLY = ['trend-follower', 'streak-hunter', 'coin-flipper']; // bet early, in this order
 export const LATE = 'contrarian'; // bets last, about 2 minutes before lock
 
+/** How many past rounds to look at: enough to cover the contract's whole settle window (cfg.lookback is the minimum). */
+export const lookbackFor = (m, cfg) => Math.max(cfg.lookback, Math.ceil(cfg.settleWindow / m.roundLength) + 2);
+
 export const lockTime = (m, k) => m.startOffset + k * m.roundLength;
 export const endTime = (m, k) => lockTime(m, k) + m.roundLength;
 const opensAt = (m, k) => (k === 0 ? 0 : lockTime(m, k - 1));
@@ -46,7 +49,7 @@ const decisionId = (m, k, agent) => `${m.id}:${k}:${agent}`;
  */
 function historyFor(m, cfg) {
   const out = [];
-  for (let j = Math.max(0, m.nextRound - cfg.lookback); j <= m.nextRound - 2; j++) {
+  for (let j = Math.max(0, m.nextRound - lookbackFor(m, cfg)); j <= m.nextRound - 2; j++) {
     const { startId, endId } = findSettleIds(m.feed.updates, lockTime(m, j), endTime(m, j));
     if (startId === 0n || endId <= startId) continue; // the feed did not move during that round
     const s = m.feed.updates.find((u) => u.id === startId);
@@ -111,7 +114,7 @@ export function planTick(snap, cfg, decided = new Set()) {
     const updates = m.feed.updates;
 
     // ---- 1. settle rounds that have ended (and still have a chance) ----
-    for (let j = Math.max(0, k - cfg.lookback); j < k; j++) {
+    for (let j = Math.max(0, k - lookbackFor(m, cfg)); j < k; j++) {
       const r = m.rounds[j];
       if (!r || r.state !== 'Unsettled' || r.up + r.down === 0) continue;
       const et = endTime(m, j);
@@ -160,7 +163,7 @@ export function planTick(snap, cfg, decided = new Set()) {
 
     // ---- 4. claims: winnings, refunds, and timed-out rounds ----
     for (const a of snap.agents) {
-      for (let j = Math.max(0, k - cfg.lookback); j < k; j++) {
+      for (let j = Math.max(0, k - lookbackFor(m, cfg)); j < k; j++) {
         const p = a.positions[posKey(m, j)];
         const r = m.rounds[j];
         if (!p || !r || p.claimed || p.up + p.down === 0) continue;
@@ -170,5 +173,9 @@ export function planTick(snap, cfg, decided = new Set()) {
       }
     }
   }
+  // Time-critical work first: price pushes (the start price must be the first trade after the lock), then settles; the sort is stable,
+  // so an agent's approval still comes right before its bet.
+  const rank = (a) => (a.type === 'pushPrice' ? 0 : a.type === 'settle' ? 1 : 2);
+  actions.sort((x, y) => rank(x) - rank(y));
   return { actions, decisions };
 }

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { ROOT, usdcBalance, erc20Abi } from '../scripts/lib.mjs';
 import { compile } from '../scripts/compile.mjs';
 import { CFG } from './config.mjs';
-import { lockTime } from './plan.mjs';
+import { lockTime, lookbackFor } from './plan.mjs';
 
 const STATES = ['Unsettled', 'SettledUp', 'SettledDown', 'Refunded'];
 const allowanceAbi = [
@@ -55,40 +55,67 @@ export function makeReader({ pub, usdc, deployments }) {
     return all;
   }
 
+  // Reading one round at a time (hundreds of requests per pass) trips the public RPC's rate limit once passes come every
+  // 3 seconds, so each pass asks Multicall3 (the standard contract at the same address on every chain) for many reads at once.
+  const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11';
+  const batch = (contracts) => pub.multicall({ contracts, allowFailure: false, multicallAddress: MULTICALL3, batchSize: 60_000 });
+  const arenaCall = (functionName, args = []) => ({ address: A, abi: art.arena.abi, functionName, args });
+
   return async function readSnapshot() {
-    const block = await pub.getBlock();
+    const [block, marketCount] = await Promise.all([pub.getBlock(), read(A, art.arena.abi, 'marketCount')]);
     const now = Number(block.timestamp);
-    const count = Number(await read(A, art.arena.abi, 'marketCount'));
-    const markets = [];
-    for (let id = 0; id < count; id++) {
-      const [feedA, , roundLength, startOffset, minStake, paused] = await read(A, art.arena.abi, 'markets', [BigInt(id)]);
-      const name = await read(A, art.arena.abi, 'marketName', [BigInt(id)]);
-      const nextRound = Number(await read(A, art.arena.abi, 'nextBettableRound', [BigInt(id)]));
-      const m = { id, name, roundLength: Number(roundLength), startOffset: Number(startOffset), minStake: Number(minStake), paused, nextRound, rounds: {}, feed: { address: feedA, updates: [] } };
-      const first = Math.max(0, nextRound - CFG.lookback);
-      const indexes = Array.from({ length: nextRound - first + 1 }, (_, i) => first + i);
-      const rows = await Promise.all(indexes.map((j) => read(A, art.arena.abi, 'rounds', [BigInt(id), BigInt(j)])));
-      indexes.forEach((j, i) => {
-        const r = rows[i];
+    const count = Number(marketCount);
+    const ids = Array.from({ length: count }, (_, i) => i);
+
+    // 1. every market's settings, name and next bettable round
+    const head = await batch(ids.flatMap((id) => [arenaCall('markets', [BigInt(id)]), arenaCall('marketName', [BigInt(id)]), arenaCall('nextBettableRound', [BigInt(id)])]));
+    const markets = ids.map((id) => {
+      const [feedA, , roundLength, startOffset, minStake, paused] = head[id * 3];
+      return { id, name: head[id * 3 + 1], roundLength: Number(roundLength), startOffset: Number(startOffset), minStake: Number(minStake), paused, nextRound: Number(head[id * 3 + 2]), rounds: {}, feed: { address: feedA, updates: [] } };
+    });
+    for (const m of markets) {
+      const first = Math.max(0, m.nextRound - lookbackFor(m, CFG));
+      m.indexes = Array.from({ length: m.nextRound - first + 1 }, (_, i) => first + i);
+      m.firstRound = first;
+    }
+
+    // 2. all rounds, and every agent's balance, allowance and positions, in one go
+    const roundAsks = markets.flatMap((m) => m.indexes.map((j) => arenaCall('rounds', [BigInt(m.id), BigInt(j)])));
+    const agentsIn = deployments.circle.agents;
+    const posAsks = markets.flatMap((m) => m.indexes.map((j) => ({ id: m.id, j })));
+    const agentAsks = agentsIn.flatMap((a) => [
+      { address: usdc, abi: erc20Abi, functionName: 'balanceOf', args: [a.address] },
+      { address: usdc, abi: allowanceAbi, functionName: 'allowance', args: [a.address, A] },
+      ...posAsks.map((q) => arenaCall('positions', [BigInt(q.id), BigInt(q.j), a.address])),
+    ]);
+    const out = await batch([...roundAsks, ...agentAsks]);
+
+    let at = 0;
+    for (const m of markets) {
+      for (const j of m.indexes) {
+        const r = out[at++];
         m.rounds[j] = { up: Number(r[0]), down: Number(r[1]), startPrice: r[4], endPrice: r[5], state: STATES[Number(r[6])] };
-      });
-      m.feed.updates = await feedUpdates(feedA, lockTime(m, first));
-      markets.push(m);
+      }
     }
-    const agents = [];
-    for (const a of deployments.circle.agents) {
-      const balance = Number((await usdcBalance(pub, usdc, a.address)).raw);
-      const allowance = Number(await read(usdc, allowanceAbi, 'allowance', [a.address, A]));
+
+    // 3. the price feeds: markets of one coin share a feed, so it is read once, back to the oldest time any of them needs
+    const oldest = {};
+    for (const m of markets) oldest[m.feed.address] = Math.min(oldest[m.feed.address] ?? Infinity, lockTime(m, m.firstRound));
+    const updatesOf = {};
+    await Promise.all(Object.entries(oldest).map(async ([address, from]) => { updatesOf[address] = await feedUpdates(address, from); }));
+    for (const m of markets) m.feed.updates = updatesOf[m.feed.address];
+
+    const agents = agentsIn.map((a) => {
+      const balance = Number(out[at++]);
+      const allowance = Number(out[at++]);
       const positions = {};
-      const asks = markets.flatMap((m) =>
-        Array.from({ length: m.nextRound - Math.max(0, m.nextRound - CFG.lookback) + 1 }, (_, i) => ({ id: m.id, j: Math.max(0, m.nextRound - CFG.lookback) + i })));
-      const rows = await Promise.all(asks.map((q) => read(A, art.arena.abi, 'positions', [BigInt(q.id), BigInt(q.j), a.address])));
-      asks.forEach((q, i) => {
-        const p = rows[i];
+      for (const q of posAsks) {
+        const p = out[at++];
         if (p[0] > 0n || p[1] > 0n) positions[`${q.id}:${q.j}`] = { up: Number(p[0]), down: Number(p[1]), claimed: p[2] };
-      });
-      agents.push({ key: a.key, name: a.name, address: a.address, walletId: a.walletId, balance, allowance, positions });
-    }
+      }
+      return { key: a.key, name: a.name, address: a.address, walletId: a.walletId, balance, allowance, positions };
+    });
+    for (const m of markets) { delete m.indexes; delete m.firstRound; }
     return { now, markets, agents, art };
   };
 }

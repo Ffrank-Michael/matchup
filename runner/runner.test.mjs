@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { CFG } from './config.mjs';
-import { planTick, tickDelay, lockTime, endTime } from './plan.mjs';
+import { planTick, tickDelay, lookbackFor, lockTime, endTime } from './plan.mjs';
 import { findSettleIds } from './settleIds.mjs';
 import { createWalk } from './priceWalk.mjs';
 import { simulate, createWorld, mulberry32 } from './simulate.mjs';
@@ -461,4 +461,25 @@ test('markets of different coins each get their own push', () => {
   const mk = (id, name, address, offset) => ({ id, name, roundLength: 300, startOffset: offset, minStake: 100_000, paused: false, nextRound: Math.floor((3004 - offset) / 300) + 1, feed: { address, updates: [upd(1, 2000, 100)] }, rounds: {} });
   const r = planTick({ now: 3004, markets: [mk(0, 'BTC/USD 5m', '0xB', 0), mk(1, 'ETH/USD 5m', '0xE', 2)], agents: agents() }, cfg());
   assert.deepEqual(r.actions.filter((a) => a.type === 'pushPrice').map((a) => a.marketName).sort(), ['BTC/USD 5m', 'ETH/USD 5m']);
+});
+
+// ---------------------------------------------------------------- order of actions and look-back
+
+test('price pushes and settles come first in the plan, an approval still comes right before its bet', () => {
+  const ms = three(6065).map((m, i) => ({ ...m, feed: { address: '0xF' + i, updates: [upd(1, 5000, 100)] } }));
+  const r = planTick({ now: 6065, markets: ms, agents: agents({ 'coin-flipper': { allowance: 0 } }) }, cfg());
+  const order = r.actions.map((x) => x.type);
+  assert.ok(order.includes('pushPrice') && order.includes('bet'), order.join(','));
+  const lastPush = order.lastIndexOf('pushPrice');
+  const firstOther = order.findIndex((x) => x !== 'pushPrice' && x !== 'settle');
+  assert.ok(firstOther > lastPush, order.join(','));
+  r.actions.forEach((x, i) => { if (x.type === 'approve') { assert.equal(r.actions[i + 1].type, 'bet'); assert.equal(r.actions[i + 1].agent, x.agent); } });
+});
+
+test('the look-back covers the whole 1-hour settle window for 5-minute and 10-minute rounds alike', () => {
+  for (const roundLength of [300, 600]) {
+    assert.ok(lookbackFor({ roundLength }, CFG) * roundLength >= CFG.settleWindow + roundLength, `${roundLength}s rounds`);
+  }
+  assert.equal(lookbackFor({ roundLength: 300 }, CFG), 14);
+  assert.equal(lookbackFor({ roundLength: 600 }, CFG), 8);
 });

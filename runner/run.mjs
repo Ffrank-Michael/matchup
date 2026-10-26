@@ -32,6 +32,8 @@ console.log(LIVE ? '*** LIVE MODE: real testnet transactions will be sent ***' :
 const decided = new Set();   // decisions already taken (a skip counts), so no agent decides twice per round
 const failedUntil = new Map(); // action text -> time before which we do not retry it
 let execute;
+let agentLane = Promise.resolve(); // the background lane for agent transactions
+const inflight = new Set();   // action texts being executed right now
 
 async function tick() {
   const snap = await readSnapshot();
@@ -45,19 +47,35 @@ async function tick() {
   }
   if (actions.length === 0 && decisions.length === 0) return delay;
 
-  for (const a of actions) {
+  // Two lanes, so a slow agent bet (Circle takes several seconds per transaction) never makes a price push or a settle late:
+  //   fast lane: price pushes and settles (the deployer wallet), waited for before the next look at the chain
+  //   agent lane: approvals, bets and claims (Circle wallets), one after another in the background
+  const fast = actions.filter((a) => a.type === 'pushPrice' || a.type === 'settle');
+  const slow = actions.filter((a) => a.type !== 'pushPrice' && a.type !== 'settle');
+  if (slow.length) agentLane = agentLane.then(() => runLane(slow));
+  await runLane(fast);
+  return delay;
+}
+
+/** Runs actions one after another. An action already running, or one that failed a moment ago, is skipped. */
+async function runLane(list) {
+  for (const a of list) {
     const text = describe(a);
-    if ((failedUntil.get(text) || 0) > Date.now()) continue;
+    if ((failedUntil.get(text) || 0) > Date.now() || inflight.has(text)) continue;
+    inflight.add(text);
     try {
       const res = await execute(a);
       log(`${LIVE ? 'DONE' : 'WOULD'}: ${text}${res.note ? '\n         ' + res.note : ''}${res.tx ? '\n         tx ' + res.tx : ''}`);
     } catch (e) {
       // do not hammer a failing action; a failed price push is retried after 5 s (the start price waits for the first trade after the lock)
       failedUntil.set(text, Date.now() + (a.type === 'pushPrice' ? 5_000 : 5 * 60_000));
-      log(`FAILED: ${text}\n         ${String(e.shortMessage || e.message).slice(0, 300)}`);
+      const why = String(e.shortMessage || e.message).slice(0, 300);
+      // the start price waits for the first trade after the lock: that is waiting, not a failure
+      log(`${/will try again/.test(why) ? 'WAITING' : 'FAILED'}: ${text}\n         ${why}`);
+    } finally {
+      inflight.delete(text);
     }
   }
-  return delay;
 }
 
 do {
@@ -65,3 +83,4 @@ do {
   try { delay = await tick(); } catch (e) { log(`tick error: ${String(e.shortMessage || e.message).slice(0, 300)}`); }
   if (!ONCE) await new Promise((r) => setTimeout(r, delay * 1000));
 } while (!ONCE);
+await agentLane; // --once: wait for the agent transactions that were started
