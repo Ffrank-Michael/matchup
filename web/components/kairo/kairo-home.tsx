@@ -148,11 +148,11 @@ export function KairoHome() {
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/kairo-logo-inline.svg"
+              src="/kairo-logo-bar.svg"
               alt="Kairo Markets"
-              width={158}
-              height={44}
-              className="-my-2 h-11 w-auto max-w-none sm:-my-2.5 sm:h-12"
+              width={222}
+              height={32}
+              className="h-8 w-auto max-w-none max-[380px]:h-7 sm:h-10"
             />
           </Link>
           <div className="flex shrink-0 items-center gap-2">

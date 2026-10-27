@@ -70,16 +70,16 @@ export default function HowItWorks() {
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/kairo-logo-inline.svg"
+            src="/kairo-logo-bar.svg"
             alt="Kairo Markets"
-            width={158}
-            height={44}
-            className="-my-2 h-11 w-auto sm:-my-2.5 sm:h-12"
+            width={222}
+            height={32}
+            className="h-8 w-auto max-[400px]:h-7 sm:h-10"
           />
         </Link>
         <Link
           href="/"
-          className="rounded-full border border-border px-3.5 py-1.5 text-[13px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="shrink-0 whitespace-nowrap rounded-full border border-border px-3.5 py-1.5 text-[13px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           Back to markets
         </Link>
