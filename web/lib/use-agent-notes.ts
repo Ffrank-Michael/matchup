@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { AgentKey } from "./agents";
 
 /** What an AI agent said about one round: its one-sentence reason ("called"), or that it could not decide ("skipped"). */
-export type AgentNote = { r: number; a: AgentKey; s: "called" | "skipped"; c: "UP" | "DOWN" | null; t: string };
+export type AgentNote = { r: number; a: AgentKey; s: "called" | "skipped"; c: "UP" | "DOWN" | null; t: string; src: "ai" | "rule" };
 
 export const AI_NOTE_LABEL = "AI note by Gemini. Not checked, not advice.";
 

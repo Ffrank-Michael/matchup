@@ -31,15 +31,17 @@ const agents = (over = {}) => KEYS.map((k) => agent(k, over[k] || {}));
 // 20 closed 1-minute candles that rise, so the chart reader calls UP
 const RISING = Array.from({ length: 20 }, (_, i) => ({ open: 100 + i - 1, close: 100 + i }));
 const snap = (now, m = market(now), a = agents()) => ({ now, markets: [m], agents: a, candles: { 'BTC/USD': RISING } });
-const cfg = (over = {}) => ({ ...CFG, random: mulberry32(7), ...over });
+// These tests check the ORDER and rules of betting, with the original 60 s / 30 s delays (the real delays are in the settings test below).
+const cfg = (over = {}) => ({ ...CFG, earlyDelay: 60, contrarianAfterEarly: 30, random: mulberry32(7), ...over });
 const bets = (r) => r.actions.filter((a) => a.type === 'bet');
 const kinds = (r) => r.actions.map((a) => a.type);
 
 // ---------------------------------------------------------------- the settings fit 10-minute rounds
 
-test('settings: early bets 1 minute after a round opens, contrarian 30 s after that, two prices a round', () => {
-  assert.equal(CFG.earlyDelay, 60);
-  assert.equal(CFG.contrarianAfterEarly, 30);
+test('settings: early bets 10 s after a round opens, contrarian 20 s after that, two prices a round', () => {
+  assert.equal(CFG.earlyDelay, 10);
+  assert.equal(CFG.aiAskAfter, 3);
+  assert.equal(CFG.contrarianAfterEarly, 20);
   assert.equal(CFG.contrarianCutoff, 30);
   assert.equal(CFG.endMargin, 60);
   assert.equal(CFG.startAfter, 2);

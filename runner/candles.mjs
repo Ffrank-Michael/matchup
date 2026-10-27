@@ -1,5 +1,6 @@
 // Closed 1-minute candles for the chart reader, from Bitfinex's free public API (no key).
 //   GET https://api-pub.bitfinex.com/v2/candles/trade:1m:tBTCUSD/hist?limit=24  ->  [[time_ms, open, close, high, low, volume], ...]  newest first
+// 120 candles are kept (a 1-hour round gets 120; shorter rounds get fewer, see agents/ai.mjs). `force` skips the cache.
 // Only candles that have finished count: the minute that is still running is dropped. Answers are reused for ttlMs, so
 // the three coins cost about six requests a minute. If Bitfinex fails this THROWS and the runner gives the agent no
 // candles; the chart reader then skips the round. It never makes numbers up.
@@ -8,13 +9,13 @@ import { SYMBOLS } from './exchangePrices.mjs';
 const BASE = 'https://api-pub.bitfinex.com/v2/candles';
 const MINUTE_MS = 60_000;
 
-export function createCandles({ fetchFn = fetch, nowMs = Date.now, ttlMs = 30_000, count = 30 } = {}) {
+export function createCandles({ fetchFn = fetch, nowMs = Date.now, ttlMs = 30_000, count = 120 } = {}) {
   const cache = {}; // pair -> { at, candles }
 
   /** The last `count` finished 1-minute candles of a coin ("BTC/USD"), oldest first: [{ time, open, close, high, low }]. */
-  async function get(pair) {
+  async function get(pair, { force = false } = {}) {
     const hit = cache[pair];
-    if (hit && nowMs() - hit.at < ttlMs) return hit.candles;
+    if (!force && hit && nowMs() - hit.at < ttlMs) return hit.candles;
     const symbol = SYMBOLS[pair];
     if (!symbol) throw new Error(`no candle source for market ${pair}`);
     const res = await fetchFn(`${BASE}/trade:1m:${symbol}/hist?limit=${count + 4}`, { signal: AbortSignal.timeout(8000) });

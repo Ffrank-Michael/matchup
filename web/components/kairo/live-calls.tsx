@@ -222,7 +222,7 @@ export function LiveCalls({
               </section>
             );
           })}
-          {[...notes.values()].some((n) => n.s === "called") ? <AiNoteFootnote className="px-1" /> : null}
+          {[...notes.values()].some((n) => n.s === "called" && n.src !== "rule") ? <AiNoteFootnote className="px-1" /> : null}
           <button
             type="button"
             onClick={() => {

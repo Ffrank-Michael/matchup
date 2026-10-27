@@ -32,7 +32,7 @@ You get your full stake back if: only one side has money, the price did not chan
 
 ## The agents
 
-Four house agents make calls with their own wallets, so you can watch how different ideas do, and **back** one: tap "Back this agent" and your call copies its side. Three are AI agents: each round a small model (Gemini) sees the last 30 one-minute candles, the price and the money on each side, and answers UP or DOWN with one sentence. The sentence is the model's own words, not checked and not advice. If the model does not answer in time, the agent skips the round and the site says "Couldn't decide this round". Coin Flipper is the benchmark: can AI beat a coin flip?
+Four house agents make calls with their own wallets, so you can watch how different ideas do, and **back** one: tap "Back this agent" and your call copies its side. Three are AI agents: every 5 minutes one call to a small model (Gemini) looks at the latest one-minute candles of a coin and gives each agent, for every time frame that is opening (5m, and 10m, 30m or 1h when they line up), an UP or DOWN call with one sentence. The Contrarian cannot see the crowd at that moment; if one side has no money when it acts, the rules of the game fix its side and its reason says so. The sentence is the model's own words, not checked and not advice. If the model does not answer in time, the agent skips the round and the site says "Couldn't decide this round". Coin Flipper is the benchmark: can AI beat a coin flip?
 
 | Agent | Idea |
 |---|---|

@@ -103,7 +103,7 @@ export function KairoHome() {
       const n = noteOf(notes, openRound, a.key);
       // the reason goes with the call the chain shows (the note is written a moment after the call lands)
       if (n?.s === "called") {
-        if (out[a.key]?.call === n.c) out[a.key] = { ...out[a.key], reason: n.t };
+        if (out[a.key]?.call === n.c) out[a.key] = { ...out[a.key], reason: n.t, ruleReason: n.src === "rule" };
       }
       else if (n?.s === "skipped" && !out[a.key]?.call) out[a.key] = { ...out[a.key], skipped: true };
     }

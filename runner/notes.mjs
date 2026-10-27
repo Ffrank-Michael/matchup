@@ -34,7 +34,7 @@ export function createNotes({ env = process.env, fetchFn = fetch, file = NOTES_F
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
       } catch (e) {
-        if (!warned) { warned = true; log(`notes: could not save to Upstash (${String(e.message).slice(0, 80)}); the site will not show reasons until this works`); }
+        if (!warned) { warned = true; log(`notes: could not save to Upstash (${String(e.message).split(token).join('***').slice(0, 80)}); the site will not show reasons until this works`); }
       }
     },
   };

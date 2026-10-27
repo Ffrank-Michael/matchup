@@ -906,7 +906,7 @@ export function WatchSheet({
                 className="mt-2"
                 agents={AGENTS.filter((a) => a.ai && w && noteOf(notes, w.roundIndex, a.key)?.s === "skipped")}
               />
-              {[...notes.values()].some((n) => n.s === "called") ? <AiNoteFootnote className="mt-2" /> : null}
+              {[...notes.values()].some((n) => n.s === "called" && n.src !== "rule") ? <AiNoteFootnote className="mt-2" /> : null}
 
               {myTx || history?.claimTx ? (
                 <p className="mt-5 flex justify-center gap-4 text-center text-[11px] text-muted-foreground">

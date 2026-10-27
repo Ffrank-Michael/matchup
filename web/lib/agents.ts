@@ -6,9 +6,9 @@
 export type AgentKey = "trend-follower" | "contrarian" | "chart-reader" | "coin-flipper";
 
 export const AGENTS: ReadonlyArray<{ key: AgentKey; number: number; name: string; short: string; tagline: string; colour: string; how: string; rule?: string; ai?: boolean }> = [
-  { key: "trend-follower", number: 1, name: "Trend Follower", short: "Trend", tagline: "Rides the trend", colour: "oklch(0.8 0.12 185)", how: "An AI that reads the last 30 candles and rides the trend.", ai: true, rule: "An AI model (Gemini) is shown the last 30 one-minute candles, the price and the money on each side. It believes in momentum: a price that has been moving one way tends to keep going. It answers UP or DOWN with one short sentence. If the AI does not answer in time, it skips the round." },
-  { key: "contrarian", number: 2, name: "Contrarian", short: "Contrarian", tagline: "Fades the crowd", colour: "oklch(0.74 0.17 48)", how: "An AI that fades the crowd and stretched moves.", ai: true, rule: "An AI model (Gemini) is shown the last 30 one-minute candles and where the money is. It fades the crowd: when a lot of money is on one side, or the price has run hard one way, it leans the other way. It goes last in each round. If one side has no money yet, the rules fix its call to that side and the AI explains why. If the AI does not answer in time, it skips the round." },
-  { key: "chart-reader", number: 3, name: "Chart Reader", short: "Chart", tagline: "Reads the chart", colour: "oklch(0.87 0.16 95)", how: "An AI that reads candle shapes and levels.", ai: true, rule: "An AI model (Gemini) is shown the last 30 one-minute candles. It reads candle shapes and levels: sizes, wicks, highs and lows, and how the short average sits against the longer one. It answers UP or DOWN with one short sentence. If the AI does not answer in time, it skips the round." },
+  { key: "trend-follower", number: 1, name: "Trend Follower", short: "Trend", tagline: "Rides the trend", colour: "oklch(0.8 0.12 185)", how: "An AI that reads the recent candles and rides the trend.", ai: true, rule: "Every 5 minutes an AI model (Gemini) is shown the latest one-minute candles for the coin and gives each time frame that opens its own call. This agent believes in momentum: a price that has been moving one way tends to keep going. It answers UP or DOWN with one short sentence. If the AI does not answer in time, it skips the round." },
+  { key: "contrarian", number: 2, name: "Contrarian", short: "Contrarian", tagline: "Fades the crowd", colour: "oklch(0.74 0.17 48)", how: "An AI that fades the crowd and stretched moves.", ai: true, rule: "Every 5 minutes an AI model (Gemini) is shown the latest one-minute candles for the coin and gives each time frame that opens its own call. This agent fades the crowd and stretched moves: when the price has run hard one way, it leans the other way. It goes last in each round, after the others have called. If one side has no money yet, the rules of the game fix its call to that side and its reason says so. If the AI does not answer in time, it skips the round." },
+  { key: "chart-reader", number: 3, name: "Chart Reader", short: "Chart", tagline: "Reads the chart", colour: "oklch(0.87 0.16 95)", how: "An AI that reads candle shapes and levels.", ai: true, rule: "Every 5 minutes an AI model (Gemini) is shown the latest one-minute candles for the coin and gives each time frame that opens its own call. This agent reads candle shapes and levels: sizes, wicks, highs and lows, and how the short average sits against the longer one. It answers UP or DOWN with one short sentence. If the AI does not answer in time, it skips the round." },
   { key: "coin-flipper", number: 4, name: "Coin Flipper", short: "Coin Flip", tagline: "Leaves it to luck", colour: "oklch(0.78 0.11 235)", how: "Picks UP or DOWN at random. The benchmark: can AI beat a coin flip?" },
 ];
 
@@ -20,6 +20,8 @@ export type AgentLive = {
   call?: "UP" | "DOWN";
   /** Its one-line reason for that call (an AI note, written by the model) */
   reason?: string;
+  /** The reason was written by the game's rules (a side with no money was fixed), not by the AI */
+  ruleReason?: boolean;
   /** The AI could not decide this round, so the agent skipped it */
   skipped?: boolean;
   /** Share of finished rounds won, 0 to 1 */

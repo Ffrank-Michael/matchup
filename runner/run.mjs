@@ -34,11 +34,22 @@ const log = (msg) => console.log(`${stamp()}  ${msg}`);
 
 console.log(LIVE ? '*** LIVE MODE: real testnet transactions will be sent ***' : '--- DRY RUN: nothing will be sent ---');
 
-// Which markets the AI agents play (AI_MARKETS in .env, comma separated names like "BTC/USD 5m", or "all"). Default: BTC/USD 5m only.
-const aiMarkets = String(env.AI_MARKETS || '').trim().toLowerCase() === 'all' ? 'all' : String(env.AI_MARKETS || 'BTC/USD 5m').split(',').map((s) => s.trim()).filter(Boolean);
+// Which markets the AI agents play (AI_MARKETS in .env, comma separated names like "BTC/USD 5m", or "all"). Default: all twelve.
+const aiMarkets = String(env.AI_MARKETS || '').trim().toLowerCase() === 'all' ? 'all' : String(env.AI_MARKETS || 'all').split(',').map((s) => s.trim()).filter(Boolean);
 const ai = createAi({ env, live: LIVE, log });         // Gemini decides the trend follower, the contrarian and the chart reader
 const notes = createNotes({ env, log });                // their one-sentence reasons, for the website
 const candleSource = createCandles();
+
+/** Fresh candles for an AI call: the call is made seconds after a minute turns, so make sure the minute that just closed is in. */
+async function freshCandles(req) {
+  const wantLast = Math.floor(Date.now() / 60_000) * 60 - 60; // start of the newest finished minute
+  let candles = req.candles;
+  for (let i = 0; i < 3 && (candles[candles.length - 1]?.time ?? 0) < wantLast; i++) {
+    try { candles = await candleSource.get(req.coin, { force: true }); } catch { break; }
+    if ((candles[candles.length - 1]?.time ?? 0) < wantLast) await new Promise((r) => setTimeout(r, 1500));
+  }
+  return candles;
+}
 let candleData = null;       // closed 1-minute candles per coin, for the chart reader
 let candleRefresh = null;
 const decided = new Set();   // decisions already taken (a skip counts), so no agent decides twice per round
@@ -56,9 +67,10 @@ async function tick() {
   if (!candleRefresh) candleRefresh = candleSource.getAll(pairs).then((c) => { candleData = c; }).finally(() => { candleRefresh = null; });
   if (candleData === null) await candleRefresh;
   snap.candles = candleData ?? {};
-  const { actions, decisions, aiRequests } = planTick(snap, { ...CFG, random: Math.random, ai, aiMarkets }, decided);
-  for (const r of aiRequests) ai.request(r); // answered in the background; the next look turns the answer into a bet or a skip
-  const delay = tickDelay(snap, CFG);
+  const planCfg = { ...CFG, random: Math.random, ai, aiMarkets };
+  const { actions, decisions, aiRequests } = planTick(snap, planCfg, decided);
+  for (const r of aiRequests) ai.request(r, { prepare: freshCandles }); // answered in the background; the next look turns the answer into bets or skips
+  const delay = aiRequests.length ? Math.min(CFG.fastTickSeconds, tickDelay(snap, planCfg)) : tickDelay(snap, planCfg);
 
   for (const d of decisions) {
     if (d.decision.action === 'SKIP' && !(d.retry && loggedSkips.has(d.id))) {
@@ -92,7 +104,7 @@ async function runLane(list) {
     try {
       const res = await execute(a);
       log(`${LIVE ? 'DONE' : 'WOULD'}: ${text}${res.note ? '\n         ' + res.note : ''}${res.tx ? '\n         tx ' + res.tx : ''}`);
-      if (LIVE && a.type === 'bet' && a.ai) notes.publish({ m: a.market, r: a.round, a: a.agent, s: 'called', c: a.side, t: a.reason, at: Math.floor(Date.now() / 1000), model: ai.model });
+      if (LIVE && a.type === 'bet' && a.ai) notes.publish({ m: a.market, r: a.round, a: a.agent, s: 'called', c: a.side, t: a.reason, at: Math.floor(Date.now() / 1000), model: ai.model, src: a.rule ? 'rule' : 'ai' });
     } catch (e) {
       // do not hammer a failing action; a failed price push is retried after 5 s (the start price waits for the first trade after the lock)
       // a failed contrarian approval or bet is tried again soon (its window is short) and its decision is taken back after that

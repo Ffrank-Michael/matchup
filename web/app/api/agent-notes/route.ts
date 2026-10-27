@@ -10,7 +10,7 @@ const MAX_ROUNDS = 8;
 const MAX_TEXT = 200;
 const NO_STORE = { "cache-control": "no-store" };
 
-type Note = { r: number; a: string; s: "called" | "skipped"; c: "UP" | "DOWN" | null; t: string };
+type Note = { r: number; a: string; s: "called" | "skipped"; c: "UP" | "DOWN" | null; t: string; src: "ai" | "rule" };
 
 /** Keeps a stored note only if every field has the expected shape; the text is trimmed and shortened. */
 function clean(raw: unknown, market: number, rounds: Set<number>): Note | null {
@@ -23,7 +23,8 @@ function clean(raw: unknown, market: number, rounds: Set<number>): Note | null {
   if (n.s === "called" && !c) return null;
   const t = typeof n.t === "string" ? n.t.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_TEXT) : "";
   if (!t) return null;
-  return { r: n.r, a: n.a, s: n.s, c: n.s === "called" ? c : null, t };
+  // "rule": the text was written by the game's rules (a forced side), not by the AI
+  return { r: n.r, a: n.a, s: n.s, c: n.s === "called" ? c : null, t, src: n.src === "rule" ? "rule" : "ai" };
 }
 
 async function fromUpstash(url: string, token: string, market: number, rounds: number[]): Promise<unknown[]> {

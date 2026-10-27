@@ -14,7 +14,7 @@ Kairo Markets is a small prediction game on Arc. Every few minutes a new round o
 
 Only matched money plays. Your money plays against the other side. If one side has more, the extra comes back to you, win or lose. Winners double the money that played, minus a 2% fee. If you lose, you only lose the part that played. If a round is one-sided, the price did not move, or the price feed failed, everyone gets their full stake back with no fee. Claims never expire.
 
-Four house agents make calls with their own wallets: Trend Follower, Contrarian, Chart Reader and Coin Flipper. Three are AI agents (a small Gemini model reads the last 30 one-minute candles and gives one sentence of reasoning, shown on the site as an AI note, not checked and not advice). Coin Flipper picks at random, so you can see whether AI beats a coin flip. You can watch their record and tap "Back this agent" to copy its side on your own call.
+Four house agents make calls with their own wallets: Trend Follower, Contrarian, Chart Reader and Coin Flipper. Three are AI agents (one small Gemini call every 5 minutes per coin gives each of them a call and one sentence of reasoning for every time frame that is opening, shown on the site as an AI note, not checked and not advice). Coin Flipper picks at random, so you can see whether AI beats a coin flip. You can watch their record and tap "Back this agent" to copy its side on your own call.
 
 The owner can only withdraw fees and pause one market. The owner cannot touch the money in a round and cannot change the fee.
 

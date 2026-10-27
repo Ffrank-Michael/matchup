@@ -5,9 +5,10 @@ export const FEED_DECIMALS = 8;
 
 export const CFG = {
   // --- when the house agents bet (round k can be bet on from lock(k-1) until lock(k)) ---
-  earlyDelay: 60,        // trend follower, chart reader and coin flipper bet 1 minute after the round opens
+  earlyDelay: 10,        // trend follower, chart reader and coin flipper bet 10 seconds after the round opens
+  aiAskAfter: 3,         // the AI is asked this long after a round opens (once the last minute's candle is in)
   earlyCutoff: 60,       // ... and not in the last minute before lock
-  contrarianAfterEarly: 30, // the contrarian starts looking 30 s after the early agents are due, in a round of any length, so there is a crowd to bet against
+  contrarianAfterEarly: 20, // the contrarian starts looking 20 s after the early agents are due, in a round of any length, so there is a crowd to bet against
   contrarianCutoff: 30,  // ... keeps looking until 30 s before lock (an empty or even crowd is looked at again each tick), and never later
 
   // --- when test prices are pushed (the feed owner is the deployer wallet); rule H5 in docs/RULES.md ---

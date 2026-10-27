@@ -23,7 +23,7 @@ export function AgentReason({ agent, info }: { agent: Agent; info?: AgentLive })
     return (
       <p className="mt-2 text-[13px] leading-snug text-muted-foreground">
         <span className="italic">&ldquo;{info.reason}&rdquo;</span>
-        {agent.ai ? <span className="mt-0.5 block text-[11px] opacity-80">{AI_NOTE_LABEL}</span> : null}
+        {agent.ai && !info.ruleReason ? <span className="mt-0.5 block text-[11px] opacity-80">{AI_NOTE_LABEL}</span> : null}
       </p>
     );
   }
