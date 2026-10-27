@@ -34,6 +34,8 @@ test('the prompt carries the personality, the last 30 candles, the price and the
 test('a forced side is told to the model', () => {
   const { user } = buildPrompt(req({ forcedSide: 'DOWN' }));
   assert.match(user, /your call is DOWN/);
+  assert.match(user, /All the money is on UP/);
+  assert.match(user, /Do not say "must"/);
 });
 
 test('parseAnswer: strict JSON with exactly call and reason', () => {

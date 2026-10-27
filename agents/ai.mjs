@@ -45,7 +45,7 @@ export function buildPrompt(req) {
     ...lines,
     `Money already in this round: UP ${fmtUsdc(req.bets.up)}, DOWN ${fmtUsdc(req.bets.down)}. Only matched money plays: the extra on the bigger side comes back.`,
     req.forcedSide
-      ? `The game rules fix your call: ${req.forcedSide} has no money yet and a round needs two sides, so your call is ${req.forcedSide}. Return call "${req.forcedSide}" and give one sentence on why that fits you.`
+      ? `All the money is on ${req.forcedSide === 'UP' ? 'DOWN' : 'UP'}, and a round needs both sides, so your call is ${req.forcedSide}. Return call "${req.forcedSide}". Give one sentence, in your own style, that sounds like your own choice: say what you see (for example that everyone else is on ${req.forcedSide === 'UP' ? 'DOWN' : 'UP'}) and why taking ${req.forcedSide} suits you. Do not say "must", "forced" or "rules".`
       : 'Make your call.',
     'Reply with JSON only: {"call":"UP"|"DOWN","reason":"one short sentence"}',
   ].join('\n');
