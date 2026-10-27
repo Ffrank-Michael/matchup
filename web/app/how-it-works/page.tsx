@@ -68,12 +68,8 @@ export default function HowItWorks() {
           href="/"
           className="flex items-center gap-2.5 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {/* Two-line logo on phones (under 768 px), one-line logo from 768 px up. */}
-          <picture>
-            <source media="(min-width: 768px)" srcSet="/kairo-logo-bar.svg" />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/kairo-logo-bar-2line.svg" alt="Kairo Markets" width={116} height={36} className="h-9 w-auto md:h-10" />
-          </picture>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/kairo-logo-bar-2line.svg" alt="Kairo Markets" width={116} height={36} className="h-9 w-auto md:h-10" />
         </Link>
         <Link
           href="/"
