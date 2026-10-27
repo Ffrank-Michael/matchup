@@ -98,7 +98,9 @@ function ConnectView({ onDone }: { onDone: () => void }) {
             disabled={isPending}
             onClick={() => {
               reset();
-              connect({ connector: walletConnect, chainId: arcTestnet.id }, { onSuccess: onDone });
+              connect({ connector: walletConnect, chainId: arcTestnet.id });
+              // Close this window now: it is a native modal <dialog> (top layer), so Reown's wallet list, which opens outside it, would sit behind it and could not be tapped.
+              onDone();
             }}
           >
             <span className="grid size-7 place-items-center rounded-lg bg-muted text-[13px]" aria-hidden>
