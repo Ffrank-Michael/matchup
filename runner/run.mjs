@@ -34,8 +34,8 @@ const log = (msg) => console.log(`${stamp()}  ${msg}`);
 
 console.log(LIVE ? '*** LIVE MODE: real testnet transactions will be sent ***' : '--- DRY RUN: nothing will be sent ---');
 
-// Which markets the AI agents play (AI_MARKETS in .env, comma separated names like "BTC/USD 5m", or "all"). Default: all twelve.
-const aiMarketsText = String(env.AI_MARKETS || 'all').trim();
+// Which markets the house agents play (AI_MARKETS in .env, comma separated names like "BTC/USD 5m", or "all"). Default: BTC, ETH and SOL 5m.
+const aiMarketsText = String(env.AI_MARKETS || 'BTC/USD 5m,ETH/USD 5m,SOL/USD 5m').trim();
 const aiMarkets = aiMarketsText.toLowerCase() === 'all' ? 'all' : aiMarketsText.split(',').map((s) => s.trim()).filter(Boolean);
 const ai = createAi({ env, live: LIVE, log });         // Gemini decides the trend follower, the contrarian and the chart reader
 const notes = createNotes({ env, log });                // their one-sentence reasons, for the website

@@ -533,3 +533,12 @@ test('the look-back covers the whole 1-hour settle window for 5-minute and 10-mi
   assert.equal(lookbackFor({ roundLength: 300 }, CFG), 14);
   assert.equal(lookbackFor({ roundLength: 600 }, CFG), 8);
 });
+
+test('the house agents, the coin flipper included, only play the markets in aiMarkets', () => {
+  const ai = { results: new Map() };
+  const off = planTick(snap(6060), cfg({ ai, aiMarkets: ['ETH/USD'] }));
+  assert.deepEqual(bets(off), [], 'a market outside the list gets no house bet');
+  assert.deepEqual(off.aiRequests, []);
+  const on = planTick(snap(6060), cfg({ ai, aiMarkets: ['BTC/USD'] }));
+  assert.ok(bets(on).some((b) => b.agent === 'coin-flipper'), 'a market in the list is played');
+});

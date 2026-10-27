@@ -258,10 +258,10 @@ export function planTick(snap, cfg, decided = new Set()) {
         return !!p && p.up + p.down > 0;
       };
       const finished = (key) => hasPosition(agentByKey[key]) || decided.has(decisionId(m, k, key));
-      // The AI agents play the markets in cfg.aiMarkets (the free AI allowance and the gas budget are small); the coin flipper plays all.
+      // The house agents (the three AI agents and the coin flipper) play the markets in cfg.aiMarkets (the free AI allowance and the gas budget are small).
       // On any other market the contrarian only answers money that is not the house agents' own, i.e. a real person's call.
       const aiOn = !cfg.ai || aiHere(m, cfg);
-      const early = EARLY.filter((key) => aiOn || !AI_AGENTS.includes(key));
+      const early = aiOn ? EARLY : [];
       const lateHere = aiOn || realMoney(m, k, snap.agents) > 0;
 
       if (now >= opensAt(m, k) + cfg.earlyDelay && now < lockK - cfg.earlyCutoff) {
