@@ -121,7 +121,7 @@ Kairo Markets lets people call the next 1-hour move of BTC, ETH and SOL, UP or D
 - Arc Studio turn costs measured: _none yet_.
 - Testnet addresses: _not deployed_. Mainnet addresses: _not deployed_.
 - Example mainnet transaction and explorer.arc.io link: _none yet_.
-- Live app link (Vercel): _none yet_. Video link: _none yet_.
+- Live app link: https://www.kairomarkets.xyz (also https://kairomarkets.vercel.app). Video link: _none yet_.
 
 ## Decisions made 2026-10-26 (owner)
 

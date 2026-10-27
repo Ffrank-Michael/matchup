@@ -37,8 +37,8 @@ export const wagmiConfig = createConfig({
             metadata: {
               name: "Kairo Markets",
               description: "Call the next round of BTC, ETH and SOL: UP or DOWN, with USDC on Arc.",
-              url: typeof window !== "undefined" ? window.location.origin : "https://kairo.markets",
-              icons: [typeof window !== "undefined" ? `${window.location.origin}/favicon.svg` : "https://kairo.markets/favicon.svg"],
+              url: typeof window !== "undefined" ? window.location.origin : "https://www.kairomarkets.xyz",
+              icons: [typeof window !== "undefined" ? `${window.location.origin}/favicon.svg` : "https://www.kairomarkets.xyz/favicon.svg"],
             },
           }),
         ]

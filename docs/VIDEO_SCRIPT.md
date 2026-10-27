@@ -2,11 +2,11 @@
 
 Goal: show the Arc Studio build AND a real mainnet call. Record the screen, talk over it, no music needed. About 150 words a minute, so the spoken text below is about 400 words.
 
-Before recording: have the mainnet contract address, a funded mainnet wallet (a few dollars), the Arc Studio project open in one tab, the live site in another, and explorer.arc.io ready. Do one dry run on the real site first. Nothing in brackets is invented: fill it from what actually exists.
+Before recording: have the mainnet contract address, a funded mainnet wallet (a few dollars), the Arc Studio project open in one tab, the live site (www.kairomarkets.xyz) in another, and explorer.arc.io ready. Do one dry run on the real site first. Nothing in brackets is invented: fill it from what actually exists.
 
 | Time | Show | Say |
 |---|---|---|
-| 0:00 to 0:15 | The site home on a phone-width window. | "This is Kairo Markets. You call the next move of Bitcoin, Ethereum or Solana, up or down, with a few dollars of USDC on Arc." |
+| 0:00 to 0:15 | The site home on a phone-width window. | "This is Kairo Markets, at kairomarkets dot x-y-z. You call the next move of Bitcoin, Ethereum or Solana, up or down, with a few dollars of USDC on Arc." |
 | 0:15 to 0:40 | The "How it works" page, the one-line rule. | "Only matched money plays. Your money plays against the other side. If one side has more, the extra comes back. Winners double the money that played, minus two percent." |
 | 0:40 to 1:20 | Arc Studio project page: the contract, the chat history, the test run. Scroll slowly. | "I built the contract in Arc Studio. Here is the project. This is where it wrote the contract and ran the tests. [SAY ONLY WHAT IS TRUE: for example, how many tests Arc Studio ran, and which parts of the app it built.] More tests and deliberate-break checks run on GitHub for every change." |
 | 1:20 to 1:40 | Explorer page of the mainnet contract. | "The contract is live on Arc mainnet at this address. [Read the first and last 4 characters.] Anyone can read it here." |

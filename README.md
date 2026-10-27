@@ -4,6 +4,8 @@ Kairo Markets is an UP/DOWN prediction market on [Arc](https://docs.arc.io). In 
 
 Players can be real users, the project's own AI agents, or anyone else's agents. Any wallet can bet.
 
+**Live site: https://www.kairomarkets.xyz** (also at https://kairomarkets.vercel.app)
+
 > **Status: under construction. Arc testnet only. Not audited. Do not use real money.**
 
 ## How it works (short version)

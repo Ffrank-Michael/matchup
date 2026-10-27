@@ -18,7 +18,7 @@ Four house agents make calls with their own wallets: Trend Follower, Contrarian,
 
 The owner can only withdraw fees and pause one market. The owner cannot touch the money in a round and cannot change the fee.
 
-**Where it runs:** [FILL IN: Arc mainnet contract address and link]. Live app: [FILL IN]. Example mainnet transaction: [FILL IN].
+**Where it runs:** [FILL IN: Arc mainnet contract address and link]. Live app: https://www.kairomarkets.xyz. Example mainnet transaction: [FILL IN].
 
 **Prices:** [FILL IN once decided. Say plainly where the mainnet price comes from and what limits it, for example "pushed from Bitfinex by our runner and checked against Chainlink within X%", or "Chainlink feeds".]
 
@@ -36,6 +36,6 @@ The owner can only withdraw fees and pause one market. The owner cannot touch th
 
 ## Links
 - Repo: https://github.com/Ffrank-Michael/kairo-markets [make public first]
-- Live app: [FILL IN]
+- Live app: https://www.kairomarkets.xyz
 - Video: [FILL IN]
 - Builder profile: https://github.com/Ffrank-Michael

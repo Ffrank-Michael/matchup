@@ -15,7 +15,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   // Link previews (og:image / twitter:image from app/opengraph-image.png and app/twitter-image.png) need an absolute address.
-  metadataBase: new URL(process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000"),
+  // The public address is www.kairomarkets.xyz; kairomarkets.vercel.app serves the same site, so the previews always point at the public one.
+  metadataBase: new URL(process.env.VERCEL_PROJECT_PRODUCTION_URL ? "https://www.kairomarkets.xyz" : "http://localhost:3000"),
   title: "Kairo Markets",
   icons: {
     icon: [
