@@ -14,13 +14,13 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: House agent logic tests
-        run: node --test agents/agents.test.mjs
+        run: node --test agents/agents.test.mjs agents/ai.test.mjs
 
       - name: Round runner logic tests
-        run: node --test runner/runner.test.mjs runner/exchangePrices.test.mjs runner/priceLog.test.mjs
+        run: node --test runner/runner.test.mjs runner/exchangePrices.test.mjs runner/priceLog.test.mjs runner/ai.test.mjs runner/candles.test.mjs runner/supervise.test.mjs
 
       - name: Deploy script market lists and guard check
-        run: node --test scripts/markets.test.mjs scripts/sync-web-deployment.test.mjs
+        run: node --test scripts/markets.test.mjs scripts/sync-web-deployment.test.mjs scripts/lib.test.mjs scripts/runnerKey.test.mjs
 
       - name: Which Arc network flag does this forge have?
         shell: bash

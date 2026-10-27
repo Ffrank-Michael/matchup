@@ -280,6 +280,38 @@ test('createAi: the daily limit stops new calls', async () => {
   fs.rmSync(dir, { recursive: true });
 });
 
+test('createAi: retries count toward the daily limit, and the limit also stops a retry', async () => {
+  const dir = tmp(); const lines = []; const retried = [];
+  // a call that retries twice (3 requests in all) before it answers, as askGemini does through beforeRetry
+  const askFn = async (o) => { retried.push(o.beforeRetry(), o.beforeRetry()); return { ...good, attempts: 3 }; };
+  const ai = createAi({ env: { GEMINI_API_KEY: 'k', GEMINI_MAX_CALLS_PER_DAY: '4', GEMINI_MAX_PER_MINUTE: '99' }, live: true, log: (m) => lines.push(m), askFn, file: path.join(dir, 'l.jsonl') });
+  ai.request({ ...REQ, id: 'a' }); await settle();
+  assert.deepEqual(retried, [true, true]);
+  assert.match(ai.summary(), /3 calls/);       // the first try and both retries
+  ai.request({ ...REQ, id: 'b' }); await settle();
+  assert.deepEqual(retried, [true, true, false, false]); // 'b' is the 4th request (allowed); both its retries would be the 5th and 6th: refused, the limit of 4 holds
+  assert.match(ai.summary(), /4 calls/);
+  ai.request({ ...REQ, id: 'c' });
+  assert.equal(ai.results.get('c').error, 'daily limit reached');
+  fs.rmSync(dir, { recursive: true });
+});
+
+test('createAi: retries count toward the per-minute limit too', async () => {
+  const dir = tmp(); const answers = [];
+  const ai = createAi({ env: { GEMINI_API_KEY: 'k', GEMINI_MAX_PER_MINUTE: '2' }, live: true, askFn: async (o) => { answers.push(o.beforeRetry(), o.beforeRetry()); return good; }, file: path.join(dir, 'l.jsonl') });
+  ai.request({ ...REQ, id: 'm1' }); await settle();
+  assert.deepEqual(answers, [true, false]); // the first try and one retry fill the 2 a minute
+  fs.rmSync(dir, { recursive: true });
+});
+
+test('createAi: the deadline is one minute before the first frame locks', async () => {
+  const dir = tmp(); let seen; const t0 = 1_790_000_000_000;
+  const ai = createAi({ env: { GEMINI_API_KEY: 'k' }, live: true, now: () => t0, askFn: async (o) => { seen = o; return good; }, file: path.join(dir, 'l.jsonl') });
+  ai.request(REQ); await settle(); // frames lock in 290 s and 590 s
+  assert.equal(seen.deadline, t0 + 230_000);
+  fs.rmSync(dir, { recursive: true });
+});
+
 test('createAi: more calls than the per-minute limit are skipped, not queued', async () => {
   const dir = tmp(); let calls = 0;
   const ai = createAi({ env: { GEMINI_API_KEY: 'k', GEMINI_MAX_PER_MINUTE: '2' }, live: true, askFn: async () => { calls++; return good; }, file: path.join(dir, 'l.jsonl') });

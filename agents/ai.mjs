@@ -140,19 +140,32 @@ export function batchSchema(labels) {
 
 // Models that refused the thinking setting: remembered, so the next calls do not waste a request (and a second of waiting) on it.
 const noThinking = new Set();
+const MIN_TRY_MS = 2_000; // a try needs at least this long to be worth starting
 
 /**
- * One Gemini call, with one quick retry on a timeout, a network error, HTTP 429 or a server error.
+ * One Gemini call, with up to 3 tries. Each try has a short limit (timeoutMs, 8 s) so the worst case (8 + 1 + 8 + 1 + 8 = 26 s) is no
+ * longer than two 12 s tries were, and the last try still lands long before the round locks. A timeout, a network error or a server
+ * error is tried again (up to 3 tries); HTTP 429 only once more (a third request into a quota wall helps nobody).
+ * `beforeRetry()` is asked before every try after the first: false stops the call (the runner counts each retry toward its daily and
+ * per-minute limits there). `deadline` (ms since 1970) is when the answer is too late to be useful: no try starts that could not
+ * finish before it, and no try may run past it.
  * `schema` is the answer's shape and `parse(text)` turns the answer's text into a value (or null when it is not what was asked for).
  * Returns { ok: true, value, tokensIn, tokensOut, latencyMs, attempts } or { ok: false, error, latencyMs, attempts }.
  * Error texts are fixed short phrases: they never contain the key or the web address.
  */
-export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, schema, parse, maxOutputTokens = 1500, fetchFn = fetch, timeoutMs = 12_000, retryDelayMs = 1500, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, schema, parse, maxOutputTokens = 1500, fetchFn = fetch, timeoutMs = 8_000, retryDelayMs = 1_000, maxAttempts = 3, deadline = Infinity, beforeRetry = () => true, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   const started = Date.now();
+  if (!Number.isFinite(deadline)) deadline = Infinity;
   let useThinkingOff = !noThinking.has(model);
   let lastError = 'no answer';
   let attempts = 0;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  /** Waits, then says whether another try may start: tries left, time left before the deadline, and the runner's own limits. */
+  const mayRetry = async (attempt) => {
+    if (attempt >= maxAttempts || Date.now() + retryDelayMs + MIN_TRY_MS > deadline) return false;
+    await sleep(retryDelayMs);
+    return beforeRetry() !== false;
+  };
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     attempts = attempt;
     const body = {
       systemInstruction: { parts: [{ text: system }] },
@@ -171,17 +184,21 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(Math.min(timeoutMs, Math.max(MIN_TRY_MS, deadline - Date.now()))),
       });
     } catch (e) {
       lastError = e?.name === 'TimeoutError' || e?.name === 'AbortError' ? 'timed out' : 'network error';
-      if (attempt === 1) { await sleep(retryDelayMs); continue; }
+      if (await mayRetry(attempt)) continue;
       break;
     }
     if (!res.ok) {
       lastError = `HTTP ${res.status}`;
-      if (res.status === 400 && useThinkingOff) { useThinkingOff = false; noThinking.add(model); continue; } // some models refuse the thinking setting (and say so vaguely): once more without it
-      if ((res.status === 429 || res.status >= 500) && attempt === 1) { await sleep(retryDelayMs); continue; }
+      if (res.status === 400 && useThinkingOff) { // some models refuse the thinking setting (and say so vaguely): once more without it
+        useThinkingOff = false; noThinking.add(model);
+        if (attempt < maxAttempts && beforeRetry() !== false) continue;
+        break;
+      }
+      if ((res.status >= 500 || (res.status === 429 && attempt === 1)) && await mayRetry(attempt)) continue;
       break;
     }
     let data;

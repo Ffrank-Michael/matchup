@@ -12,9 +12,9 @@
     "viem": "2.57.2"
   },
   "scripts": {
-    "test:agents": "node --test agents/agents.test.mjs",
-    "test:runner": "node --test runner/runner.test.mjs runner/exchangePrices.test.mjs runner/priceLog.test.mjs",
-    "test:scripts": "node --test scripts/markets.test.mjs scripts/sync-web-deployment.test.mjs scripts/lib.test.mjs",
+    "test:agents": "node --test agents/agents.test.mjs agents/ai.test.mjs",
+    "test:runner": "node --test runner/runner.test.mjs runner/exchangePrices.test.mjs runner/priceLog.test.mjs runner/ai.test.mjs runner/candles.test.mjs runner/supervise.test.mjs",
+    "test:scripts": "node --test scripts/markets.test.mjs scripts/sync-web-deployment.test.mjs scripts/lib.test.mjs scripts/runnerKey.test.mjs",
     "simulate": "node runner/simulate.mjs --hours 4"
   }
 }

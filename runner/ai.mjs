@@ -48,13 +48,28 @@ export function createAi({ env = process.env, live = false, log = () => {}, askF
 
   const fail = (id, error) => results.set(id, { ok: false, error, at: now() });
 
+  /** Asked before every retry of a call. A retry is a real request to Gemini, so it counts toward the daily and the per-minute limit like a first try; at either limit the call stops. */
+  function allowRetry() {
+    rollDay();
+    if (day.started >= dailyCap) return false;
+    const t = now();
+    while (recent.length && recent[0] < t - 60_000) recent.shift();
+    if (recent.length >= perMinute) return false;
+    recent.push(t);
+    day.started++;
+    return true;
+  }
+
   async function run(req, prepare) {
     const labels = req.frames.map((f) => f.label);
     const longest = Math.max(...req.frames.map((f) => f.roundSeconds));
     const candles = (prepare ? await prepare(req) : req.candles).slice(-candlesFor(longest));
     const { system, user } = buildBatchPrompt({ coin: req.coin, candles, frames: req.frames });
+    // An answer is useless once the early agents' time is over: one minute before the first frame locks (earlyCutoff in config.mjs).
+    const nextLock = Math.min(...req.frames.map((f) => f.secondsToLock));
+    const deadline = now() + Math.max(0, nextLock - 60) * 1000;
     const out = await askFn({
-      apiKey, model, system, user,
+      apiKey, model, system, user, deadline, beforeRetry: allowRetry,
       schema: batchSchema(labels),
       parse: (text) => parseBatch(text, labels),
       maxOutputTokens: 400 + 260 * labels.length,

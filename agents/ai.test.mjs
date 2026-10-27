@@ -117,12 +117,52 @@ test('an answer that is not the required JSON fails without a retry', async () =
   assert.deepEqual([out.ok, out.error, calls], [false, 'answer was not the required JSON', 1]);
 });
 
-test('a timeout is tried once more, then fails', async () => {
+const timeout = Object.assign(new Error('x'), { name: 'TimeoutError' });
+
+test('a timeout is tried up to three times, then fails', async () => {
   let calls = 0;
-  const timeout = Object.assign(new Error('x'), { name: 'TimeoutError' });
   const out = await ask(async () => { calls++; throw timeout; });
-  assert.equal(calls, 2);
-  assert.deepEqual([out.ok, out.error, out.attempts], [false, 'timed out', 2]);
+  assert.equal(calls, 3);
+  assert.deepEqual([out.ok, out.error, out.attempts], [false, 'timed out', 3]);
+});
+
+test('two timeouts and then an answer: the third try works', async () => {
+  const answers = [timeout, timeout, reply(GOOD)];
+  const out = await ask(async () => { const a = answers.shift(); if (a instanceof Error) throw a; return a; });
+  assert.deepEqual([out.ok, out.attempts], [true, 3]);
+});
+
+test('each try has a short limit of its own (8 s by default) and the waits between tries are short', async () => {
+  const waits = []; const signals = [];
+  await ask(async (_u, init) => { signals.push(init.signal); throw timeout; }, { retryDelayMs: 1000, sleep: async (ms) => { waits.push(ms); } });
+  assert.deepEqual(waits, [1000, 1000]);
+  assert.equal(signals.length, 3);
+  assert.ok(signals.every((x) => x instanceof AbortSignal));
+});
+
+test('429 is tried once more, not twice', async () => {
+  let calls = 0;
+  const out = await ask(async () => { calls++; return fail(429); });
+  assert.deepEqual([out.error, calls, out.attempts], ['HTTP 429', 2, 2]);
+});
+
+test('beforeRetry is asked before every retry, and a no stops the call', async () => {
+  const asked = []; let calls = 0;
+  const out = await ask(async () => { calls++; throw timeout; }, { beforeRetry: () => { asked.push(calls); return asked.length < 2; } });
+  assert.deepEqual(asked, [1, 2]);
+  assert.deepEqual([calls, out.attempts, out.error], [2, 2, 'timed out']);
+});
+
+test('a deadline that leaves no time for another try stops the retries', async () => {
+  let calls = 0;
+  const out = await ask(async () => { calls++; throw timeout; }, { deadline: Date.now() + 1500 });
+  assert.deepEqual([calls, out.attempts], [1, 1]);
+  calls = 0;
+  const far = await ask(async () => { calls++; throw timeout; }, { deadline: Date.now() + 60_000 });
+  assert.deepEqual([calls, far.attempts], [3, 3]);
+  calls = 0;
+  const bad = await ask(async () => { calls++; throw timeout; }, { deadline: NaN });
+  assert.equal(calls, 3, 'a deadline that is not a number is ignored');
 });
 
 test('429 then success: the retry works', async () => {
@@ -132,10 +172,10 @@ test('429 then success: the retry works', async () => {
   assert.equal(out.attempts, 2);
 });
 
-test('server errors twice in a row fail with a short phrase that has no key in it', async () => {
+test('server errors three times in a row fail with a short phrase that has no key in it', async () => {
   let calls = 0;
   const out = await ask(async () => { calls++; return fail(503, `secret details ${KEY}`); });
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
   assert.equal(out.error, 'HTTP 503');
   assert.ok(!JSON.stringify(out).includes(KEY));
 });
