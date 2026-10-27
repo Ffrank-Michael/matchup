@@ -132,7 +132,7 @@ test('two timeouts and then an answer: the third try works', async () => {
   assert.deepEqual([out.ok, out.attempts], [true, 3]);
 });
 
-test('each try has a short limit of its own (8 s by default) and the waits between tries are short', async () => {
+test('each try has its own abort limit and the waits between tries are short', async () => {
   const waits = []; const signals = [];
   await ask(async (_u, init) => { signals.push(init.signal); throw timeout; }, { retryDelayMs: 1000, sleep: async (ms) => { waits.push(ms); } });
   assert.deepEqual(waits, [1000, 1000]);
@@ -206,4 +206,59 @@ test('the key never shows up in any error text, whatever goes wrong', async () =
   const out = await ask(async () => { throw boom; });
   assert.equal(out.error, 'network error');
   assert.ok(!JSON.stringify(out).includes(KEY));
+});
+
+const modelOf = (url) => decodeURIComponent(url.match(/models\/([^:]+):generateContent/)[1]);
+
+test('the first try asks the main model, the second and third try the fallback model', async () => {
+  const seen = [];
+  const out = await ask(async (url) => { seen.push(modelOf(url)); throw timeout; }, { model: 'main-m', fallbackModel: 'backup-m' });
+  assert.deepEqual(seen, ['main-m', 'backup-m', 'backup-m']);
+  assert.deepEqual([out.ok, out.attempts, out.model], [false, 3, 'backup-m']);
+});
+
+test('an answer from the fallback model says which model answered', async () => {
+  const seen = [];
+  const answers = [timeout, reply(GOOD)];
+  const out = await ask(async (url) => { seen.push(modelOf(url)); const a = answers.shift(); if (a instanceof Error) throw a; return a; }, { model: 'main-m', fallbackModel: 'backup-m' });
+  assert.deepEqual(seen, ['main-m', 'backup-m']);
+  assert.deepEqual([out.ok, out.attempts, out.model], [true, 2, 'backup-m']);
+  const first = await ask(async () => reply(GOOD), { model: 'main-m', fallbackModel: 'backup-m' });
+  assert.equal(first.model, 'main-m');
+});
+
+test('without a fallback model every try asks the main model', async () => {
+  const seen = [];
+  await ask(async (url) => { seen.push(modelOf(url)); throw timeout; }, { model: 'main-m' });
+  assert.deepEqual(seen, ['main-m', 'main-m', 'main-m']);
+});
+
+test('a 400 about the thinking setting is asked again on the same model, not the fallback', async () => {
+  const seen = []; const answers = [fail(400, 'invalid argument'), reply(GOOD)];
+  const out = await ask(async (url) => { seen.push(modelOf(url)); return answers.shift(); }, { model: 'main-c', fallbackModel: 'backup-c' });
+  assert.deepEqual(seen, ['main-c', 'main-c']);
+  assert.deepEqual([out.ok, out.model], [true, 'main-c']);
+});
+
+test('every try on the fallback model is still counted: beforeRetry is asked before the second and the third', async () => {
+  let asked = 0;
+  await ask(async () => { throw timeout; }, { model: 'main-m', fallbackModel: 'backup-m', beforeRetry: () => { asked++; return true; } });
+  assert.equal(asked, 2);
+});
+
+test('the first try waits up to timeoutMs, the second and third only up to fallbackTimeoutMs', async () => {
+  const took = [];
+  // a network that never answers until the try is aborted by its own limit
+  const hang = (_url, init) => new Promise((_res, rej) => { const t = Date.now(); init.signal.addEventListener('abort', () => { took.push(Date.now() - t); rej(init.signal.reason); }); });
+  const out = await ask(hang, { timeoutMs: 120, fallbackTimeoutMs: 20, model: 'm1', fallbackModel: 'm2' });
+  assert.equal(out.error, 'timed out');
+  assert.equal(took.length, 3);
+  assert.ok(took[0] >= 100, 'first try ' + took[0]);
+  assert.ok(took[1] < 90 && took[2] < 90, 'later tries ' + took.slice(1));
+});
+
+test('the main model that is known to refuse the thinking setting is asked without it from the first try', async () => {
+  let body;
+  await ask(async (_u, init) => { body = JSON.parse(init.body); return reply(GOOD); }, { model: 'gemini-3.5-flash-lite' });
+  assert.equal(body.generationConfig.thinkingConfig, undefined);
 });

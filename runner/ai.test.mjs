@@ -379,3 +379,33 @@ test('notes: with no Upstash settings only the local file is written', async () 
   assert.equal(notes.remote, false);
   fs.rmSync(dir, { recursive: true });
 });
+
+test('createAi: the second model comes from GEMINI_FALLBACK_MODEL, the first from GEMINI_MODEL, and the log names the model that answered', async () => {
+  const dir = tmp(); const file = path.join(dir, 'l.jsonl'); let seen;
+  const ai = createAi({ env: { GEMINI_API_KEY: 'k', GEMINI_MODEL: 'main-x', GEMINI_FALLBACK_MODEL: 'backup-x' }, live: true, askFn: async (o) => { seen = o; return { ...good, attempts: 2, model: 'backup-x' }; }, file });
+  ai.request(REQ); await settle();
+  assert.deepEqual([seen.model, seen.fallbackModel], ['main-x', 'backup-x']);
+  assert.equal(ai.model, 'main-x');
+  const row = JSON.parse(fs.readFileSync(file, 'utf8').trim());
+  assert.deepEqual([row.model, row.attempts], ['backup-x', 2]);
+  assert.equal(ai.results.get(BATCH).model, 'backup-x');
+  fs.rmSync(dir, { recursive: true });
+});
+
+test('createAi: with nothing set in .env the built-in main and fallback models are used, and they differ', async () => {
+  const dir = tmp(); let seen;
+  const ai = createAi({ env: { GEMINI_API_KEY: 'k' }, live: true, askFn: async (o) => { seen = o; return good; }, file: path.join(dir, 'l.jsonl') });
+  ai.request(REQ); await settle();
+  assert.ok(seen.model && seen.fallbackModel && seen.model !== seen.fallbackModel);
+  fs.rmSync(dir, { recursive: true });
+});
+
+test('createAi: the try limits come from GEMINI_TIMEOUT_SECONDS and GEMINI_FALLBACK_TIMEOUT_SECONDS (16 s and 8 s by default)', async () => {
+  const dir = tmp(); const seen = [];
+  const mk = (env) => createAi({ env: { GEMINI_API_KEY: 'k', GEMINI_MAX_PER_MINUTE: '99', ...env }, live: true, askFn: async (o) => { seen.push([o.timeoutMs, o.fallbackTimeoutMs]); return good; }, file: path.join(dir, 'l.jsonl') });
+  mk({}).request({ ...REQ, id: 'd1' });
+  mk({ GEMINI_TIMEOUT_SECONDS: '20', GEMINI_FALLBACK_TIMEOUT_SECONDS: '5' }).request({ ...REQ, id: 'd2' });
+  await settle();
+  assert.deepEqual(seen, [[16000, 8000], [20000, 5000]]);
+  fs.rmSync(dir, { recursive: true });
+});

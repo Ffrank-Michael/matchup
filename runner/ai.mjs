@@ -11,7 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT } from '../scripts/lib.mjs';
-import { AI_AGENTS, askGemini, batchSchema, buildBatchPrompt, candlesFor, costUsd, DEFAULT_MODEL, parseBatch } from '../agents/ai.mjs';
+import { AI_AGENTS, askGemini, batchSchema, buildBatchPrompt, candlesFor, costUsd, DEFAULT_FALLBACK_MODEL, DEFAULT_MODEL, parseBatch } from '../agents/ai.mjs';
 
 export const AI_LOG_FILE = path.join(ROOT, 'data', 'ai-log.jsonl');
 const KEEP_MS = 15 * 60_000; // answers are kept this long
@@ -21,6 +21,10 @@ const numOr = (v, d) => (v !== undefined && v !== '' && Number.isFinite(Number(v
 export function createAi({ env = process.env, live = false, log = () => {}, askFn = askGemini, file = AI_LOG_FILE, now = () => Date.now() } = {}) {
   const apiKey = env.GEMINI_API_KEY || '';
   const model = env.GEMINI_MODEL || DEFAULT_MODEL;
+  // The second and third try of a call go to this model, so one slow or overloaded model does not use up all three tries.
+  const fallbackModel = env.GEMINI_FALLBACK_MODEL || DEFAULT_FALLBACK_MODEL;
+  const timeoutMs = Math.max(1, numOr(env.GEMINI_TIMEOUT_SECONDS, 16)) * 1000;               // the first try
+  const fallbackTimeoutMs = Math.max(1, numOr(env.GEMINI_FALLBACK_TIMEOUT_SECONDS, 8)) * 1000; // the second and third try
   // Paid-tier equivalent per million tokens. The free tier bills nothing; these numbers only say what the same calls would cost. Check ai.google.dev/pricing.
   const price = { inPerM: numOr(env.GEMINI_PRICE_IN_PER_M, 0.30), outPerM: numOr(env.GEMINI_PRICE_OUT_PER_M, 2.50) };
   const dailyCap = numOr(env.GEMINI_MAX_CALLS_PER_DAY, 1200);
@@ -69,13 +73,13 @@ export function createAi({ env = process.env, live = false, log = () => {}, askF
     const nextLock = Math.min(...req.frames.map((f) => f.secondsToLock));
     const deadline = now() + Math.max(0, nextLock - 60) * 1000;
     const out = await askFn({
-      apiKey, model, system, user, deadline, beforeRetry: allowRetry,
+      apiKey, model, fallbackModel, timeoutMs, fallbackTimeoutMs, system, user, deadline, beforeRetry: allowRetry,
       schema: batchSchema(labels),
       parse: (text) => parseBatch(text, labels),
       maxOutputTokens: 400 + 260 * labels.length,
     });
     rollDay();
-    const base = { t: new Date(now()).toISOString(), coin: req.coin, frames: labels, candles: candles.length, model, latencyMs: out.latencyMs, attempts: out.attempts };
+    const base = { t: new Date(now()).toISOString(), coin: req.coin, frames: labels, candles: candles.length, model: out.model ?? model, latencyMs: out.latencyMs, attempts: out.attempts };
     if (!out.ok) {
       if (out.error === 'HTTP 429') {
         pausedUntil = now() + QUOTA_PAUSE_MS;
@@ -99,8 +103,8 @@ export function createAi({ env = process.env, live = false, log = () => {}, askF
       }
     }
     write({ ...base, ok: true, tokensIn: out.tokensIn, tokensOut: out.tokensOut, costUsd: Number(cost.toFixed(6)), decisions: labels.length * AI_AGENTS.length - missing });
-    log(`AI ${req.coin} ${labels.join('+')}: ${lines.length} decisions (${model}, ${candles.length} candles, ${out.tokensIn} in / ${out.tokensOut} out tokens, about $${cost.toFixed(5)} at paid prices, ${out.latencyMs} ms${missing ? `, ${missing} missing` : ''})\n${lines.join('\n')}`);
-    results.set(req.id, { ok: true, decisions, model, at: now() });
+    log(`AI ${req.coin} ${labels.join('+')}: ${lines.length} decisions (${base.model}, ${candles.length} candles, ${out.tokensIn} in / ${out.tokensOut} out tokens, about $${cost.toFixed(5)} at paid prices, ${out.latencyMs} ms${missing ? `, ${missing} missing` : ''})\n${lines.join('\n')}`);
+    results.set(req.id, { ok: true, decisions, model: base.model, at: now() });
   }
 
   return {

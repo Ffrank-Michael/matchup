@@ -9,7 +9,12 @@ export const MIN_CANDLES = 10;     // fewer than this is a data outage: the agen
 export const MIN_SENT = 30;        // at least this many one-minute candles go to the model
 export const MAX_SENT = 120;       // ... and never more than this (a 1-hour round gets 120)
 export const MAX_REASON = 140;     // characters kept of a reason
-export const DEFAULT_MODEL = 'gemini-3.5-flash-lite'; // fast and cheap; 'gemini-flash-latest' timed out on our key
+// Measured on our key (27 Oct 2026, real calls with the runner's own prompt): gemini-3.5-flash-lite answers 8 of 10 calls but takes 1 to 22 s
+// (the same request, run again: Google's queue, not the model's thinking); gemini-3.1-flash-lite answers in 2 to 6 s when it answers but
+// returns HTTP 503 about half the time. gemini-3.5-flash is fast but its free tier allows 20 calls a day; gemini-2.5-* answer 404; gemma and
+// gemini-flash-latest do not work. So: the reliable one first, with a longer first try, and the quick one for the second and third try.
+export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
+export const DEFAULT_FALLBACK_MODEL = 'gemini-3.1-flash-lite';
 export const COULDNT_DECIDE = "Couldn't decide this round";
 
 // JSON keys the model uses for the three agents
@@ -139,26 +144,31 @@ export function batchSchema(labels) {
 }
 
 // Models that refused the thinking setting: remembered, so the next calls do not waste a request (and a second of waiting) on it.
-const noThinking = new Set();
+// gemini-3.5-flash-lite is known to answer 400 to the thinking-off setting (seen on our key), so it starts here and no try is wasted on it.
+const noThinking = new Set(['gemini-3.5-flash-lite']);
 const MIN_TRY_MS = 2_000; // a try needs at least this long to be worth starting
 
 /**
- * One Gemini call, with up to 3 tries. Each try has a short limit (timeoutMs, 8 s) so the worst case (8 + 1 + 8 + 1 + 8 = 26 s) is no
- * longer than two 12 s tries were, and the last try still lands long before the round locks. A timeout, a network error or a server
+ * One Gemini call, with up to 3 tries. The first try has timeoutMs (16 s: our main model answers up to about 15 s), the second and third
+ * fallbackTimeoutMs (8 s each), so the worst case is 16 + 1 + 8 + 1 + 8 = 34 s and the last try still lands long before the round locks. A timeout, a network error or a server
  * error is tried again (up to 3 tries); HTTP 429 only once more (a third request into a quota wall helps nobody).
+ * The first try uses `model`; the second and third use `fallbackModel` (when one is given): a model that is slow or down at the
+ * moment is not asked three times in a row. (After a 400 about the thinking setting the same model is asked again without it.)
  * `beforeRetry()` is asked before every try after the first: false stops the call (the runner counts each retry toward its daily and
  * per-minute limits there). `deadline` (ms since 1970) is when the answer is too late to be useful: no try starts that could not
  * finish before it, and no try may run past it.
  * `schema` is the answer's shape and `parse(text)` turns the answer's text into a value (or null when it is not what was asked for).
- * Returns { ok: true, value, tokensIn, tokensOut, latencyMs, attempts } or { ok: false, error, latencyMs, attempts }.
+ * Returns { ok: true, value, tokensIn, tokensOut, latencyMs, attempts, model } or { ok: false, error, latencyMs, attempts, model }
+ * (model: the one that answered, or the last one tried).
  * Error texts are fixed short phrases: they never contain the key or the web address.
  */
-export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, schema, parse, maxOutputTokens = 1500, fetchFn = fetch, timeoutMs = 8_000, retryDelayMs = 1_000, maxAttempts = 3, deadline = Infinity, beforeRetry = () => true, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, schema, parse, maxOutputTokens = 1500, fetchFn = fetch, timeoutMs = 16_000, fallbackTimeoutMs = 8_000, retryDelayMs = 1_000, maxAttempts = 3, fallbackModel = null, deadline = Infinity, beforeRetry = () => true, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   const started = Date.now();
   if (!Number.isFinite(deadline)) deadline = Infinity;
-  let useThinkingOff = !noThinking.has(model);
   let lastError = 'no answer';
   let attempts = 0;
+  let usedModel = model;
+  let sameModelAgain = false; // after a 400 about the thinking setting: the next try is the same model, without that setting
   /** Waits, then says whether another try may start: tries left, time left before the deadline, and the runner's own limits. */
   const mayRetry = async (attempt) => {
     if (attempt >= maxAttempts || Date.now() + retryDelayMs + MIN_TRY_MS > deadline) return false;
@@ -167,6 +177,11 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
   };
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     attempts = attempt;
+    const m = attempt === 1 || sameModelAgain || !fallbackModel ? usedModel : fallbackModel;
+    const firstKind = attempt === 1 || sameModelAgain; // the first try, or the same try again without the thinking setting: the longer limit
+    usedModel = m;
+    sameModelAgain = false;
+    const useThinkingOff = !noThinking.has(m);
     const body = {
       systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: 'user', parts: [{ text: user }] }],
@@ -180,11 +195,11 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
     };
     let res;
     try {
-      res = await fetchFn(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      res = await fetchFn(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(Math.min(timeoutMs, Math.max(MIN_TRY_MS, deadline - Date.now()))),
+        signal: AbortSignal.timeout(Math.min(firstKind ? timeoutMs : fallbackTimeoutMs, Math.max(MIN_TRY_MS, deadline - Date.now()))),
       });
     } catch (e) {
       lastError = e?.name === 'TimeoutError' || e?.name === 'AbortError' ? 'timed out' : 'network error';
@@ -194,7 +209,7 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
     if (!res.ok) {
       lastError = `HTTP ${res.status}`;
       if (res.status === 400 && useThinkingOff) { // some models refuse the thinking setting (and say so vaguely): once more without it
-        useThinkingOff = false; noThinking.add(model);
+        noThinking.add(m); sameModelAgain = true;
         if (attempt < maxAttempts && beforeRetry() !== false) continue;
         break;
       }
@@ -211,8 +226,8 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
       ok: true, value,
       tokensIn: usage.promptTokenCount ?? 0,
       tokensOut: (usage.candidatesTokenCount ?? 0) + (usage.thoughtsTokenCount ?? 0),
-      latencyMs: Date.now() - started, attempts,
+      latencyMs: Date.now() - started, attempts, model: usedModel,
     };
   }
-  return { ok: false, error: lastError, latencyMs: Date.now() - started, attempts };
+  return { ok: false, error: lastError, latencyMs: Date.now() - started, attempts, model: usedModel };
 }
