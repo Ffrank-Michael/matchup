@@ -8,15 +8,20 @@ import { runnerKeyFor } from './runnerKey.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-export function loadEnv() {
+/** Reads KEY=value lines. A value wrapped in matching quotes ("..." or '...') loses them, so KEY="https://x" works like KEY=https://x. */
+export function parseEnv(text) {
   const env = {};
-  const file = path.join(ROOT, '.env');
-  if (!fs.existsSync(file)) throw new Error('No .env file. Copy .env.example to .env first.');
-  for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+  for (const line of text.split(/\r?\n/)) {
     const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
-    if (m) env[m[1]] = m[2];
+    if (m) env[m[1]] = m[2].replace(/^(["'])(.*)\1$/, '$2');
   }
   return env;
+}
+
+export function loadEnv() {
+  const file = path.join(ROOT, '.env');
+  if (!fs.existsSync(file)) throw new Error('No .env file. Copy .env.example to .env first.');
+  return parseEnv(fs.readFileSync(file, 'utf8'));
 }
 
 // The two Arc networks. Everything defaults to testnet; mainnet (real USDC) is only used when a script asks for it by name.

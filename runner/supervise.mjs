@@ -3,6 +3,7 @@
 // "Kairo runner stopped (exit 1), restarting in 15 s".
 //
 //   node runner/supervise.mjs                 supervise the testnet runner (output goes to data/runner.log)
+//   node runner/supervise.mjs --journal       the same, but everything goes to stdout (a systemd service: read it with journalctl)
 //
 // The ntfy topic is read from NTFY_TOPIC in .env (you choose it; anyone who knows the topic name can read it, so pick a long
 // random one). With no topic the supervisor still restarts the runner and only logs.
@@ -49,20 +50,21 @@ async function main() {
   const topic = readTopic(root);
   fs.mkdirSync(path.join(root, 'data'), { recursive: true });
   const logFile = path.join(root, 'data', 'runner.log');
-  const say = (m) => { const line = `${new Date().toISOString().slice(11, 19)}  [supervisor] ${m}\n`; fs.appendFileSync(logFile, line); process.stdout.write(line); };
+  const journal = process.argv.includes('--journal'); // under systemd stdout is the log (journald adds the dates), so no file
+  const say = (m) => { const line = `${new Date().toISOString().slice(11, 19)}  [supervisor] ${m}\n`; if (!journal) fs.appendFileSync(logFile, line); process.stdout.write(line); };
   say(`started; alerts ${topic ? 'on (ntfy)' : 'OFF: add NTFY_TOPIC to .env'}`);
   const stops = [];
   for (;;) {
-    const out = fs.openSync(logFile, 'a');
+    const out = journal ? 'inherit' : fs.openSync(logFile, 'a');
     const child = spawn(process.execPath, ['runner/run.mjs', '--live'], { cwd: root, stdio: ['ignore', out, out] });
     say(`runner started (pid ${child.pid})`);
     const code = await new Promise((resolve) => { child.on('exit', (c, s) => resolve(c ?? s)); child.on('error', () => resolve('spawn error')); });
-    fs.closeSync(out);
+    if (!journal) fs.closeSync(out);
     const now = Math.floor(Date.now() / 1000);
     stops.push(now);
     const { seconds, loop } = restartDelay(stops, now);
     say(`runner stopped (${code}); restarting in ${seconds} s${loop ? ' (crash loop)' : ''}`);
-    await notify(topic, loop ? 'Kairo runner crash loop' : 'Kairo runner stopped', `The testnet runner stopped (${code}). Restarting in ${seconds} s${loop ? '; it keeps stopping, please look at data/runner.log' : ''}.`);
+    await notify(topic, loop ? 'Kairo runner crash loop' : 'Kairo runner stopped', `The testnet runner stopped (${code}). Restarting in ${seconds} s${loop ? `; it keeps stopping, please look at ${journal ? 'journalctl -u kairo-runner' : 'data/runner.log'}` : ''}.`);
     await new Promise((r) => setTimeout(r, seconds * 1000));
     await notify(topic, 'Kairo runner restarted', 'The testnet runner is running again.');
   }

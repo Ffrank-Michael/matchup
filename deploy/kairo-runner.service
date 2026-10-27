@@ -1,0 +1,47 @@
+# Kairo Markets round runner, supervised. Installed by deploy/setup-runner.sh into /etc/systemd/system/kairo-runner.service.
+# Ubuntu 24.04 on an Oracle Cloud free VM (1 GB RAM, x86_64), user "ubuntu", repo in /home/ubuntu/arc-arena.
+# No secrets in this file: the keys are in /home/ubuntu/arc-arena/.env (chmod 600), which the runner reads itself.
+#
+#   sudo systemctl start kairo-runner      start
+#   sudo systemctl status kairo-runner     is it running?
+#   journalctl -u kairo-runner -f          live log (Ctrl+C to leave it)
+
+[Unit]
+Description=Kairo Markets round runner
+After=network-online.target
+Wants=network-online.target
+# Never start without the settings file.
+ConditionPathExists=/home/ubuntu/arc-arena/.env
+# If the supervisor keeps dying: at most 5 starts in 10 minutes, then the unit stays failed and `systemctl status` says so.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/arc-arena
+# supervise.mjs restarts the runner by itself after a stop and sends the ntfy alert; --journal sends all output to journalctl.
+ExecStart=/usr/local/bin/node runner/supervise.mjs --journal
+# If the supervisor itself ever dies, systemd starts it again, 30 s later.
+Restart=always
+RestartSec=30
+# Stop everything (the supervisor and the runner it started) within 20 s.
+TimeoutStopSec=20
+KillMode=control-group
+
+# 1 GB machine: keep Node's own heap modest and stop the service before it can starve the whole VM.
+Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-old-space-size=384
+MemoryHigh=650M
+MemoryMax=800M
+
+# The runner only writes inside the repo's data/ folder (logs, price log, agent notes).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/arc-arena/data
+
+[Install]
+WantedBy=multi-user.target
