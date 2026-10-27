@@ -5,11 +5,11 @@
 
 export type AgentKey = "trend-follower" | "contrarian" | "chart-reader" | "coin-flipper";
 
-export const AGENTS: ReadonlyArray<{ key: AgentKey; number: number; name: string; short: string; tagline: string; colour: string; how: string; rule?: string }> = [
-  { key: "trend-follower", number: 1, name: "Trend Follower", short: "Trend", tagline: "Rides the trend", colour: "oklch(0.8 0.12 185)", how: "Calls the same way the last round went." },
-  { key: "contrarian", number: 2, name: "Contrarian", short: "Contrarian", tagline: "Fades the crowd", colour: "oklch(0.74 0.17 48)", how: "Calls against the side with more money on it." },
-  { key: "chart-reader", number: 3, name: "Chart Reader", short: "Chart", tagline: "Reads the chart", colour: "oklch(0.87 0.16 95)", how: "Reads 1-minute candles. Never skips: when the signals disagree it follows the last candle.", rule: "Reads 1-minute candles and calls every round. UP when the 5-candle average is above the 20-candle average and the last candle closed higher, DOWN for the opposite. When those two disagree it follows the last candle: UP if it closed higher, DOWN if lower, and the 5-candle trend if it closed exactly flat." },
-  { key: "coin-flipper", number: 4, name: "Coin Flipper", short: "Coin Flip", tagline: "Leaves it to luck", colour: "oklch(0.78 0.11 235)", how: "Picks UP or DOWN at random." },
+export const AGENTS: ReadonlyArray<{ key: AgentKey; number: number; name: string; short: string; tagline: string; colour: string; how: string; rule?: string; ai?: boolean }> = [
+  { key: "trend-follower", number: 1, name: "Trend Follower", short: "Trend", tagline: "Rides the trend", colour: "oklch(0.8 0.12 185)", how: "An AI that reads the last 30 candles and rides the trend.", ai: true, rule: "An AI model (Gemini) is shown the last 30 one-minute candles, the price and the money on each side. It believes in momentum: a price that has been moving one way tends to keep going. It answers UP or DOWN with one short sentence. If the AI does not answer in time, it skips the round." },
+  { key: "contrarian", number: 2, name: "Contrarian", short: "Contrarian", tagline: "Fades the crowd", colour: "oklch(0.74 0.17 48)", how: "An AI that fades the crowd and stretched moves.", ai: true, rule: "An AI model (Gemini) is shown the last 30 one-minute candles and where the money is. It fades the crowd: when a lot of money is on one side, or the price has run hard one way, it leans the other way. It goes last in each round. If one side has no money yet, the rules fix its call to that side and the AI explains why. If the AI does not answer in time, it skips the round." },
+  { key: "chart-reader", number: 3, name: "Chart Reader", short: "Chart", tagline: "Reads the chart", colour: "oklch(0.87 0.16 95)", how: "An AI that reads candle shapes and levels.", ai: true, rule: "An AI model (Gemini) is shown the last 30 one-minute candles. It reads candle shapes and levels: sizes, wicks, highs and lows, and how the short average sits against the longer one. It answers UP or DOWN with one short sentence. If the AI does not answer in time, it skips the round." },
+  { key: "coin-flipper", number: 4, name: "Coin Flipper", short: "Coin Flip", tagline: "Leaves it to luck", colour: "oklch(0.78 0.11 235)", how: "Picks UP or DOWN at random. The benchmark: can AI beat a coin flip?" },
 ];
 
 export type Agent = (typeof AGENTS)[number];
@@ -18,8 +18,10 @@ export type Agent = (typeof AGENTS)[number];
 export type AgentLive = {
   /** The agent's call for the round that is open now */
   call?: "UP" | "DOWN";
-  /** Its one-line reason for that call */
+  /** Its one-line reason for that call (an AI note, written by the model) */
   reason?: string;
+  /** The AI could not decide this round, so the agent skipped it */
+  skipped?: boolean;
   /** Share of finished rounds won, 0 to 1 */
   winRate?: number;
   /** Profit in USDC */

@@ -8,10 +8,10 @@ import { SYMBOLS } from './exchangePrices.mjs';
 const BASE = 'https://api-pub.bitfinex.com/v2/candles';
 const MINUTE_MS = 60_000;
 
-export function createCandles({ fetchFn = fetch, nowMs = Date.now, ttlMs = 30_000, count = 20 } = {}) {
+export function createCandles({ fetchFn = fetch, nowMs = Date.now, ttlMs = 30_000, count = 30 } = {}) {
   const cache = {}; // pair -> { at, candles }
 
-  /** The last `count` finished 1-minute candles of a coin ("BTC/USD"), oldest first: [{ time, open, close }]. */
+  /** The last `count` finished 1-minute candles of a coin ("BTC/USD"), oldest first: [{ time, open, close, high, low }]. */
   async function get(pair) {
     const hit = cache[pair];
     if (hit && nowMs() - hit.at < ttlMs) return hit.candles;
@@ -26,7 +26,7 @@ export function createCandles({ fetchFn = fetch, nowMs = Date.now, ttlMs = 30_00
       .filter((c) => Number.isFinite(c[0]) && c[0] + MINUTE_MS <= now && c[1] > 0 && c[2] > 0)
       .sort((a, b) => a[0] - b[0])
       .slice(-count)
-      .map((c) => ({ time: Math.floor(c[0] / 1000), open: c[1], close: c[2] }));
+      .map((c) => ({ time: Math.floor(c[0] / 1000), open: c[1], close: c[2], high: c[3], low: c[4] }));
     cache[pair] = { at: now, candles };
     return candles;
   }

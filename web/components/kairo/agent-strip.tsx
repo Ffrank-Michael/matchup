@@ -6,6 +6,7 @@ import { AGENTS, type AgentKey, type AgentLive } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 
 import { AgentAvatar } from "./agent-avatar";
+import { AgentReason } from "./agent-reason";
 import { CallPill } from "./call-pill";
 
 /**
@@ -68,9 +69,7 @@ export function AgentStrip({
           <div className="mt-3">
             <CallPill call={info?.call ?? null} />
           </div>
-          <p className="mt-2 text-[13px] italic leading-snug text-muted-foreground">
-            {info?.reason ? <>&ldquo;{info.reason}&rdquo;</> : <span className="not-italic">{agent.how}</span>}
-          </p>
+          <AgentReason agent={agent} info={info} />
           <button
             type="button"
             aria-pressed={on}

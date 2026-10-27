@@ -15,6 +15,7 @@ import {
   type MarketKey,
 } from "@/lib/markets";
 import { hourPoints, lastPrice, usePriceFeed } from "@/lib/price-feed";
+import { noteOf, useAgentNotes } from "@/lib/use-agent-notes";
 import { useNowSeconds } from "@/lib/use-now";
 import { useStartPrice } from "@/lib/use-start-price";
 import {
@@ -86,11 +87,28 @@ export function KairoHome() {
   // The start price of the round running now (the one before the next bettable round), once the contract has recorded it.
   const selectedChain = chainOf(market.id);
   // each agent's record and its call for the selected market's open round, read from the chain
-  const agentLive = useAgentStats(
+  const chainAgentLive = useAgentStats(
     roundsByMarket,
     (id) => chainOf(id)?.nextRound ?? null,
     market.id,
   );
+  // The three AI agents' one-sentence reasons for that open round (or that the AI could not decide), from the runner's notes.
+  const openRound = selectedChain?.nextRound ?? null;
+  const notes = useAgentNotes(market.id, openRound === null ? [] : [openRound]);
+  const agentLive = React.useMemo(() => {
+    const out = { ...chainAgentLive };
+    if (openRound === null) return out;
+    for (const a of AGENTS) {
+      if (!a.ai) continue;
+      const n = noteOf(notes, openRound, a.key);
+      // the reason goes with the call the chain shows (the note is written a moment after the call lands)
+      if (n?.s === "called") {
+        if (out[a.key]?.call === n.c) out[a.key] = { ...out[a.key], reason: n.t };
+      }
+      else if (n?.s === "skipped" && !out[a.key]?.call) out[a.key] = { ...out[a.key], skipped: true };
+    }
+    return out;
+  }, [chainAgentLive, notes, openRound]);
   // The contract records a round's start price when it settles it; while the round runs the site finds the same trade the runner uses.
   const runningRound = selectedChain
     ? roundsByMarket?.[market.id]?.find(

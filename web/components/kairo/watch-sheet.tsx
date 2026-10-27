@@ -10,7 +10,9 @@ import {
   type Market,
 } from "@/lib/markets";
 import { lastPrice, type Candle, type Point } from "@/lib/price-feed";
+import { AGENTS } from "@/lib/agents";
 import { whoIs, whoName } from "@/lib/players";
+import { noteOf, useAgentNotes } from "@/lib/use-agent-notes";
 import { useBackedAgents } from "@/lib/backed";
 import { refundReasonText } from "@/lib/refund-reason";
 import { useStartPrice } from "@/lib/use-start-price";
@@ -32,6 +34,7 @@ import {
 } from "@/onchain";
 
 import { AgentAvatar } from "./agent-avatar";
+import { AiNoteFootnote, CallNote, SkippedNotes } from "./agent-reason";
 import { MatchedLine } from "./matched-line";
 import { PriceProof } from "./price-proof";
 import { RoundBadge, roundStatusOf } from "./round-badge";
@@ -196,6 +199,7 @@ export function WatchSheet({
     lock,
     roundLength,
   );
+  const notes = useAgentNotes(w?.marketId ?? 0, open && w ? [w.roundIndex] : []);
   const {
     claim,
     status: claimStatus,
@@ -844,11 +848,10 @@ export function WatchSheet({
                     const who = whoIs(p.player, me);
                     const backed = who.kind === "you" ? backedAgent : null;
                     const avatarAgent = backed ?? (who.kind === "agent" ? who.agent : null);
+                    const note = who.kind === "agent" && w ? noteOf(notes, w.roundIndex, who.agent.key) : undefined;
                     return (
-                      <li
-                        key={p.player}
-                        className="flex items-center justify-between gap-3 py-2.5 text-[13px]"
-                      >
+                      <li key={p.player} className="py-2.5 text-[13px]">
+                        <div className="flex items-center justify-between gap-3">
                         <span className="flex min-w-0 items-center gap-2.5">
                           {avatarAgent ? (
                             <AgentAvatar agent={avatarAgent} size={32} />
@@ -892,11 +895,18 @@ export function WatchSheet({
                             {usdc(p.amount)}
                           </span>
                         </span>
+                        </div>
+                        {note?.s === "called" ? <CallNote text={note.t} className="mt-1 pl-[42px] pr-1" /> : null}
                       </li>
                     );
                   })}
                 </ul>
               )}
+              <SkippedNotes
+                className="mt-2"
+                agents={AGENTS.filter((a) => a.ai && w && noteOf(notes, w.roundIndex, a.key)?.s === "skipped")}
+              />
+              {[...notes.values()].some((n) => n.s === "called") ? <AiNoteFootnote className="mt-2" /> : null}
 
               {myTx || history?.claimTx ? (
                 <p className="mt-5 flex justify-center gap-4 text-center text-[11px] text-muted-foreground">

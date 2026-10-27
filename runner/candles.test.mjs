@@ -16,15 +16,15 @@ const setup = (answer, opts = {}) => {
   return { candles: createCandles({ fetchFn, nowMs: () => NOW, ...opts }), calls };
 };
 
-test('asks for the right coin and gives 20 finished candles, oldest first, without the running minute', async () => {
-  const { candles, calls } = setup(ok(makeAnswer(24)));
+test('asks for the right coin and gives 30 finished candles, oldest first, without the running minute', async () => {
+  const { candles, calls } = setup(ok(makeAnswer(34)));
   const got = await candles.get('BTC/USD');
-  assert.equal(calls[0], 'https://api-pub.bitfinex.com/v2/candles/trade:1m:tBTCUSD/hist?limit=24');
-  assert.equal(got.length, 20);
+  assert.equal(calls[0], 'https://api-pub.bitfinex.com/v2/candles/trade:1m:tBTCUSD/hist?limit=34');
+  assert.equal(got.length, 30);
   assert.ok(got.every((c, i) => i === 0 || c.time === got[i - 1].time + 60));
   // the minute 12:30 is still running at 12:30:30, so the newest finished one is 12:29
   assert.equal(got[got.length - 1].time, Date.parse('2026-10-26T12:29:00Z') / 1000);
-  assert.deepEqual(Object.keys(got[0]), ['time', 'open', 'close']);
+  assert.deepEqual(Object.keys(got[0]), ['time', 'open', 'close', 'high', 'low']);
 });
 
 test('an answer is reused for 30 seconds', async () => {

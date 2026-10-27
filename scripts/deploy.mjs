@@ -7,7 +7,12 @@
 //                                                            Real deployment on Arc MAINNET (real USDC for gas).
 //   node scripts/deploy.mjs --set X --verify-only            Re-check the addresses saved in deployments/arc-<testnet|mainnet>.json.
 //   node scripts/deploy.mjs --set X --send --arena 0x..      The arena was already deployed elsewhere (for example by Arc Studio): use it.
-//   node scripts/deploy.mjs --set X --send --pusher 0x..     The address allowed to push prices (default: the deployer wallet).
+//   node scripts/deploy.mjs --set X --send --pusher 0x..     TESTNET only: the address allowed to push prices (default: the deployer wallet).
+//
+// On MAINNET the pusher is always the address of RUNNER_PRIVATE_KEY in .env: the runner's own wallet, separate from the deployer
+// (the owner) and from any wallet people play with. The script derives only the ADDRESS from that key, never prints the key, and
+// stops if the key is missing or the address is also the deployer, the final owner or a house agent. --pusher is refused on mainnet.
+// Settling needs no special right (anyone may settle), so the runner's wallet settles with the same key.
 //
 // Safe to re-run: every finished step is saved to the deployment file and skipped next time.
 // The owner is the deployer wallet. Keys are read from .env (DEPLOYER_PRIVATE_KEY on testnet, MAINNET_DEPLOYER_PRIVATE_KEY on
@@ -19,6 +24,7 @@ import { setup, ROOT, usdcBalance } from './lib.mjs';
 import { compile, normalise } from './compile.mjs';
 import { SETS, COINS, CHAINLINK_MAINNET, MIN_STAKE, FEED_DECIMALS, MAX_GUARD_AGE_SECONDS, marketName, relayDescription, standInDescription, validateSet, judgeGuard } from './markets.mjs';
 import { createExchangePrices } from '../runner/exchangePrices.mjs';
+import { mainnetPusher } from './runnerKey.mjs';
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -38,6 +44,8 @@ if (MAINNET && SEND && !flag('--i-understand-this-spends-real-usdc')) {
   fail('Mainnet spends real USDC. Add --i-understand-this-spends-real-usdc to --send once you have read the dry run.');
 }
 
+if (MAINNET && opt('--pusher')) fail('--pusher is not allowed on mainnet. The pusher is always the address of RUNNER_PRIVATE_KEY in .env.');
+
 const COIN_KEYS = Object.keys(COINS);
 const STATE_FILE = path.join(ROOT, 'deployments', MAINNET ? 'arc-mainnet.json' : 'arc-testnet.json');
 const loadState = () => (fs.existsSync(STATE_FILE) ? JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) : null);
@@ -46,8 +54,20 @@ const saveState = (s) => {
   fs.writeFileSync(STATE_FILE, JSON.stringify(s, null, 2) + '\n');
 };
 
-const { pub, wallet, account, chain, usdc, hasKey } = setup(SET.network, { needKey: SEND });
+const { env, pub, wallet, account, chain, usdc, hasKey } = setup(SET.network, { needKey: SEND });
 const explorer = chain.blockExplorers.default.url;
+
+/** The relay's pusher. Mainnet: the runner's own wallet (RUNNER_PRIVATE_KEY), checked against every wallet it must not be. Testnet: --pusher or the deployer. */
+function choosePusher(owner) {
+  if (!MAINNET) return opt('--pusher') ? getAddress(opt('--pusher')) : owner;
+  const agents = [];
+  try {
+    for (const a of JSON.parse(fs.readFileSync(path.join(ROOT, 'deployments', 'circle-mainnet.json'), 'utf8')).agents || []) agents.push([`the ${a.name || a.key} agent wallet`, a.address]);
+  } catch { /* no mainnet agent wallets yet */ }
+  const { address, problems } = mainnetPusher(env, [['the deployer / owner wallet', owner], ...agents]);
+  if (problems.length) fail(['the runner key is not usable as the mainnet pusher:', ...problems.map((p) => '  - ' + p)].join('\n'));
+  return address;
+}
 const addrUrl = (a) => `${explorer}/address/${a}`;
 const txUrl = (h) => `${explorer}/tx/${h}`;
 const deployData = (c, a) => encodeDeployData({ abi: c.abi, bytecode: c.bytecode, args: a });
@@ -133,14 +153,19 @@ async function main() {
         : `  guard ${COINS[coin].pair}: new MockPriceFeed "${standInDescription(coin)}" (owner ${owner}), first price from Bitfinex`);
     }
     console.log(`  arena PredictionArena(usdc ${usdc}, owner ${owner})${opt('--arena') ? ` -> already deployed at ${opt('--arena')}, used as it is` : ''}`);
-    for (const coin of COIN_KEYS) console.log(`  relay ${COINS[coin].pair}: "${relayDescription(coin, SET_NAME)}", band ${COINS[coin].bandBps} bps, pusher ${opt('--pusher') || owner}`);
+    for (const coin of COIN_KEYS) console.log(`  relay ${COINS[coin].pair}: "${relayDescription(coin, SET_NAME)}", band ${COINS[coin].bandBps} bps, pusher ${choosePusher(owner)}${MAINNET ? ' (the address of RUNNER_PRIVATE_KEY)' : ''}`);
     for (const m of SET.markets) console.log(`  market "${marketName(m)}": round ${m.round}s, offset ${m.offset}s, min stake ${MIN_STAKE} (0.50 USDC), feed = the ${m.coin.toUpperCase()} relay, feedB = none`);
     return;
   }
 
   // ---------- real deployment ----------
   if (!hasKey) fail('--send needs the deployer key in .env.');
-  const pusher = opt('--pusher') ? getAddress(opt('--pusher')) : owner;
+  const pusher = choosePusher(owner);
+  if (MAINNET) {
+    const runnerBal = await usdcBalance(pub, usdc, pusher);
+    console.log(`Runner wallet     : ${pusher} (pusher, holds ${runnerBal.text} USDC for its gas)`);
+    if (runnerBal.raw < 500_000n) console.log('NOTE: the runner wallet holds under 0.50 USDC. Fund it before the runner starts; pushes and settles cost gas.');
+  }
   let st = loadState() || { network: MAINNET ? 'arc-mainnet' : 'arc-testnet', set: SET_NAME, chainId: chain.id, usdc, owner, pusher, guards: {}, feeds: {}, arena: null, markets: [] };
   if (getAddress(st.owner) !== getAddress(owner)) fail(`${path.basename(STATE_FILE)} belongs to a different owner wallet.`);
   if (getAddress(st.pusher || owner) !== pusher) fail('This deployment already uses a different pusher address.');
@@ -251,6 +276,7 @@ async function verify(art, st) {
 
   const A = st.arena.address;
   check(getAddress(await read(A, art.arena.abi, 'owner')) === owner, 'arena owner is the deployer wallet');
+  if (MAINNET) check(pusher !== owner, 'the relay pusher (the runner wallet) is not the owner wallet');
   check(getAddress(await read(A, art.arena.abi, 'USDC')) === getAddress(usdc), 'arena USDC is the Arc USDC token');
   check((await read(A, art.arena.abi, 'FEE_BPS')) === 200n, 'fee is 200 basis points (2%)');
   check((await read(A, art.arena.abi, 'SETTLE_WINDOW')) === 3600n, 'settle window is 1 hour');

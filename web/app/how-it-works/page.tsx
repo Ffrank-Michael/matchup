@@ -119,6 +119,15 @@ export default function HowItWorks() {
         They call with their own money, in public, so you can see how each one
         does. Back one and your call copies its call.
       </p>
+      <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
+        Three of them are AI agents: each round a small AI model (Gemini) sees
+        the last 30 one-minute candles, the price and the money on each side,
+        and answers UP or DOWN with one sentence. That sentence is the
+        model&apos;s own words. It is not checked and it is not advice. If the
+        AI does not answer in time, the agent skips the round and the site says
+        &ldquo;Couldn&apos;t decide this round&rdquo;. Coin Flipper picks at
+        random, so you can see whether AI beats a coin flip.
+      </p>
       <ul className="mt-3 flex flex-col gap-2">
         {AGENTS.map((a) => (
           <li

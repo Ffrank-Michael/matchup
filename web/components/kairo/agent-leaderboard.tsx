@@ -12,6 +12,7 @@ import { formatUsd } from "@/lib/markets";
 import { cn } from "@/lib/utils";
 
 import { AgentAvatar } from "./agent-avatar";
+import { AgentReason } from "./agent-reason";
 import { CallPill } from "./call-pill";
 import { Tile } from "./tile";
 
@@ -83,13 +84,7 @@ export function AgentCard({
       {/* the current call */}
       <div className={compact ? "mt-3" : "mt-4"}>
         <CallPill call={call} />
-        <p className="mt-2 text-[13px] italic leading-snug text-muted-foreground">
-          {live?.reason ? (
-            <>&ldquo;{live.reason}&rdquo;</>
-          ) : (
-            <span className="not-italic">{agent.how}</span>
-          )}
-        </p>
+        <AgentReason agent={agent} info={live} />
       </div>
 
       {/* numbers */}

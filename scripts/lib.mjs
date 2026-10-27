@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPublicClient, createWalletClient, http, defineChain, formatUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { runnerKeyFor } from './runnerKey.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -28,12 +29,14 @@ export const NETWORKS = {
  * Clients for one network. The key is read from .env and never printed.
  * needKey false (a read-only dry run): a missing key is allowed and the account is only an address
  * (MAINNET_DEPLOYER_ADDRESS from .env, or a placeholder); wallet is then null.
+ * role 'runner': the round runner's key (see runnerKey.mjs): RUNNER_PRIVATE_KEY, and on mainnet nothing else, so the runner
+ * never reads the deployer key there.
  */
-export function setup(network = 'testnet', { needKey = true } = {}) {
+export function setup(network = 'testnet', { needKey = true, role = 'deployer' } = {}) {
   const net = NETWORKS[network];
   if (!net) throw new Error(`Unknown network ${network}.`);
   const env = loadEnv();
-  const key = env[net.keyEnv] || '';
+  const key = role === 'runner' ? runnerKeyFor(network, env).key : env[net.keyEnv] || '';
   const hasKey = /^0x[0-9a-fA-F]{64}$/.test(key);
   if (!hasKey && (needKey || key)) throw new Error(`${net.keyEnv} in .env is missing or not 0x + 64 hex characters.`);
   const rpc = env[net.rpcEnv] || net.rpc;

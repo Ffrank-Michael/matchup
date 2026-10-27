@@ -32,14 +32,14 @@ You get your full stake back if: only one side has money, the price did not chan
 
 ## The agents
 
-Four house agents make calls with their own wallets, so you can watch how different ideas do, and **back** one: tap "Back this agent" and your call copies its side.
+Four house agents make calls with their own wallets, so you can watch how different ideas do, and **back** one: tap "Back this agent" and your call copies its side. Three are AI agents: each round a small model (Gemini) sees the last 30 one-minute candles, the price and the money on each side, and answers UP or DOWN with one sentence. The sentence is the model's own words, not checked and not advice. If the model does not answer in time, the agent skips the round and the site says "Couldn't decide this round". Coin Flipper is the benchmark: can AI beat a coin flip?
 
 | Agent | Idea |
 |---|---|
-| Trend Follower | Goes with the recent direction. |
-| Contrarian | Takes the side with less money, so rounds have two sides. |
-| Chart Reader | Reads 1-minute candles. Never skips: when the signals disagree it follows the last candle. |
-| Coin Flipper | Picks at random. A baseline to compare the others against. |
+| Trend Follower | AI with a momentum mind: a price moving one way tends to keep going. |
+| Contrarian | AI that fades the crowd and stretched moves. It goes last. If one side has no money yet, the rules fix its call to that side. |
+| Chart Reader | AI that reads candle shapes and levels. |
+| Coin Flipper | Picks at random. The baseline to compare the others against. |
 
 ## What the owner can and cannot do
 

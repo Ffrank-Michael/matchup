@@ -3,13 +3,16 @@
 import * as React from "react";
 import { useConnection } from "wagmi";
 
+import { AGENTS } from "@/lib/agents";
 import { useBackedAgents } from "@/lib/backed";
 import type { Market } from "@/lib/markets";
 import { whoIs, whoName } from "@/lib/players";
+import { noteOf, useAgentNotes } from "@/lib/use-agent-notes";
 import { refundReasonText } from "@/lib/refund-reason";
 import { usdc, useLiveCalls, useSettlements, settlementKey } from "@/onchain";
 
 import { AgentAvatar } from "./agent-avatar";
+import { AiNoteFootnote, CallNote, SkippedNotes } from "./agent-reason";
 import { StartEnd } from "./price-proof";
 import { RoundBadge, roundStatusOf } from "./round-badge";
 import { RoundHistory } from "./round-history";
@@ -50,6 +53,8 @@ export function LiveCalls({
   const { address } = useConnection();
   const settlements = useSettlements();
   const backedOf = useBackedAgents(address);
+  // the AI agents' one-sentence reasons for the rounds shown here
+  const notes = useAgentNotes(market.id, nextRound === null ? [] : [nextRound, nextRound - 1, nextRound - 2]);
 
   const [historyOpen, setHistoryOpen] = React.useState(false);
   // fixed when the sheet opens: the round just older than the three shown here
@@ -130,6 +135,10 @@ export function LiveCalls({
                 {list.length === 0 ? (
                   <p className="px-3 py-2 text-[12px] text-muted-foreground">No calls in this round.</p>
                 ) : null}
+                <SkippedNotes
+                  className="px-3 py-1.5"
+                  agents={AGENTS.filter((a) => a.ai && noteOf(notes, roundIndex, a.key)?.s === "skipped")}
+                />
                 <ul className="flex flex-col divide-y divide-border">
                   {list.map((c) => {
                     const who = whoIs(c.player, address);
@@ -141,6 +150,7 @@ export function LiveCalls({
                       : refunded
                         ? "refunded"
                         : null;
+                    const note = who.kind === "agent" ? noteOf(notes, c.roundIndex, who.agent.key) : undefined;
                     return (
                       <li key={`${c.txHash}-${c.logIndex}`}>
                         <button
@@ -204,6 +214,7 @@ export function LiveCalls({
                             ) : null}
                           </span>
                         </button>
+                        {note?.s === "called" ? <CallNote text={note.t} className="mb-2 pl-9 pr-1" /> : null}
                       </li>
                     );
                   })}
@@ -211,6 +222,7 @@ export function LiveCalls({
               </section>
             );
           })}
+          {[...notes.values()].some((n) => n.s === "called") ? <AiNoteFootnote className="px-1" /> : null}
           <button
             type="button"
             onClick={() => {

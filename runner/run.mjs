@@ -6,7 +6,7 @@
 //   node runner/run.mjs --live --once   One live pass, then stop.
 //
 // Each pass: read the chain -> ask planTick() what to do -> do it, one action at a time.
-// The agents' wallets are Circle developer-controlled wallets; the deployer wallet owns the test feeds.
+// The agents' wallets are Circle developer-controlled wallets; the runner's own wallet pushes prices and settles (on the testnet the deployer wallet, which owns the test feeds).
 import { setup } from '../scripts/lib.mjs';
 import { displayName } from '../agents/index.mjs';
 import { CFG } from './config.mjs';
@@ -14,11 +14,15 @@ import { planTick, tickDelay, LATE } from './plan.mjs';
 import { loadDeployments, makeReader } from './chain.mjs';
 import { makeExecutor, describe } from './wallets.mjs';
 import { createCandles } from './candles.mjs';
+import { createAi } from './ai.mjs';
+import { createNotes } from './notes.mjs';
+import { COULDNT_DECIDE } from '../agents/ai.mjs';
 
 const LIVE = process.argv.includes('--live');
 const ONCE = process.argv.includes('--once');
 
-const { env, pub, wallet, usdc, chain } = setup();
+// The runner signs with its own key (RUNNER_PRIVATE_KEY). On the testnet it falls back to the deployer wallet, which owns the rehearsal feeds.
+const { env, pub, wallet, usdc, chain } = setup('testnet', { role: 'runner' });
 if (chain.id !== 5042002) throw new Error('Arc testnet only.');
 if (LIVE && !String(env.CIRCLE_API_KEY || '').startsWith('TEST_API_KEY:')) throw new Error('Live mode needs a TEST_API_KEY (testnet) Circle key.');
 
@@ -30,6 +34,10 @@ const log = (msg) => console.log(`${stamp()}  ${msg}`);
 
 console.log(LIVE ? '*** LIVE MODE: real testnet transactions will be sent ***' : '--- DRY RUN: nothing will be sent ---');
 
+// Which markets the AI agents play (AI_MARKETS in .env, comma separated names like "BTC/USD 5m", or "all"). Default: BTC/USD 5m only.
+const aiMarkets = String(env.AI_MARKETS || '').trim().toLowerCase() === 'all' ? 'all' : String(env.AI_MARKETS || 'BTC/USD 5m').split(',').map((s) => s.trim()).filter(Boolean);
+const ai = createAi({ env, live: LIVE, log });         // Gemini decides the trend follower, the contrarian and the chart reader
+const notes = createNotes({ env, log });                // their one-sentence reasons, for the website
 const candleSource = createCandles();
 let candleData = null;       // closed 1-minute candles per coin, for the chart reader
 let candleRefresh = null;
@@ -48,13 +56,17 @@ async function tick() {
   if (!candleRefresh) candleRefresh = candleSource.getAll(pairs).then((c) => { candleData = c; }).finally(() => { candleRefresh = null; });
   if (candleData === null) await candleRefresh;
   snap.candles = candleData ?? {};
-  const { actions, decisions } = planTick(snap, { ...CFG, random: Math.random }, decided);
+  const { actions, decisions, aiRequests } = planTick(snap, { ...CFG, random: Math.random, ai, aiMarkets }, decided);
+  for (const r of aiRequests) ai.request(r); // answered in the background; the next look turns the answer into a bet or a skip
   const delay = tickDelay(snap, CFG);
 
   for (const d of decisions) {
     if (d.decision.action === 'SKIP' && !(d.retry && loggedSkips.has(d.id))) {
       log(`${displayName(d.agent)} skips ${d.market} round ${d.round}: ${d.decision.reason}`);
       if (d.retry) loggedSkips.add(d.id);
+    }
+    if (LIVE && d.decision.aiFailed && !decided.has(d.id)) {
+      notes.publish({ m: d.marketId, r: d.round, a: d.agent, s: 'skipped', c: null, t: COULDNT_DECIDE, at: Math.floor(Date.now() / 1000), model: ai.model });
     }
     if (d.retry) continue; // the contrarian's skip is not final: it looks again next tick, until its cutoff
     if (LIVE || d.decision.action === 'SKIP') decided.add(d.id); // a dry run never marks a bet as decided, so it keeps showing it
@@ -80,6 +92,7 @@ async function runLane(list) {
     try {
       const res = await execute(a);
       log(`${LIVE ? 'DONE' : 'WOULD'}: ${text}${res.note ? '\n         ' + res.note : ''}${res.tx ? '\n         tx ' + res.tx : ''}`);
+      if (LIVE && a.type === 'bet' && a.ai) notes.publish({ m: a.market, r: a.round, a: a.agent, s: 'called', c: a.side, t: a.reason, at: Math.floor(Date.now() / 1000), model: ai.model });
     } catch (e) {
       // do not hammer a failing action; a failed price push is retried after 5 s (the start price waits for the first trade after the lock)
       // a failed contrarian approval or bet is tried again soon (its window is short) and its decision is taken back after that

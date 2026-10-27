@@ -22,6 +22,8 @@ import * as chartReader from '../agents/chartReader.mjs';
 import * as coinFlipper from '../agents/coinFlipper.mjs';
 import * as contrarian from '../agents/contrarian.mjs';
 import { findSettleIds } from './settleIds.mjs';
+import { AI_AGENTS, MIN_CANDLES, COULDNT_DECIDE } from '../agents/ai.mjs';
+import { legalStake } from '../agents/lib.mjs';
 
 const LOGIC = {
   'trend-follower': trendFollower,
@@ -40,6 +42,18 @@ export const endTime = (m, k) => lockTime(m, k) + m.roundLength;
 const opensAt = (m, k) => (k === 0 ? 0 : lockTime(m, k - 1));
 const posKey = (m, k) => `${m.id}:${k}`;
 const decisionId = (m, k, agent) => `${m.id}:${k}:${agent}`;
+
+/** Money on round k of a market that is not one of the house agents' own: what real people put in (micro-USDC). */
+function realMoney(m, k, agents) {
+  const r = m.rounds[k];
+  if (!r) return 0;
+  let house = 0;
+  for (const a of agents) {
+    const p = a.positions[posKey(m, k)];
+    if (p) house += p.up + p.down;
+  }
+  return Math.max(0, r.up + r.down - house);
+}
 
 /**
  * How the last few finished rounds went, worked out from the PRICE FEED (not from what the
@@ -60,9 +74,36 @@ function historyFor(m, cfg) {
   return out;
 }
 
-function planBet(m, k, agent, cfg, actions, decisions, candles) {
+/**
+ * The AI agents (trend follower, contrarian, chart reader) are decided by a small Gemini model. The planner stays a plain function:
+ * when an AI agent is due it puts a REQUEST in `aiRequests`; the runner asks the model in the background and hands the answer back
+ * through `cfg.ai.results` (decision id -> { ok, call, reason }); the next tick turns it into a bet or a skip. Without `cfg.ai`
+ * (the tests and the simulation) every agent uses its plain rule from agents/*.mjs.
+ * Returns the decision, or null while the answer is still on its way.
+ */
+function decideWithAi(m, k, agent, cfg, ctx, aiRequests) {
+  const key = agent.key;
+  const id = decisionId(m, k, key);
+  // things that need no model: no money to bet with, or (contrarian) nobody on the round yet
+  const s = legalStake(LOGIC[key].BASE_STAKE, ctx);
+  if (s.skip) return { action: 'SKIP', reason: s.skip };
+  const { up, down } = ctx.bets;
+  if (key === LATE && up + down === 0) return LOGIC[key].decide(ctx); // "nobody has bet yet": looked at again next tick
+  if (ctx.candles.length < MIN_CANDLES) return { action: 'SKIP', reason: COULDNT_DECIDE, aiFailed: true, detail: 'no chart data' };
+  const res = cfg.ai.results.get(id);
+  if (!res) {
+    // the rules of the game fix a side when the other has no money (a round needs two sides)
+    const forcedSide = key === LATE && (up === 0 || down === 0) ? (up === 0 ? 'UP' : 'DOWN') : null;
+    aiRequests.push({ id, agent: key, market: m.name, marketId: m.id, round: k, roundSeconds: m.roundLength, secondsToLock: lockTime(m, k) - cfg.now, candles: ctx.candles, bets: ctx.bets, forcedSide });
+    return null;
+  }
+  if (!res.ok) return { action: 'SKIP', reason: COULDNT_DECIDE, aiFailed: true, detail: res.error };
+  return { action: 'BET', side: res.call, stake: s.stake, reason: res.reason, ai: true };
+}
+
+function planBet(m, k, agent, cfg, actions, decisions, candles, aiRequests) {
   const round = m.rounds[k];
-  const d = LOGIC[agent.key].decide({
+  const ctx = {
     market: m.name,
     history: historyFor(m, cfg),
     candles: candles?.[m.name.split(' ')[0]] ?? [],
@@ -70,14 +111,16 @@ function planBet(m, k, agent, cfg, actions, decisions, candles) {
     minStake: m.minStake,
     balance: Math.max(0, agent.balance - cfg.gasReserve),
     random: cfg.random,
-  });
-  // The contrarian's skip is not final: an empty or even crowd can get a side with less money a moment later, so it is looked at again.
-  decisions.push({ id: decisionId(m, k, agent.key), agent: agent.key, market: m.name, round: k, decision: d, retry: agent.key === LATE && d.action === 'SKIP' });
+  };
+  const d = cfg.ai && AI_AGENTS.includes(agent.key) ? decideWithAi(m, k, agent, cfg, ctx, aiRequests) : LOGIC[agent.key].decide(ctx);
+  if (d === null) return; // the model's answer is not here yet
+  // The contrarian's skip is not final when nobody (or an even crowd) is on the round: it is looked at again.
+  decisions.push({ id: decisionId(m, k, agent.key), agent: agent.key, market: m.name, marketId: m.id, round: k, decision: d, retry: agent.key === LATE && d.action === 'SKIP' && !d.aiFailed });
   if (d.action !== 'BET') return;
   const stake = Math.min(d.stake, cfg.maxStake);
   if (stake < m.minStake) return;
   if (agent.allowance < stake) actions.push({ type: 'approve', agent: agent.key, amount: cfg.approveAmount });
-  actions.push({ type: 'bet', agent: agent.key, market: m.id, marketName: m.name, round: k, side: d.side, stake, reason: d.reason });
+  actions.push({ type: 'bet', agent: agent.key, market: m.id, marketName: m.name, round: k, side: d.side, stake, reason: d.reason, ai: !!d.ai });
 }
 
 /**
@@ -127,6 +170,7 @@ export function planTick(snap, cfg, decided = new Set()) {
   const { now } = snap;
   const actions = [];
   const decisions = [];
+  const aiRequests = [];
   const pushedNow = new Set(); // markets of one coin share a feed: one price push per feed and kind of price per tick
   const agentByKey = Object.fromEntries(snap.agents.map((a) => [a.key, a]));
 
@@ -168,17 +212,22 @@ export function planTick(snap, cfg, decided = new Set()) {
         return !!p && p.up + p.down > 0;
       };
       const finished = (key) => hasPosition(agentByKey[key]) || decided.has(decisionId(m, k, key));
+      // The AI agents play the markets in cfg.aiMarkets (the free AI allowance and the gas budget are small); the coin flipper plays all.
+      // On any other market the contrarian only answers money that is not the house agents' own, i.e. a real person's call.
+      const aiHere = !cfg.ai || !cfg.aiMarkets || cfg.aiMarkets === 'all' || cfg.aiMarkets.includes(m.name);
+      const early = EARLY.filter((key) => aiHere || !AI_AGENTS.includes(key));
+      const lateHere = aiHere || realMoney(m, k, snap.agents) > 0;
 
       if (now >= opensAt(m, k) + cfg.earlyDelay && now < lockK - cfg.earlyCutoff) {
-        for (const key of EARLY) {
-          if (!finished(key)) planBet(m, k, agentByKey[key], cfg, actions, decisions, snap.candles);
+        for (const key of early) {
+          if (!finished(key)) planBet(m, k, agentByKey[key], cfg, actions, decisions, snap.candles, aiRequests);
         }
       }
       // The contrarian goes last: only once every early agent has bet or skipped (in an earlier tick), so it sees their
       // real money, and from shortly after they are due, whatever the round length. It always takes the side with less money.
       if (now >= opensAt(m, k) + cfg.earlyDelay + cfg.contrarianAfterEarly && now < lockK - cfg.contrarianCutoff
-          && EARLY.every(finished) && !finished(LATE)) {
-        planBet(m, k, agentByKey[LATE], cfg, actions, decisions, snap.candles);
+          && lateHere && early.every(finished) && !finished(LATE)) {
+        planBet(m, k, agentByKey[LATE], cfg, actions, decisions, snap.candles, aiRequests);
       }
     }
 
@@ -198,5 +247,5 @@ export function planTick(snap, cfg, decided = new Set()) {
   // so an agent's approval still comes right before its bet.
   const rank = (a) => (a.type === 'pushPrice' ? 0 : a.type === 'settle' ? 1 : 2);
   actions.sort((x, y) => rank(x) - rank(y));
-  return { actions, decisions };
+  return { actions, decisions, aiRequests };
 }
