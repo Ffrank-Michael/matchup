@@ -150,9 +150,9 @@ export function KairoHome() {
             <img
               src="/kairo-logo-inline.svg"
               alt="Kairo Markets"
-              width={155}
-              height={28}
-              className="h-7 w-auto max-w-none"
+              width={158}
+              height={44}
+              className="-my-2 h-11 w-auto max-w-none sm:-my-2.5 sm:h-12"
             />
           </Link>
           <div className="flex shrink-0 items-center gap-2">

@@ -72,9 +72,9 @@ export default function HowItWorks() {
           <img
             src="/kairo-logo-inline.svg"
             alt="Kairo Markets"
-            width={155}
-            height={28}
-            className="h-7 w-auto"
+            width={158}
+            height={44}
+            className="-my-2 h-11 w-auto sm:-my-2.5 sm:h-12"
           />
         </Link>
         <Link
