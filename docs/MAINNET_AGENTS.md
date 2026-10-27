@@ -17,7 +17,7 @@ The runner pushes prices, settles rounds and plays the house agents. It must run
 
 **What the setup does:** 2 GB swap (the first start compiles the contracts in memory and 1 GB is not enough), Node 22 LTS (from nodejs.org, checked against its SHA-256 list), `npm ci`, a journal that survives reboots (max 200 MB), checks on `.env` that print names only, and the service. Nothing in these files is secret.
 
-**Status, said plainly.** Today this runs the **testnet** runner (`runner/supervise.mjs` starts `runner/run.mjs --live`, which refuses any network but Arc testnet). The mainnet runner and mainnet house agents are not built yet; see "Mainnet" at the end.
+**Status, said plainly.** Today this runs the **testnet** runner (`runner/supervise.mjs` starts `runner/run.mjs --live`, which refuses any network but Arc testnet). The mainnet runner is built but not deployed or started (see "Mainnet" at the end); the mainnet house agents are not built yet.
 
 **Only one runner at a time.** Two runners would push prices and place bets twice. Stop the one on your PC before you start the server's.
 
@@ -142,10 +142,46 @@ sudo systemctl restart kairo-runner
 
 ## Mainnet
 
-What the code already enforces: on mainnet the runner signs only with `RUNNER_PRIVATE_KEY`, its own wallet, never the deployer key (`scripts/runnerKey.mjs`), and the deploy script sets that wallet's address as the relay pusher. So on the server:
+### The mainnet runner (`runner/run-mainnet.mjs`): built, never run against mainnet yet
 
-- `.env` gets `RUNNER_PRIVATE_KEY` (a new wallet with a little USDC for gas) and, if the RPC needs it, `ARC_MAINNET_RPC_URL`.
-- `MAINNET_DEPLOYER_PRIVATE_KEY` never goes on the server (step 7 removes it).
-- The same service, the same commands.
+It pushes prices and settles rounds on Arc mainnet (chain 5042) and nothing else. It does **not** place bets: the mainnet house agents are not built yet.
 
-What does **not** exist yet: a runner mode for mainnet (`runner/run.mjs` is testnet only) and the mainnet house agents (four new keys, written into `.env` by a script that never prints them; see `docs/SUBMISSION.md`). When they are built, this file gets a section with their exact steps. Until then the service on the server is the testnet runner.
+**What it reads from `.env`** (these names only; every other line is ignored, so it never holds another key):
+
+| Name | What |
+|---|---|
+| `MAINNET_RUNNER_PRIVATE_KEY` | the runner's own wallet, with a little USDC for gas. Never the deployer, the owner, or a wallet people play with |
+| `MAINNET_ARENA_ADDRESS` | the mainnet PredictionArena contract |
+| `ARC_MAINNET_RPC_URL` | optional, if the default RPC is not enough |
+
+**How it stays safe**
+
+- **Dry run is the default.** Without `--i-understand-this-spends-real-usdc` it only logs `WOULD:` lines, and the wallet client is not even created. `--live` (the testnet flag) is refused.
+- **Before it starts** it checks that the RPC is chain 5042, that a contract exists at the arena address, that the runner is not the arena owner, and that the runner is the `pusher` of every relay feed. Any problem stops it with a plain message.
+- **No gas on rounds without two sides.** A round with no calls, or calls on one side only, gets no price push and no settle. (Those rounds refund anyway; callers claim the refund once the 1-hour settle window has passed, because nobody settles them.) A price push serves every market of its coin, so it is skipped only when no market of that coin has a two-sided round running.
+- **Price checks as on testnet.** Bitfinex's last trade, 20% jump check, stale-market check and clock check, as before. On top of that, each price is compared with Chainlink off chain using the relay's own rule (same band, Chainlink not older than 26 hours), and a price outside it is not sent, so it never costs a failed transaction. The relay checks again on chain.
+- **Low balance.** A live runner stops when its wallet holds less than 0.10 USDC. The supervisor then alerts you (below).
+- Every pushed price is written to `data/price-log-mainnet.jsonl`, not to the testnet log.
+
+**How to run it** (from the repo folder)
+
+```
+node runner/run-mainnet.mjs --once                                       # dry run, one look
+node runner/run-mainnet.mjs                                              # dry run, keeps looking
+node runner/run-mainnet.mjs --i-understand-this-spends-real-usdc         # LIVE: spends real USDC
+```
+
+**Supervised, with the same ntfy alerts as the testnet runner:**
+
+```
+node runner/supervise.mjs --mainnet                                      # supervises a dry-run runner
+node runner/supervise.mjs --mainnet --i-understand-this-spends-real-usdc # supervises a live runner
+```
+
+The log goes to `data/runner-mainnet.log`; alert titles say "MAINNET". The `kairo-runner` service file still starts the testnet runner; change its `ExecStart` only when you decide to go live.
+
+**Known mismatch to settle before the deploy:** `scripts/deploy.mjs` still sets the relay pusher from `RUNNER_PRIVATE_KEY`, while the mainnet runner reads `MAINNET_RUNNER_PRIVATE_KEY`. They must be the same wallet, or the runner's pushes are refused (the startup check catches this and stops).
+
+### Still to build
+
+The mainnet house agents (four new keys, written into `.env` by a script that never prints them; see `docs/SUBMISSION.md`). `MAINNET_DEPLOYER_PRIVATE_KEY` never goes on the server (step 7 removes it). When the agents exist, this file gets their exact steps.

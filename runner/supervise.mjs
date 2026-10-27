@@ -4,6 +4,9 @@
 //
 //   node runner/supervise.mjs                 supervise the testnet runner (output goes to data/runner.log)
 //   node runner/supervise.mjs --journal       the same, but everything goes to stdout (a systemd service: read it with journalctl)
+//   node runner/supervise.mjs --mainnet       supervise the MAINNET runner (runner/run-mainnet.mjs) as a dry run that sends nothing; log in data/runner-mainnet.log
+//   node runner/supervise.mjs --mainnet --i-understand-this-spends-real-usdc
+//                                             the same, but the mainnet runner really sends (real USDC). The flag is passed on to it, never added by default.
 //
 // The ntfy topic is read from NTFY_TOPIC in .env (you choose it; anyone who knows the topic name can read it, so pick a long
 // random one). With no topic the supervisor still restarts the runner and only logs.
@@ -22,6 +25,13 @@ export const LOOP_DELAY_S = 300;    // and then the wait between tries is this l
 export function restartDelay(stops, now) {
   const recent = stops.filter((t) => now - t <= LOOP_WINDOW_S);
   return recent.length >= LOOP_STOPS ? { seconds: LOOP_DELAY_S, loop: true } : { seconds: BASE_DELAY_S, loop: false };
+}
+
+/** What to supervise: the testnet runner (--live), or with --mainnet the mainnet runner, which sends only when the supervisor was given the same long flag. */
+export function runnerSpec(argv) {
+  if (!argv.includes('--mainnet')) return { script: 'runner/run.mjs', args: ['--live'], name: 'testnet', title: 'Kairo runner', logName: 'runner.log' };
+  const live = argv.includes('--i-understand-this-spends-real-usdc');
+  return { script: 'runner/run-mainnet.mjs', args: live ? ['--i-understand-this-spends-real-usdc'] : [], name: live ? 'MAINNET (live)' : 'mainnet (dry run)', title: 'Kairo MAINNET runner', logName: 'runner-mainnet.log' };
 }
 
 /** One plain line to ntfy.sh. Never throws: an alert that cannot be sent must not stop the supervisor. */
@@ -49,14 +59,15 @@ async function main() {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const topic = readTopic(root);
   fs.mkdirSync(path.join(root, 'data'), { recursive: true });
-  const logFile = path.join(root, 'data', 'runner.log');
+  const spec = runnerSpec(process.argv.slice(2));
+  const logFile = path.join(root, 'data', spec.logName);
   const journal = process.argv.includes('--journal'); // under systemd stdout is the log (journald adds the dates), so no file
   const say = (m) => { const line = `${new Date().toISOString().slice(11, 19)}  [supervisor] ${m}\n`; if (!journal) fs.appendFileSync(logFile, line); process.stdout.write(line); };
-  say(`started; alerts ${topic ? 'on (ntfy)' : 'OFF: add NTFY_TOPIC to .env'}`);
+  say(`started for the ${spec.name} runner; alerts ${topic ? 'on (ntfy)' : 'OFF: add NTFY_TOPIC to .env'}`);
   const stops = [];
   for (;;) {
     const out = journal ? 'inherit' : fs.openSync(logFile, 'a');
-    const child = spawn(process.execPath, ['runner/run.mjs', '--live'], { cwd: root, stdio: ['ignore', out, out] });
+    const child = spawn(process.execPath, [spec.script, ...spec.args], { cwd: root, stdio: ['ignore', out, out] });
     say(`runner started (pid ${child.pid})`);
     const code = await new Promise((resolve) => { child.on('exit', (c, s) => resolve(c ?? s)); child.on('error', () => resolve('spawn error')); });
     if (!journal) fs.closeSync(out);
@@ -64,9 +75,9 @@ async function main() {
     stops.push(now);
     const { seconds, loop } = restartDelay(stops, now);
     say(`runner stopped (${code}); restarting in ${seconds} s${loop ? ' (crash loop)' : ''}`);
-    await notify(topic, loop ? 'Kairo runner crash loop' : 'Kairo runner stopped', `The testnet runner stopped (${code}). Restarting in ${seconds} s${loop ? `; it keeps stopping, please look at ${journal ? 'journalctl -u kairo-runner' : 'data/runner.log'}` : ''}.`);
+    await notify(topic, loop ? `${spec.title} crash loop` : `${spec.title} stopped`, `The ${spec.name} runner stopped (${code}). Restarting in ${seconds} s${loop ? `; it keeps stopping, please look at ${journal ? 'journalctl -u kairo-runner' : 'data/' + spec.logName}` : ''}.`);
     await new Promise((r) => setTimeout(r, seconds * 1000));
-    await notify(topic, 'Kairo runner restarted', 'The testnet runner is running again.');
+    await notify(topic, `${spec.title} restarted`, `The ${spec.name} runner is running again.`);
   }
 }
 

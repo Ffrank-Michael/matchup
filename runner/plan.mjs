@@ -17,6 +17,11 @@
 //
 // Actions:  pushPrice | approve | bet | settle | claim   (the executor turns them into transactions)
 //           pushPrice carries { round } = the running round the price belongs to; every live push is written to the public price log (priceLog.mjs)
+//
+// Two opt-in settings for the mainnet runner (both off on the testnet):
+//   cfg.matchedOnly  prices and settles only for rounds with calls on BOTH sides. An empty or one-sided round is never settled (the contract
+//                    refunds it when someone claims after the settle window) and gets no price push, so no gas is spent on it.
+//   cfg.runnerOnly   no house agents: no bets, no claims (the mainnet house agents are not built yet).
 import * as trendFollower from '../agents/trendFollower.mjs';
 import * as chartReader from '../agents/chartReader.mjs';
 import * as coinFlipper from '../agents/coinFlipper.mjs';
@@ -185,9 +190,13 @@ export function unmatchedBack(r, p) {
   return stake - (stake * M + T - 1n) / T;
 }
 
+/** Calls on both sides: the only kind of round that needs a price and a settle when cfg.matchedOnly is set. */
+const twoSided = (r) => !!r && r.up > 0 && r.down > 0;
+
 export function priceDue(m, now, cfg) {
   const k = m.nextRound;
   if (k < 1) return null;
+  if (cfg.matchedOnly && !twoSided(m.rounds[k - 1])) return null;
   const lockR = lockTime(m, k - 1);
   const endR = endTime(m, k - 1);
   const updates = m.feed.updates;
@@ -228,6 +237,7 @@ export function planTick(snap, cfg, decided = new Set()) {
     for (let j = Math.max(0, k - lookbackFor(m, cfg)); j < k; j++) {
       const r = m.rounds[j];
       if (!r || r.state !== 'Unsettled' || r.up + r.down === 0) continue;
+      if (cfg.matchedOnly && !twoSided(r)) continue; // one-sided: refunded at claim, no settle transaction
       const et = endTime(m, j);
       if (now <= et || now > et + cfg.settleWindow) continue;
       const ids = r.up === 0 || r.down === 0
@@ -249,6 +259,8 @@ export function planTick(snap, cfg, decided = new Set()) {
         actions.push({ type: 'pushPrice', ...where, why: 'end price', endsAt: endTime(m, r) });
       }
     }
+
+    if (cfg.runnerOnly) continue; // no house agents: nothing below (bets and claims) applies
 
     // ---- 3. bets on round k ----
     if (!m.paused) {

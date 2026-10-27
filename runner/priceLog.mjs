@@ -22,10 +22,10 @@ const KINDS = { 'start price': 'start', 'mid-round price': 'mid', 'end price': '
 export const kindOf = (why) => KINDS[why] ?? why;
 
 /** Builds one log entry from a pushed price. All numbers come from the quote and the chain, none are made up. */
-export function makePriceLogEntry({ action, quote, txHash, blockNumber, blockTimestamp, feed, explorer, chainId, nowSec }) {
+export function makePriceLogEntry({ action, quote, txHash, blockNumber, blockTimestamp, feed, explorer, chainId, nowSec, label = 'TEST PRICES - NOT REAL DATA' }) {
   return {
     v: 1,
-    label: 'TEST PRICES - NOT REAL DATA',
+    label,
     chainId,
     market: action.marketName,
     marketId: action.market,

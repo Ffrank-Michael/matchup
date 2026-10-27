@@ -30,6 +30,17 @@ export const NETWORKS = {
   mainnet: { id: 5042, name: 'Arc', rpcEnv: 'ARC_MAINNET_RPC_URL', rpc: 'https://rpc.mainnet.arc.io', explorer: 'https://explorer.arc.io', keyEnv: 'MAINNET_DEPLOYER_PRIVATE_KEY' },
 };
 
+/** The viem chain for one of the NETWORKS. Arc: USDC is the native gas token (18-decimal native view, 6-decimal ERC-20 view). */
+export function arcChain(net, rpc) {
+  return defineChain({
+    id: net.id,
+    name: net.name,
+    nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+    rpcUrls: { default: { http: [rpc] } },
+    blockExplorers: { default: { name: `${net.name} Explorer`, url: net.explorer } },
+  });
+}
+
 /**
  * Clients for one network. The key is read from .env and never printed.
  * needKey false (a read-only dry run): a missing key is allowed and the account is only an address
@@ -47,14 +58,7 @@ export function setup(network = 'testnet', { needKey = true, role = 'deployer' }
   const rpc = env[net.rpcEnv] || net.rpc;
   if (network === 'testnet' && Number(env.ARC_TESTNET_CHAIN_ID || net.id) !== net.id) throw new Error('Refusing to run: ARC_TESTNET_CHAIN_ID in .env is not 5042002.');
   const usdc = env.USDC_ADDRESS || '0x3600000000000000000000000000000000000000';
-  // Arc: USDC is the native gas token (18-decimal native view, 6-decimal ERC-20 view).
-  const chain = defineChain({
-    id: net.id,
-    name: net.name,
-    nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
-    rpcUrls: { default: { http: [rpc] } },
-    blockExplorers: { default: { name: `${net.name} Explorer`, url: net.explorer } },
-  });
+  const chain = arcChain(net, rpc);
   const account = hasKey ? privateKeyToAccount(key) : { address: env.MAINNET_DEPLOYER_ADDRESS || '0x000000000000000000000000000000000000dEaD' };
   const pub = createPublicClient({ chain, transport: http(rpc) });
   const wallet = hasKey ? createWalletClient({ account, chain, transport: http(rpc) }) : null;
