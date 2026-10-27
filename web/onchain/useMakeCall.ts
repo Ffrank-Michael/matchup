@@ -223,7 +223,7 @@ export function useMakeCall(): UseMakeCallReturn {
   return { makeCall, status, errorMessage, errorTechnical, reset, txHash, approveTxHash };
 }
 
-/** Changes the permission (the spending limit) or removes it (sets it to zero; calls then need a new one-time permission). */
+/** Removes the permission (sets it to zero; the next call then needs a new one-time permission). */
 export function useRevokeApproval() {
   const client = usePublicClient();
   const queryClient = useQueryClient();
@@ -251,14 +251,6 @@ export function useRevokeApproval() {
     [arenaAddress, client, queryClient, writeContractAsync],
   );
   const revoke = useCallback(() => setLimitRaw(0n), [setLimitRaw]);
-  /** Sets the spending limit to this many dollars (text, at most 6 decimals); ignores a text that is not an amount. */
-  const setLimit = useCallback(
-    async (dollars: string) => {
-      if (validateAmount(dollars) !== null) return;
-      await setLimitRaw(parseUnits(dollars, 6));
-    },
-    [setLimitRaw],
-  );
 
-  return { revoke, setLimit, status, errorMessage };
+  return { revoke, status, errorMessage };
 }
