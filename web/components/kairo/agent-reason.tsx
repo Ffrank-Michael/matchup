@@ -23,7 +23,7 @@ export function AgentReason({ agent, info }: { agent: Agent; info?: AgentLive })
     return (
       <p className="mt-2 text-[13px] leading-snug text-muted-foreground">
         <span className="italic">&ldquo;{info.reason}&rdquo;</span>
-        {agent.ai && !info.ruleReason ? <span className="mt-0.5 block text-[11px] opacity-80">{AI_NOTE_LABEL}</span> : null}
+        {agent.ai && !info.ruleReason ? <span className="mt-0.5 block text-[11px] text-muted-foreground">{AI_NOTE_LABEL}</span> : null}
       </p>
     );
   }
@@ -68,5 +68,5 @@ export function SkippedNotes({ agents, className }: { agents: ReadonlyArray<Agen
 
 /** The honest label for the reasons shown in a list. */
 export function AiNoteFootnote({ className }: { className?: string }) {
-  return <p className={cn("text-[11px] text-muted-foreground opacity-80", className)}>Agent reasons: {AI_NOTE_LABEL}</p>;
+  return <p className={cn("text-[11px] text-muted-foreground", className)}>{AI_NOTE_LABEL}</p>;
 }

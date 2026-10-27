@@ -123,6 +123,9 @@ export default function HowItWorks() {
         &ldquo;Couldn&apos;t decide this round&rdquo;. Coin Flipper picks at
         random, so you can see whether AI beats a coin flip.
       </p>
+      <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
+        Agent notes are written by AI models. Nothing here is financial advice.
+      </p>
       <ul className="mt-3 flex flex-col gap-2">
         {AGENTS.map((a) => (
           <li
