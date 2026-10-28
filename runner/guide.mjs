@@ -6,21 +6,21 @@
 //
 // WHEN
 //   Coin Flipper    random, no Gemini: its call for a round is made as soon as the round is seen (the call window is open).
-//   The 3 AI agents ONE Gemini request per agent per 5-minute cycle (so at most 12 an hour per agent), started a few seconds into the cycle.
-//                   It covers every coin and every time frame whose next round is open and has no call from that agent yet, so a
-//                   single request holds BTC, ETH and SOL and, when they line up, the 10 min, 30 min and 1 hour rounds too.
-//                   The request count does not depend on how many coins or time frames are covered, so nothing has to be dropped to stay
-//                   within a free limit; only the amount of text in a request changes.
+//   The 3 AI agents ONE Gemini request per agent every 10 minutes (144 a day each), started a little after the 10-minute mark, the three agents
+//                   20 seconds apart (ASK_OFFSETS) so that they never fire in the same second. The request covers every round whose call window
+//                   is open now (every coin, every time frame) that the agent has not called yet, plus, for each coin, the 5-minute round after
+//                   the next one (its window opens within 5 minutes). So every 5-minute round still gets a call from every agent although the
+//                   agent is asked only every second 5 minutes. A call for that later round is saved now, with the time it was made, like any other.
 // SAVED
 //   Each call is saved with the time it was made, before its round locks, and is never changed afterwards: the file is append-only, the
 //   runner never saves a (market, round, agent) twice, and the copy on Upstash is written with HSETNX (set only if it is not there yet).
 //   Where the site reads them: Upstash hash kairo:guide, field "<market>:<round>:<agent>"; the score of a round is field "<market>:<round>:res".
 // GEMINI LIMITS (see GUIDE_MODELS below: the model of each agent, and each model's daily cap)
-//   Each agent has its own model, so no model gets more than one agent's requests: about 288 a day each. Each model has a daily cap (counted per
-//   Pacific day, Google's reset) below Google's own limit. When an agent's model is at its cap, is resting, or answers with a limit or quota
-//   error (HTTP 429, never retried; that model then rests 10 minutes), the agent uses the fallback model; if that fails too, the call shows
-//   "Couldn't decide this round". Any other failure skips those calls. One retry only for a timeout or a server error on a Gemini model; none
-//   on Gemma (16K input tokens a minute). Everything runs in the background: price pushes and settles are never held up. Hourly log line: requests per model.
+//   Each model has a daily cap (450, counted per Pacific day, Google's reset) below Google's own limit of 500. When an agent's model is at its
+//   cap, or is resting after a limit or quota error (HTTP 429, never retried; the model then rests 10 minutes), that agent's calls for the cycle are
+//   skipped and show "Couldn't decide this round". There is no fallback model. Any other failure skips those calls too. One retry only for a
+//   timeout or a server error, counted like any request. Everything runs in the background: price pushes and settles are never held up.
+//   Hourly log line: requests per model.
 // SCORING
 //   When a round ends each call is scored against the Bitfinex price at its start and end: the same prices the runner put on chain
 //   (its price log) when the round was played, otherwise the first trade after the lock and the last trade before the end, asked from
@@ -37,30 +37,24 @@ import { SYMBOLS } from './exchangePrices.mjs';
 export const GUIDE_AGENTS = ['trend-follower', 'contrarian', 'chart-reader', 'coin-flipper'];
 export const GUIDE_AI_AGENTS = ['trend-follower', 'contrarian', 'chart-reader'];
 
-// WHICH MODEL EACH AGENT USES, AND THE LIMITS OF EACH MODEL: the one place to read or change them. Each agent has its own model so that
-// no model gets more than one agent's requests (about 288 a day each). The limits are Google AI Studio's free-tier limits for our key;
-// dailyCap is kept below Google's own daily limit, perMinute is our own ceiling per model.
-//   plain: Gemma gets the instructions at the start of the user text (no system_instruction: with it our calls timed out), no JSON mode and no thinking
-//   setting, and it takes only 16K input tokens a minute: its prompt is the shorter one (agents/ai.mjs buildGuidePrompt compact) and its answer is plain text.
-//   timeoutMs: Gemma gets 90 s (it answers in 6 s to a minute): a call only has to be saved before its round locks, at least 100 s after its window opens. Gemma gets one request a minute per model and no second try, for the same reason.
+// WHICH MODEL EACH AGENT USES, AND THE LIMITS OF EACH MODEL: the one place to read or change them. The limits are Google AI Studio's free-tier
+// limits for our key (gemini-3.5-flash-lite and gemini-3.1-flash-lite: 500 requests a day, 15 a minute); dailyCap is kept below Google's own daily
+// limit, perMinute is our own ceiling per model. Contrarian and Trend Follower share gemini-3.1-flash-lite: 2 x 144 = 288 requests a day on it.
 export const GUIDE_MODELS = {
-  'gemini-3.5-flash-lite': { dailyCap: 450, perMinute: 10, plain: false, timeoutMs: 16_000, maxAttempts: 2 }, // Google: 500 a day, 15 a minute
-  'gemini-3.1-flash-lite': { dailyCap: 450, perMinute: 10, plain: false, timeoutMs: 16_000, maxAttempts: 2 }, // Google: 500 a day, 15 a minute
-  'gemma-4-26b-a4b-it': { dailyCap: 5000, perMinute: 1, plain: true, timeoutMs: 90_000, maxAttempts: 1 },            // Google: 14400 a day, 30 a minute, 16K input tokens a minute
-  'gemma-4-31b-it': { dailyCap: 5000, perMinute: 1, plain: true, timeoutMs: 90_000, maxAttempts: 1 },            // Google: 14400 a day, 30 a minute, 16K input tokens a minute
+  'gemini-3.5-flash-lite': { dailyCap: 450, perMinute: 10, timeoutMs: 16_000, maxAttempts: 2 },
+  'gemini-3.1-flash-lite': { dailyCap: 450, perMinute: 10, timeoutMs: 16_000, maxAttempts: 2 },
 };
-export const AGENT_MODELS = { 'chart-reader': 'gemini-3.5-flash-lite', contrarian: 'gemini-3.1-flash-lite', 'trend-follower': 'gemma-4-26b-a4b-it' };
-/** Used for an agent whose own model is at its daily cap or answers with a limit or quota error (or does not exist). */
-export const FALLBACK_MODEL = 'gemma-4-31b-it';
+export const AGENT_MODELS = { 'chart-reader': 'gemini-3.5-flash-lite', contrarian: 'gemini-3.1-flash-lite', 'trend-follower': 'gemini-3.1-flash-lite' };
+/** Seconds after each 10-minute mark at which each agent is asked: at least 20 s apart, so the three requests never go out in the same second. */
+export const ASK_OFFSETS = { 'trend-follower': 3, contrarian: 25, 'chart-reader': 47 };
 /** Google resets the daily limits at midnight Pacific time: the counters follow that day. */
 export const limitDay = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(ms);
 export const GUIDE_FILE = path.join(ROOT, 'data', 'guide-calls-mainnet.jsonl');
 export const GUIDE_STATE_FILE = path.join(ROOT, 'data', 'guide-state-mainnet.json');
 export const GUIDE_PRICE_FILE = path.join(ROOT, 'data', 'guide-prices-mainnet.jsonl');
 export const GUIDE_HASH = 'kairo:guide';
-export const CYCLE_SECONDS = 300;
+export const CYCLE_SECONDS = 600; // an AI agent is asked once every 10 minutes
 export const GUIDE_CFG = {
-  askAfter: 3,            // the AI is asked this long after a cycle starts (the last minute's candle is in)
   minLeft: 25,            // an AI request only covers rounds that still have this many seconds before they lock
   flipMinLeft: 5,         // the Coin Flipper still calls a round that locks in more than this
   publishMargin: 3,       // an answer that lands within this many seconds of the lock is dropped: a call is saved before the round locks
@@ -70,8 +64,8 @@ export const GUIDE_CFG = {
   fetchGapMs: 1_500,      // between two trade-history requests (Bitfinex allows 10 to 90 a minute)
   retryFetchMs: 60_000,   // a price that could not be fetched is asked again after this
   keepSeconds: 3 * 86400, // calls older than this are removed from Upstash
-  quotaPauseMs: 10 * 60_000, // after HTTP 429 that model is not asked for this long (its agent uses the fallback model meanwhile)
-  expectedPerDayEach: 86400 / CYCLE_SECONDS, // one request per agent per cycle: 288 a day on each agent's own model
+  quotaPauseMs: 10 * 60_000, // after HTTP 429 that model is not asked for this long (its agents skip their calls meanwhile)
+  requestsPerDayEach: 86400 / CYCLE_SECONDS, // one request per agent per cycle: 144 a day for each agent
 };
 
 export const callField = (m, r, agent) => `${m}:${r}:${agent}`;
@@ -91,6 +85,30 @@ export function dueRounds(markets, nowSec, minLeft = GUIDE_CFG.minLeft) {
   }
   return out;
 }
+
+/**
+ * For every 5-minute market: the round after the next one (it opens for calls when the next one locks, less than 5 minutes from now). An AI
+ * agent is asked only every 10 minutes, so this round is called one request early. It is its own entry (ask "5m-after") because the request
+ * then holds two 5-minute rounds of the same coin.
+ */
+export function laterRounds(markets, nowSec) {
+  const out = [];
+  for (const m of markets) {
+    if (m.paused || m.roundLength !== 300) continue;
+    const round = m.nextRound + 1;
+    const lock = lockTime(m, round);
+    const coin = m.name.split(' ')[0];
+    out.push({ marketId: m.id, market: m.name, coin, short: coinShort(coin), label: frameLabel(m.roundLength), ask: `${frameLabel(m.roundLength)}-after`, roundSeconds: m.roundLength, round, lock, end: lock + m.roundLength, secondsToLock: lock - nowSec, opensIn: lockTime(m, m.nextRound) - nowSec });
+  }
+  return out;
+}
+
+/** What each model is expected to be asked in a day when every request succeeds: its agents x 144. */
+export const expectedPerDay = (agentModels = AGENT_MODELS) => {
+  const out = {};
+  for (const model of Object.values(agentModels)) out[model] = (out[model] ?? 0) + GUIDE_CFG.requestsPerDayEach;
+  return out;
+};
 
 /** The side that won a round from its two prices, or FLAT. */
 export const outcomeOf = (start, end) => (end > start ? 'UP' : end < start ? 'DOWN' : 'FLAT');
@@ -115,7 +133,7 @@ export async function freshCandles(candleSource, coin, { nowMs = Date.now, sleep
 export function createGuide({
   env = process.env, live = false, log = () => {}, getCandles, askFn = askGemini, fetchFn = fetch, now = () => Date.now(),
   random = Math.random, file = GUIDE_FILE, stateFile = GUIDE_STATE_FILE, priceFile = GUIDE_PRICE_FILE, chainPriceLog = () => readPriceLog(),
-  cfg: over = {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), models = GUIDE_MODELS, agentModels = AGENT_MODELS, fallbackModel = FALLBACK_MODEL,
+  cfg: over = {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), models = GUIDE_MODELS, agentModels = AGENT_MODELS,
 } = {}) {
   const cfg = { ...GUIDE_CFG, ...over };
   const apiKey = env.GEMINI_API_KEY || '';
@@ -128,7 +146,6 @@ export function createGuide({
   const resultsOf = new Map(); // "market:round" -> score record
   const busy = new Set();     // agents with a request in flight
   const woulds = new Set();   // dry run: what was already announced
-  const cycleCandles = new Map(); // "cycle:coin" -> Promise of candles, shared by the three agents' requests
   let state = { asked: {}, day: { date: '', byModel: {} } }; // day: the counts since midnight Pacific (Google's reset), per model
   const hour = { key: '', byModel: {} };
   const recentBy = {};        // model -> start times of its last minute's requests
@@ -190,8 +207,8 @@ export function createGuide({
   }
   const record = (d, agent, extra) => ({ m: d.marketId, r: d.round, a: agent, market: d.market, coin: d.coin, frame: d.label, lock: d.lock, end: d.end, at: nowSec(), g: 1, ...extra });
   const skipRecord = (d, agent, why) => record(d, agent, { s: 'skipped', c: null, t: COULDNT_DECIDE, src: 'ai', model: null, why });
-  /** A call that could not be made. A round that is still open at the next cycle is simply asked again then (one request per cycle, never a loop); one that locks before that gets its "Couldn't decide this round". */
-  const giveUp = (list, agent, why) => saveCalls(list.filter((d) => d.lock - nowSec() < CYCLE_SECONDS + cfg.askAfter + cfg.minLeft).map((d) => skipRecord(d, agent, why)));
+  /** A call that could not be made. A round that is still open at the next cycle (a 30 minute or 1 hour round) is simply asked again then (one request per cycle, never a loop); one that locks before that gets its "Couldn't decide this round". */
+  const giveUp = (list, agent, why) => saveCalls(list.filter((d) => d.lock - nowSec() < CYCLE_SECONDS + cfg.minLeft).map((d) => skipRecord(d, agent, why)));
 
   // ---- counting Gemini requests, per model ----
   function rollDay() {
@@ -205,7 +222,7 @@ export function createGuide({
     if (hour.key === k) return;
     if (hour.key) {
       const near = Object.keys(models).filter((m) => (state.day.byModel[m] ?? 0) > models[m].dailyCap * 0.9);
-      log(`GUIDE Gemini requests: ${total(hour.byModel)} in the last hour (${counts(hour.byModel)}); today (Pacific day, Google's reset): ${counts(state.day.byModel)}; caps ${Object.entries(models).map(([m, l]) => `${m} ${l.dailyCap}`).join(', ')}; expected about ${cfg.expectedPerDayEach} a day on each agent's own model${near.length ? ` - NEAR THE DAILY CAP: ${near.join(', ')}` : ''}`);
+      log(`GUIDE Gemini requests: ${total(hour.byModel)} in the last hour (${counts(hour.byModel)}); today (Pacific day, Google's reset): ${counts(state.day.byModel)}; caps ${Object.entries(models).map(([m, l]) => `${m} ${l.dailyCap}`).join(', ')}; expected a day: ${Object.entries(expectedPerDay(agentModels)).map(([m, n]) => `${m} ${n}`).join(', ')}${near.length ? ` - NEAR THE DAILY CAP: ${near.join(', ')}` : ''}`);
     }
     hour.key = k; hour.byModel = {};
   }
@@ -239,81 +256,60 @@ export function createGuide({
   }
 
   // ---- the three AI agents ----
-  async function candlesFor(cycle, coin) {
-    const k = `${cycle}:${coin}`;
-    if (!cycleCandles.has(k)) {
-      for (const old of cycleCandles.keys()) if (!old.startsWith(`${cycle}:`)) cycleCandles.delete(old);
-      cycleCandles.set(k, Promise.resolve().then(() => getCandles(coin)));
-    }
-    return cycleCandles.get(k);
-  }
-
-  async function runAgent(agent, entries, cycle) {
-    const startedAt = now();
+  async function runAgent(agent, entries) {
     const asked = [];
     const coins = [];
     const byCoin = new Map();
     for (const d of entries) byCoin.set(d.coin, [...(byCoin.get(d.coin) ?? []), d]);
     for (const [coin, group] of byCoin) {
       let candles = null;
-      try { candles = await candlesFor(cycle, coin); } catch { /* no candles */ }
+      try { candles = await getCandles(coin); } catch { /* no candles */ }
       if (!candles || candles.length < MIN_CANDLES) { giveUp(group, agent, 'no chart data'); log(`GUIDE ${agent} ${coin}: no chart data, so no call this round`); continue; }
-      coins.push({ coin, candles, frames: group.map((d) => ({ label: d.label, roundSeconds: d.roundSeconds, secondsToLock: d.lock - nowSec() })) });
+      coins.push({ coin, candles, frames: group.map((d) => ({ label: d.ask ?? d.label, roundSeconds: d.roundSeconds, secondsToLock: d.lock - nowSec(), opensIn: d.opensIn })) });
       asked.push(...group);
     }
     if (asked.length === 0) return;
-    const keys = asked.map((d) => ({ coin: d.short, frame: d.label }));
+    const keys = asked.map((d) => ({ coin: d.short, frame: d.ask ?? d.label }));
     const deadline = Math.min(...asked.map((d) => d.lock)) * 1000 - 10_000; // an answer is useless once the first of these rounds locks
-    // the agent's own model first; when it is at its daily cap, is paused, or answers with a limit or quota error (or does not exist), the fallback model
-    let out = null;
-    for (const model of [...new Set([agentModels[agent], fallbackModel])]) {
-      const lim = models[model];
-      const why = reserve(model);
-      if (why) { log(`GUIDE ${agent}: ${model} not used (${why})`); continue; }
-      const { system, user } = buildGuidePrompt({ agent, coins, compact: lim.plain });
-      // a Gemma request, the fallback included, never runs past its timeout counted from the start of this agent's work (and never past the round's lock)
-      const until = lim.plain ? Math.min(deadline, startedAt + lim.timeoutMs) : deadline;
-      out = await askFn({
-        apiKey, model, plain: lim.plain, system, user, deadline: until, retryOn429: false, maxAttempts: lim.maxAttempts, beforeRetry: () => reserve(model) === null,
-        timeoutMs: lim.timeoutMs, fallbackTimeoutMs: 8_000,
-        schema: guideSchema(keys), parse: (text) => parseGuide(text, keys), maxOutputTokens: lim.plain ? 600 + 120 * keys.length : 300 + 90 * keys.length, sleep,
-      });
-      if (out.ok) break;
-      log(`GUIDE ${agent}: no answer from ${model} (${out.error}, ${out.attempts} tries, took ${secs(out.latencyMs)})`);
-      if (lim.plain && out.error === 'timed out') log(`GUIDE ${agent}: ${model} timed out after ${secs(out.latencyMs)}; ${out.partial ? `first 200 characters that came back: ${JSON.stringify(String(out.partial).split(apiKey || ' ').join('***').slice(0, 200))}` : 'nothing had come back'}`);
-      if (out.error === 'HTTP 429') { // a limit or quota answer: never retried, and this model rests for a while
-        quotaUntil[model] = now() + cfg.quotaPauseMs;
-        log(`GUIDE: ${model} says too many requests (a limit or quota). Not asking it again until ${hhmm(quotaUntil[model])} UTC${model !== fallbackModel ? `; ${agent} tries ${fallbackModel}` : ''}`);
-        continue;
-      }
-      if (out.error === 'HTTP 404') { // no such model: the name in GUIDE_MODELS is wrong
-        quotaUntil[model] = now() + 3_600_000;
-        log(`GUIDE: ${model} was not found (HTTP 404): check its name in GUIDE_MODELS (runner/guide.mjs). Not asking it again for an hour`);
-        continue;
-      }
-      break; // any other failure (timeout, server error, an answer that is not the JSON): these calls are skipped, nothing is tried in a loop
-    }
-    if (!out?.ok) {
-      log(`GUIDE ${agent}: no answer, so these ${asked.length} calls are skipped`);
-      giveUp(asked, agent, out?.error ?? 'no model available');
+    const model = agentModels[agent];
+    const lim = models[model];
+    const why = reserve(model);
+    if (why) { // at its daily cap or resting after a limit answer: this agent's calls for the cycle are skipped, there is no other model
+      log(`GUIDE ${agent}: ${model} not used (${why}); its ${asked.length} calls this cycle are skipped`);
+      giveUp(asked, agent, why);
       return;
     }
-    let made = 0, missing = 0;
+    const { system, user } = buildGuidePrompt({ agent, coins });
+    const out = await askFn({
+      apiKey, model, system, user, deadline, retryOn429: false, maxAttempts: lim.maxAttempts, beforeRetry: () => reserve(model) === null,
+      timeoutMs: lim.timeoutMs, fallbackTimeoutMs: 8_000,
+      schema: guideSchema(keys), parse: (text) => parseGuide(text, keys), maxOutputTokens: 300 + 90 * keys.length, sleep,
+    });
+    if (!out.ok) {
+      log(`GUIDE ${agent}: no answer from ${model} (${out.error}, ${out.attempts} tries, took ${secs(out.latencyMs)}), so these ${asked.length} calls are skipped`);
+      if (out.error === 'HTTP 429') { // a limit or quota answer: never retried, and this model rests for a while
+        quotaUntil[model] = now() + cfg.quotaPauseMs;
+        log(`GUIDE: ${model} says too many requests (a limit or quota). Not asking it again until ${hhmm(quotaUntil[model])} UTC`);
+      }
+      giveUp(asked, agent, out.error); // any failure: skipped now, nothing is tried in a loop
+      return;
+    }
+    let missing = 0;
     const recs = asked.map((d) => {
-      const v = out.value[`${d.short}:${d.label}`];
+      const v = out.value[`${d.short}:${d.ask ?? d.label}`];
       if (!v) { missing++; return null; }
       return record(d, agent, { s: 'called', c: v.call, t: v.reason, src: 'ai', model: out.model });
     });
     giveUp(asked.filter((d, i) => !recs[i]), agent, 'missing from the answer');
-    made = saveCalls(recs.filter(Boolean));
+    const made = saveCalls(recs.filter(Boolean));
     const lines = recs.filter(Boolean).map((r) => `         ${r.market} round ${r.r}: ${r.c} "${r.t}"`);
     log(`GUIDE ${agent}: ${made} calls saved for ${asked.length} rounds (${out.model}, ${out.tokensIn} in / ${out.tokensOut} out tokens, took ${secs(out.latencyMs)}${missing ? `, ${missing} missing` : ''})\n${lines.join('\n')}`);
   }
 
   function startAI(agent, entries, cycle) {
     state.asked[agent] = cycle; // one request per agent per cycle, even when it fails: nothing is asked again in a loop
-    const labels = entries.map((d) => `${d.short} ${d.label}`).join(', ');
-    if (!live) { log(`WOULD ask ${agentModels[agent]} for ${agent} (fallback ${fallbackModel}): ${entries.length} calls (${labels}), one request`); return; }
+    const labels = entries.map((d) => `${d.short} ${d.ask ?? d.label}`).join(', ');
+    if (!live) { log(`WOULD ask ${agentModels[agent]} for ${agent}: ${entries.length} calls (${labels}), one request`); return; }
     saveState();
     if (!apiKey) {
       if (!warnedNoKey) { warnedNoKey = true; log('GUIDE: GEMINI_API_KEY is not set in .env, so the three AI agents make no guide calls ("Couldn\'t decide this round").'); }
@@ -321,7 +317,7 @@ export function createGuide({
       return;
     }
     busy.add(agent);
-    runAgent(agent, entries, cycle)
+    runAgent(agent, entries)
       .catch((e) => log(`GUIDE ${agent}: unexpected error (${String(e.message).slice(0, 80)})`))
       .finally(() => busy.delete(agent));
   }
@@ -429,27 +425,32 @@ export function createGuide({
       const t = nowSec();
       const due = dueRounds(markets, t, cfg.flipMinLeft);
       flipperCalls(due);
+      // the AI agents: once every 10 minutes each, at its own offset
       const cycle = Math.floor(t / CYCLE_SECONDS);
-      if (t >= cycle * CYCLE_SECONDS + cfg.askAfter) {
-        const aiDue = due.filter((d) => d.secondsToLock >= cfg.minLeft);
-        for (const agent of GUIDE_AI_AGENTS) {
-          if (state.asked[agent] === cycle || busy.has(agent)) continue;
-          const entries = aiDue.filter((d) => !calls.has(callField(d.marketId, d.round, agent)));
-          if (entries.length) startAI(agent, entries, cycle);
-        }
+      let wanted = null;
+      for (const agent of GUIDE_AI_AGENTS) {
+        if (t < cycle * CYCLE_SECONDS + ASK_OFFSETS[agent] || state.asked[agent] === cycle || busy.has(agent)) continue;
+        wanted ??= [...dueRounds(markets, t, cfg.minLeft), ...laterRounds(markets, t)];
+        const entries = wanted.filter((d) => !calls.has(callField(d.marketId, d.round, agent)));
+        if (entries.length) startAI(agent, entries, cycle);
       }
       if (live && !scoring) {
         scoring = true;
         scoreOnce().catch((e) => log(`GUIDE: scoring problem (${String(e.message).slice(0, 80)})`)).then(prune).finally(() => { scoring = false; });
       }
     },
-    /** Seconds until the AI agents are due next (the start of the next 5-minute cycle plus askAfter), so the runner looks then and not up to 10 s later. */
+    /** Seconds until the next AI agent is due (its offset after the next 10-minute mark), so the runner looks then and not up to 10 s later. */
     nextWake() {
       const t = now() / 1000;
-      const thisAsk = Math.floor(t / CYCLE_SECONDS) * CYCLE_SECONDS + cfg.askAfter;
-      return Math.max(1, Math.ceil((t >= thisAsk ? thisAsk + CYCLE_SECONDS : thisAsk) - t));
+      const cycleStart = Math.floor(t / CYCLE_SECONDS) * CYCLE_SECONDS;
+      let next = Infinity;
+      for (const agent of GUIDE_AI_AGENTS) {
+        const at = cycleStart + ASK_OFFSETS[agent];
+        next = Math.min(next, t < at ? at : at + CYCLE_SECONDS);
+      }
+      return Math.max(1, Math.ceil(next - t));
     },
     /** For the log: today's request count. */
-    summary() { rollDay(); return `GUIDE today (Pacific day): ${counts(state.day.byModel)} (expected about ${cfg.expectedPerDayEach} a day on each agent's own model)`; },
+    summary() { rollDay(); return `GUIDE today (Pacific day): ${counts(state.day.byModel)} (expected a day: ${Object.entries(expectedPerDay(agentModels)).map(([m, n]) => `${m} ${n}`).join(', ')})`; },
   };
 }
