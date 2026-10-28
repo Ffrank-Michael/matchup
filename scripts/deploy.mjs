@@ -95,13 +95,15 @@ const guardAbi = [
 /** Reads Chainlink's proxy for a coin on mainnet and returns the problems (empty = a fit guard). */
 async function readGuardProblems(coin, address) {
   const now = Number((await pub.getBlock()).timestamp);
+  const code = await pub.getCode({ address });
+  if (!code || code === '0x') return { found: null, problems: [`there is no contract at ${address} on ${chain.name}`], ageSeconds: null };
   const [description, decimals, round] = await Promise.all([
     pub.readContract({ address, abi: guardAbi, functionName: 'description' }),
     pub.readContract({ address, abi: guardAbi, functionName: 'decimals' }),
     pub.readContract({ address, abi: guardAbi, functionName: 'latestRoundData' }),
   ]);
   const found = { description, decimals, answer: round[1], updatedAt: Number(round[3]) };
-  return { found, problems: judgeGuard(found, coin, now), ageHours: ((now - found.updatedAt) / 3600).toFixed(1) };
+  return { found, problems: judgeGuard(found, coin, now), ageSeconds: now - found.updatedAt };
 }
 
 // Gas of createMarket, MEASURED on the testnet arena: the highest of the createMarket receipts listed in deployments/arc-testnet.json
@@ -185,14 +187,21 @@ async function main() {
   // ---------- guards (mainnet: Chainlink must be what we think it is, before anything is sent) ----------
   if (MAINNET) {
     step('Check Chainlink on Arc mainnet (reads only)');
-    let bad = 0;
+    const rows = [];
     for (const coin of COIN_KEYS) {
-      const { found, problems: p, ageHours } = await readGuardProblems(coin, getAddress(CHAINLINK_MAINNET[coin].toLowerCase()));
-      console.log(`  ${p.length ? 'FAIL' : 'OK  '} ${COINS[coin].pair} proxy ${CHAINLINK_MAINNET[coin]}: "${found.description}", ${found.decimals} decimals, answer ${(Number(found.answer) / 1e8).toLocaleString('en-US')} USD, ${ageHours} h old`);
-      for (const x of p) console.log(`         - ${x}`);
-      bad += p.length;
+      const address = getAddress(CHAINLINK_MAINNET[coin].toLowerCase());
+      const { found, problems: p, ageSeconds } = await readGuardProblems(coin, address);
+      rows.push({ coin: coin.toUpperCase(), address, found, ageSeconds, problems: p });
     }
-    if (bad) fail('Chainlink does not look right on Arc mainnet. Nothing was deployed.');
+    const cell = (v) => (v === null || v === undefined ? '-' : String(v));
+    console.log(`  ${'coin'.padEnd(5)}${'guard address'.padEnd(44)}${'description'.padEnd(12)}${'decimals'.padEnd(9)}${'latest answer'.padEnd(20)}${'age (s)'.padEnd(9)}result`);
+    for (const r of rows) {
+      const answer = r.found ? `${(Number(r.found.answer) / 10 ** Number(r.found.decimals)).toLocaleString('en-US')} USD` : null;
+      console.log(`  ${r.coin.padEnd(5)}${r.address.padEnd(44)}${cell(r.found?.description).padEnd(12)}${cell(r.found?.decimals).padEnd(9)}${cell(answer).padEnd(20)}${cell(r.ageSeconds).padEnd(9)}${r.problems.length ? 'FAIL' : 'OK'}`);
+    }
+    const failed = rows.filter((r) => r.problems.length);
+    for (const r of failed) for (const x of r.problems) console.log(`  ${r.coin}: ${x}`);
+    if (failed.length) fail(`The Chainlink guard check failed for ${failed.map((r) => r.coin).join(', ')}. Nothing was sent.`);
   }
 
   // ---------- dry run ----------
