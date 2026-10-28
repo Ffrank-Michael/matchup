@@ -276,49 +276,49 @@ const tick1 = async (t) => { t.g.tick(t.snap); await settle(); };
 const nextCycle = (t, n = 1) => { t.clock.ms = (T0 + 300 * n + 3) * 1000; return { markets: markets().map((m) => ({ ...m, nextRound: m.nextRound + n * (m.roundLength === 300 ? 1 : 0.5) })) }; };
 const modelsOf = (t) => t.asks.map((a) => a.model).sort();
 
-test('each AI agent has its own model: Chart Reader gemini-3.5-flash-lite, Contrarian gemini-3.1-flash-lite, Trend Follower gemma-4-26b', async () => {
-  assert.deepEqual(AGENT_MODELS, { 'chart-reader': 'gemini-3.5-flash-lite', contrarian: 'gemini-3.1-flash-lite', 'trend-follower': 'gemma-4-26b' });
-  assert.equal(FALLBACK_MODEL, 'gemma-4-31b');
+test('each AI agent has its own model: Chart Reader gemini-3.5-flash-lite, Contrarian gemini-3.1-flash-lite, Trend Follower gemma-4-26b-a4b-it', async () => {
+  assert.deepEqual(AGENT_MODELS, { 'chart-reader': 'gemini-3.5-flash-lite', contrarian: 'gemini-3.1-flash-lite', 'trend-follower': 'gemma-4-26b-a4b-it' });
+  assert.equal(FALLBACK_MODEL, 'gemma-4-31b-it');
   assert.equal(new Set(Object.values(AGENT_MODELS)).size, 3, 'no two agents share a model');
-  assert.deepEqual([GUIDE_MODELS['gemini-3.5-flash-lite'].dailyCap, GUIDE_MODELS['gemini-3.1-flash-lite'].dailyCap, GUIDE_MODELS['gemma-4-26b'].dailyCap, GUIDE_MODELS['gemma-4-31b'].dailyCap], [450, 450, 5000, 5000]);
+  assert.deepEqual([GUIDE_MODELS['gemini-3.5-flash-lite'].dailyCap, GUIDE_MODELS['gemini-3.1-flash-lite'].dailyCap, GUIDE_MODELS['gemma-4-26b-a4b-it'].dailyCap, GUIDE_MODELS['gemma-4-31b-it'].dailyCap], [450, 450, 5000, 5000]);
   const t = setup();
   await tick1(t);
   assert.equal(t.asks.length, 3, 'one request per agent, covering every coin and time frame');
   const by = Object.fromEntries(t.asks.map((a) => [a.model, a]));
-  assert.deepEqual(Object.keys(by).sort(), ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemma-4-26b']);
+  assert.deepEqual(Object.keys(by).sort(), ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemma-4-26b-a4b-it']);
   for (const a of t.asks) {
     assert.equal(a.retryOn429, false);
     assert.equal(a.schema.properties.calls.minItems, 6, '3 coins x 5m, plus 10m for the three coins');
     for (const coin of ['BTC', 'ETH', 'SOL']) assert.match(a.user, new RegExp(`Coin: ${coin}\\.`));
   }
-  assert.equal(by['gemma-4-26b'].plain, true);
-  assert.equal(by['gemma-4-26b'].maxAttempts, 1, 'no second Gemma request within the minute');
+  assert.equal(by['gemma-4-26b-a4b-it'].plain, true);
+  assert.equal(by['gemma-4-26b-a4b-it'].maxAttempts, 1, 'no second Gemma request within the minute');
   assert.equal(by['gemini-3.5-flash-lite'].plain, false);
   assert.equal(by['gemini-3.5-flash-lite'].maxAttempts, 2);
   // every agent has a call on every one of the six open rounds, saved before its round locks, with the model that made it
   assert.equal(t.g.calls.size, 4 * 6);
   for (const rec of t.g.calls.values()) { assert.ok(rec.at < rec.lock); assert.equal(rec.s, 'called'); }
-  assert.equal(t.g.calls.get(callField(0, markets()[0].nextRound, 'trend-follower')).model, 'gemma-4-26b');
+  assert.equal(t.g.calls.get(callField(0, markets()[0].nextRound, 'trend-follower')).model, 'gemma-4-26b-a4b-it');
   assert.equal(t.g.calls.get(callField(0, markets()[0].nextRound, 'chart-reader')).model, 'gemini-3.5-flash-lite');
   const flip = t.g.calls.get(callField(0, markets()[0].nextRound, 'coin-flipper'));
   assert.equal(flip.src, 'random');
   assert.equal(flip.c, 'UP');
 });
 
-test('a model that answers with a limit or quota error is not retried: the agent uses gemma-4-31b for that call', async () => {
+test('a model that answers with a limit or quota error is not retried: the agent uses gemma-4-31b-it for that call', async () => {
   const t = setup({ askFn: async (args) => { t.asks.push(args); return args.model === 'gemini-3.5-flash-lite' ? { ok: false, error: 'HTTP 429', attempts: 1, latencyMs: 3, model: args.model } : answerFor(args); } });
   await tick1(t);
-  assert.deepEqual(modelsOf(t), ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemma-4-26b', 'gemma-4-31b'], 'one try on the limited model, one on the fallback');
+  assert.deepEqual(modelsOf(t), ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemma-4-26b-a4b-it', 'gemma-4-31b-it'], 'one try on the limited model, one on the fallback');
   const rec = t.g.calls.get(callField(0, markets()[0].nextRound, 'chart-reader'));
   assert.equal(rec.s, 'called');
-  assert.equal(rec.model, 'gemma-4-31b');
-  assert.ok(t.logs.some((l) => /gemini-3\.5-flash-lite says too many requests/.test(l) && /chart-reader tries gemma-4-31b/.test(l)));
+  assert.equal(rec.model, 'gemma-4-31b-it');
+  assert.ok(t.logs.some((l) => /gemini-3\.5-flash-lite says too many requests/.test(l) && /chart-reader tries gemma-4-31b-it/.test(l)));
   // the limited model rests: next cycle Chart Reader goes straight to the fallback
   const before = t.asks.length;
   t.clock.ms += 61_000; // the fallback model's one-request-a-minute is free again
   t.g.tick(nextCycle(t)); await settle();
   assert.equal(t.asks.slice(before).filter((a) => a.model === 'gemini-3.5-flash-lite').length, 0, 'not asked again while it rests');
-  assert.equal(t.asks.slice(before).filter((a) => a.model === 'gemma-4-31b').length, 1);
+  assert.equal(t.asks.slice(before).filter((a) => a.model === 'gemma-4-31b-it').length, 1);
 });
 
 test('a limit answer from every model: the calls are skipped, nothing is retried in a loop, the runner is not affected', async () => {
@@ -326,7 +326,7 @@ test('a limit answer from every model: the calls are skipped, nothing is retried
   const t = setup({ askFn: async (args) => { asked++; t.asks.push(args); return { ok: false, error: 'HTTP 429', attempts: 1, latencyMs: 3, model: args.model }; } });
   assert.doesNotThrow(() => t.g.tick(t.snap));
   await settle();
-  // trend-follower: gemma-4-26b then gemma-4-31b; the other two find gemma-4-31b already used this minute: 4 requests in all
+  // trend-follower: gemma-4-26b-a4b-it then gemma-4-31b-it; the other two find gemma-4-31b-it already used this minute: 4 requests in all
   assert.equal(asked, 4);
   const skipped = [...t.g.calls.values()].filter((r) => r.s === 'skipped' && r.a !== 'coin-flipper');
   assert.ok(skipped.length > 0);
@@ -340,10 +340,10 @@ test('a limit answer from every model: the calls are skipped, nothing is retried
 });
 
 test('a model that does not exist (HTTP 404) is skipped for an hour and the fallback answers', async () => {
-  const t = setup({ askFn: async (args) => { t.asks.push(args); return args.model === 'gemma-4-26b' ? { ok: false, error: 'HTTP 404', attempts: 1, latencyMs: 3, model: args.model } : answerFor(args); } });
+  const t = setup({ askFn: async (args) => { t.asks.push(args); return args.model === 'gemma-4-26b-a4b-it' ? { ok: false, error: 'HTTP 404', attempts: 1, latencyMs: 3, model: args.model } : answerFor(args); } });
   await tick1(t);
-  assert.ok(t.logs.some((l) => /gemma-4-26b was not found \(HTTP 404\)/.test(l)));
-  assert.equal(t.g.calls.get(callField(0, markets()[0].nextRound, 'trend-follower')).model, 'gemma-4-31b');
+  assert.ok(t.logs.some((l) => /gemma-4-26b-a4b-it was not found \(HTTP 404\)/.test(l)));
+  assert.equal(t.g.calls.get(callField(0, markets()[0].nextRound, 'trend-follower')).model, 'gemma-4-31b-it');
 });
 
 test('any other failure skips those calls once and carries on: no fallback, no retry loop', async () => {
@@ -355,7 +355,7 @@ test('any other failure skips those calls once and carries on: no fallback, no r
   assert.equal([...t.g.calls.values()].filter((r) => r.a === 'coin-flipper' && r.s === 'called').length, 6, 'Coin Flipper does not need Gemini');
 });
 
-test("a model at its daily cap is not asked: the agent uses gemma-4-31b; the day follows Google's reset (midnight Pacific)", async () => {
+test("a model at its daily cap is not asked: the agent uses gemma-4-31b-it; the day follows Google's reset (midnight Pacific)", async () => {
   const models = { ...GUIDE_MODELS, 'gemini-3.5-flash-lite': { ...GUIDE_MODELS['gemini-3.5-flash-lite'], dailyCap: 1 } };
   const t = setup({ models });
   await tick1(t);
@@ -363,7 +363,7 @@ test("a model at its daily cap is not asked: the agent uses gemma-4-31b; the day
   t.g.tick(nextCycle(t)); await settle();
   const second = t.asks.slice(3);
   assert.equal(second.filter((a) => a.model === 'gemini-3.5-flash-lite').length, 0, 'cap of 1 reached');
-  assert.equal(second.filter((a) => a.model === 'gemma-4-31b').length, 1, 'Chart Reader fell back');
+  assert.equal(second.filter((a) => a.model === 'gemma-4-31b-it').length, 1, 'Chart Reader fell back');
   assert.ok(t.logs.some((l) => /chart-reader: gemini-3\.5-flash-lite not used \(daily cap 1 reached\)/.test(l)));
   // midnight Pacific is 07:00 UTC in summer and 08:00 UTC in winter
   assert.equal(limitDay(Date.UTC(2026, 9, 28, 6, 59)), '2026-10-27');
@@ -372,12 +372,12 @@ test("a model at its daily cap is not asked: the agent uses gemma-4-31b; the day
   assert.equal(limitDay(Date.UTC(2026, 0, 15, 8, 1)), '2026-01-15');
 });
 
-test('Gemma gets one request a minute per model: with both flash-lite models at their cap only one agent reaches gemma-4-31b', async () => {
+test('Gemma gets one request a minute per model: with both flash-lite models at their cap only one agent reaches gemma-4-31b-it', async () => {
   const cap0 = (m) => ({ ...GUIDE_MODELS[m], dailyCap: 0 });
   const t = setup({ models: { ...GUIDE_MODELS, 'gemini-3.5-flash-lite': cap0('gemini-3.5-flash-lite'), 'gemini-3.1-flash-lite': cap0('gemini-3.1-flash-lite') } });
   await tick1(t);
-  assert.deepEqual(modelsOf(t), ['gemma-4-26b', 'gemma-4-31b']);
-  assert.ok(t.logs.some((l) => /gemma-4-31b not used \(1 a minute reached\)/.test(l)));
+  assert.deepEqual(modelsOf(t), ['gemma-4-26b-a4b-it', 'gemma-4-31b-it']);
+  assert.ok(t.logs.some((l) => /gemma-4-31b-it not used \(1 a minute reached\)/.test(l)));
   const skip = [...t.g.calls.values()].filter((r) => r.s === 'skipped' && r.a !== 'coin-flipper');
   assert.ok(skip.length > 0, "the agent that found no model shows Couldn't decide this round");
 });
@@ -388,9 +388,9 @@ test('the hourly line counts the requests per model and gives the expected daily
   t.clock.ms += 3600_000;
   t.g.tick(t.snap); await settle();
   const line = t.logs.find((l) => l.startsWith('GUIDE Gemini requests:'));
-  assert.match(line, /3 in the last hour \(gemini-3\.5-flash-lite 1, gemini-3\.1-flash-lite 1, gemma-4-26b 1, gemma-4-31b 0\)/);
+  assert.match(line, /3 in the last hour \(gemini-3\.5-flash-lite 1, gemini-3\.1-flash-lite 1, gemma-4-26b-a4b-it 1, gemma-4-31b-it 0\)/);
   assert.match(line, /today \(Pacific day/);
-  assert.match(line, /caps gemini-3\.5-flash-lite 450, gemini-3\.1-flash-lite 450, gemma-4-26b 5000, gemma-4-31b 5000/);
+  assert.match(line, /caps gemini-3\.5-flash-lite 450, gemini-3\.1-flash-lite 450, gemma-4-26b-a4b-it 5000, gemma-4-31b-it 5000/);
   assert.match(line, /expected about 288 a day/);
   assert.equal(GUIDE_CFG.expectedPerDayEach, 288);
 });
@@ -405,17 +405,17 @@ test('a missing key means no request and no crash', async () => {
 
 // ------------------------------------------------------------------------------------------------ Gemma: plain request, short prompt, plain answer
 
-test('askGemini plain (Gemma): no system instruction, no JSON mode, no thinking setting; the system text goes in front of the user text', async () => {
+test('askGemini plain (Gemma): the system instruction is sent as system_instruction, but no JSON mode and no thinking setting', async () => {
   let body;
   const fetchFn = async (url, init) => { body = JSON.parse(init.body); return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'hidden thought', thought: true }, { text: '{"x":1}' }] } }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 } }) }; };
-  const out = await askGemini({ apiKey: 'k', model: 'gemma-4-26b', system: 'SYS', user: 'USER', schema: {}, parse: (t) => JSON.parse(t), fetchFn, plain: true });
+  const out = await askGemini({ apiKey: 'k', model: 'gemma-4-26b-a4b-it', system: 'SYS', user: 'USER', schema: {}, parse: (t) => JSON.parse(t), fetchFn, plain: true });
   assert.equal(out.ok, true);
   assert.deepEqual(out.value, { x: 1 }, 'thought text is left out');
-  assert.equal(body.systemInstruction, undefined);
+  assert.deepEqual(body.systemInstruction, { parts: [{ text: 'SYS' }] });
   assert.equal(body.generationConfig.responseMimeType, undefined);
   assert.equal(body.generationConfig.responseSchema, undefined);
   assert.equal(body.generationConfig.thinkingConfig, undefined);
-  assert.equal(body.contents[0].parts[0].text, 'SYS\n\nUSER');
+  assert.equal(body.contents[0].parts[0].text, 'USER');
 });
 
 test('Gemma prompt: a full 12-call request is over 12K tokens in the normal prompt and under it in the short one', () => {

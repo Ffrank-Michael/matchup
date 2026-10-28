@@ -40,17 +40,17 @@ export const GUIDE_AI_AGENTS = ['trend-follower', 'contrarian', 'chart-reader'];
 // WHICH MODEL EACH AGENT USES, AND THE LIMITS OF EACH MODEL: the one place to read or change them. Each agent has its own model so that
 // no model gets more than one agent's requests (about 288 a day each). The limits are Google AI Studio's free-tier limits for our key;
 // dailyCap is kept below Google's own daily limit, perMinute is our own ceiling per model.
-//   plain: Gemma takes no system instruction, no JSON mode and no thinking setting, and only 16K input tokens a minute: its prompt is the shorter one
+//   plain: Gemma takes the system instruction but no JSON mode and no thinking setting, and only 16K input tokens a minute: its prompt is the shorter one
 //   (agents/ai.mjs buildGuidePrompt compact) and its answer is plain text. Gemma gets one request a minute per model and no second try, for the same reason.
 export const GUIDE_MODELS = {
   'gemini-3.5-flash-lite': { dailyCap: 450, perMinute: 10, plain: false, timeoutMs: 16_000, maxAttempts: 2 }, // Google: 500 a day, 15 a minute
   'gemini-3.1-flash-lite': { dailyCap: 450, perMinute: 10, plain: false, timeoutMs: 16_000, maxAttempts: 2 }, // Google: 500 a day, 15 a minute
-  'gemma-4-26b': { dailyCap: 5000, perMinute: 1, plain: true, timeoutMs: 30_000, maxAttempts: 1 },            // Google: 14400 a day, 30 a minute, 16K input tokens a minute
-  'gemma-4-31b': { dailyCap: 5000, perMinute: 1, plain: true, timeoutMs: 30_000, maxAttempts: 1 },            // Google: 14400 a day, 30 a minute, 16K input tokens a minute
+  'gemma-4-26b-a4b-it': { dailyCap: 5000, perMinute: 1, plain: true, timeoutMs: 30_000, maxAttempts: 1 },            // Google: 14400 a day, 30 a minute, 16K input tokens a minute
+  'gemma-4-31b-it': { dailyCap: 5000, perMinute: 1, plain: true, timeoutMs: 30_000, maxAttempts: 1 },            // Google: 14400 a day, 30 a minute, 16K input tokens a minute
 };
-export const AGENT_MODELS = { 'chart-reader': 'gemini-3.5-flash-lite', contrarian: 'gemini-3.1-flash-lite', 'trend-follower': 'gemma-4-26b' };
+export const AGENT_MODELS = { 'chart-reader': 'gemini-3.5-flash-lite', contrarian: 'gemini-3.1-flash-lite', 'trend-follower': 'gemma-4-26b-a4b-it' };
 /** Used for an agent whose own model is at its daily cap or answers with a limit or quota error (or does not exist). */
-export const FALLBACK_MODEL = 'gemma-4-31b';
+export const FALLBACK_MODEL = 'gemma-4-31b-it';
 /** Google resets the daily limits at midnight Pacific time: the counters follow that day. */
 export const limitDay = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(ms);
 export const GUIDE_FILE = path.join(ROOT, 'data', 'guide-calls-mainnet.jsonl');

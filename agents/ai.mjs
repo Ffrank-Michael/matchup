@@ -161,8 +161,8 @@ const MIN_TRY_MS = 2_000; // a try needs at least this long to be worth starting
  * `schema` is the answer's shape and `parse(text)` turns the answer's text into a value (or null when it is not what was asked for).
  * Returns { ok: true, value, tokensIn, tokensOut, latencyMs, attempts, model } or { ok: false, error, latencyMs, attempts, model }
  * (model: the one that answered, or the last one tried).
- * `plain` is for Gemma models: they take no system instruction, no JSON mode and no thinking setting, so the system text goes in front of the
- * user text and the answer is plain text that `parse` must pick the JSON out of.
+ * `plain` is for Gemma models: they take the system instruction but no JSON mode (no response schema) and no thinking setting, so the answer is
+ * plain text that `parse` must pick the JSON out of.
  * Error texts are fixed short phrases: they never contain the key or the web address.
  */
 export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, schema, parse, maxOutputTokens = 1500, fetchFn = fetch, timeoutMs = 16_000, fallbackTimeoutMs = 8_000, retryDelayMs = 1_000, maxAttempts = 3, retryOn429 = true, plain = false, fallbackModel = null, deadline = Infinity, beforeRetry = () => true, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
@@ -186,7 +186,7 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
     sameModelAgain = false;
     const useThinkingOff = !plain && !noThinking.has(m);
     const body = plain
-      ? { contents: [{ role: 'user', parts: [{ text: `${system}\n\n${user}` }] }], generationConfig: { temperature: 0.4, maxOutputTokens } }
+      ? { systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts: [{ text: user }] }], generationConfig: { temperature: 0.4, maxOutputTokens } }
       : {
           systemInstruction: { parts: [{ text: system }] },
           contents: [{ role: 'user', parts: [{ text: user }] }],
