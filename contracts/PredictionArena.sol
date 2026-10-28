@@ -50,9 +50,9 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     //  Constants
     // =========================================================
 
-    /// @notice Fee taken from the LOSING side's total (2 %).
-    ///         E.g. if DOWN bettors lose 1000 USDC, 20 USDC goes
-    ///         to feesAccrued and 980 USDC is shared among UP winners.
+    /// @notice Fee taken from the MATCHED pool, min(UP total, DOWN total) (2 %).
+    ///         E.g. if 1000 USDC is matched on each side, 20 USDC goes
+    ///         to feesAccrued and 980 USDC is shared among the winners.
     uint256 public constant FEE_BPS = 200;
 
     /// @notice Basis-point denominator (10 000 = 100 %).
@@ -440,9 +440,9 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     ///                               When this reaches winnerSideTotal, winner-dust
     ///                               (Dist - sum_bonuses) moves to fees.
     ///         bonusPaid           – cumulative winner bonus already paid.
-    ///         loserMatchedClaimed – cumulative loser-side matched stake (floor).
+    ///         loserMatchedClaimed – cumulative loser-side matched stake (rounded up).
     ///                               When loserStakeClaimed reaches loserSideTotal,
-    ///                               loser-dust (M - loserMatchedClaimed) moves to fees.
+    ///                               loser-dust (loserMatchedClaimed - M) moves to fees.
     ///         loserStakeClaimed   – cumulative loser-side stake already claimed
     ///                               (used to detect the last loser for dust sweep).
     struct PayoutProgress {
