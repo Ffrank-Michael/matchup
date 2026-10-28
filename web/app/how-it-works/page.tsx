@@ -176,7 +176,7 @@ export default function HowItWorks() {
             One-time permission:
           </span>{" "}
           the first time you call, your wallet asks you to let Kairo take your
-          call amount. It is a one-time permission (100 USDC unless you change
+          call amount. It is a one-time permission (50 USDC unless you change
           it), so your later calls need only one confirmation. You can remove it
           any time.
         </li>

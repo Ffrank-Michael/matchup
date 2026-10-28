@@ -6,7 +6,7 @@
  *
  * Flow (each step waits for its receipt before the next):
  *   1. checks, nothing sent, plain-words error if one fails
- *   2. if the allowance is below the amount: a one-time approval (100 USDC by default, the visitor can change it), so later
+ *   2. if the allowance is below the amount: a one-time approval (50 USDC by default, the visitor can change it), so later
  *      calls need one confirmation only; it can be removed at any time (useRevokeApproval)
  *   3. simulate placeBet (a revert reason shows before the wallet opens), then send it
  *   4. wait for the receipt, refresh the screens
@@ -35,10 +35,10 @@ export const BETA_LIMIT_USDC = 10;
 export const BETA_LIMIT_RAW = BigInt(BETA_LIMIT_USDC) * 1_000_000n;
 
 /** The one-time permission asked for before the first call (the visitor can change the amount). */
-export const DEFAULT_APPROVAL_USDC = 100;
+export const DEFAULT_APPROVAL_USDC = 50;
 
 /** The sentence shown BEFORE the permission is asked for. */
-export const APPROVAL_NOTICE = "One-time permission so Kairo can take your call amount. You can remove it any time.";
+export const APPROVAL_NOTICE = "Your wallet will ask you to approve once. This lets Kairo take only the amount of each call you make, never more than your limit (50 USDC). Nothing is taken until you make a call. If you switch it off, you can't make calls until you approve again.";
 
 /** Kept back for network fees (Arc pays fees in USDC). */
 export const GAS_RESERVE_RAW = 50_000n; // $0.05
@@ -64,7 +64,7 @@ export interface MakeCallParams {
   side: "UP" | "DOWN";
   /** Dollars as text, e.g. "1.50", at most 6 decimals */
   amountUsdc: string;
-  /** How much to allow in the one-time permission, in dollars as text. Default 100; never less than the call itself. */
+  /** How much to allow in the one-time permission, in dollars as text. Default 50; never less than the call itself. */
   approvalUsdc?: string;
 }
 
