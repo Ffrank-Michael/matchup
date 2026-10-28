@@ -55,7 +55,9 @@ export function AgentCard({
 }) {
   const call = live?.call ?? null;
   const last5 = live?.last5;
-  const guideBased = !!live?.guideRecent;
+  const guideBased = !!live?.guideRecent || !!live?.guide;
+  // a win rate from guide calls is shown once at least 3 calls have been scored: one or two calls say nothing
+  const enough = (live?.guideDecided ?? 0) >= 3 && live?.winRate !== undefined;
   return (
     <div
       className={cn(
@@ -100,11 +102,15 @@ export function AgentCard({
         )}
       >
         <Stat
-          label={guideBased ? `Win rate · last ${live?.guideDecided ?? 0} calls` : "Win rate · last hour"}
+          label={guideBased && enough ? `Win rate · last ${live?.guideDecided} calls` : guideBased ? "Win rate" : "Win rate · last hour"}
           value={
-            live?.winRate === undefined
-              ? NONE
-              : `${Math.round(live.winRate * 100)}%`
+            guideBased
+              ? enough
+                ? `${Math.round((live?.winRate ?? 0) * 100)}%`
+                : <span className="text-[12px] font-normal text-muted-foreground">Building history</span>
+              : live?.winRate === undefined
+                ? NONE
+                : `${Math.round(live.winRate * 100)}%`
           }
         />
         {guideBased ? null : <Stat
@@ -118,7 +124,7 @@ export function AgentCard({
         <div className={compact ? undefined : "col-span-2"}>
           <p className="text-[11px] text-muted-foreground">{guideBased ? "Last 5 calls on this market" : "Last 5 results"}</p>
           {guideBased ? (
-            <GuideRecent info={live} className="mt-1.5" />
+            live?.guideRecent ? <GuideRecent info={live} className="mt-1.5" /> : <p className="mt-1">{NONE}</p>
           ) : last5 ? (
             <ul
               className="mt-1.5 flex gap-2"

@@ -1,3 +1,7 @@
+"use client";
+
+import * as React from "react";
+
 import type { AgentLive } from "@/lib/agents";
 import { GUIDE_LABEL } from "@/lib/use-guide-calls";
 import { cn } from "@/lib/utils";
@@ -36,23 +40,50 @@ export function CallSource({ info, className }: { info?: AgentLive; className?: 
   );
 }
 
-/** An agent's last five guide calls on the selected market, newest first: the side, how it ended, and when it was made. */
+/** The streak marks, as before: one small round mark per call in a row, newest first. */
+const MARK = {
+  won: { mark: "✓", background: "oklch(0.8 0.16 155)", colour: "#0b0b0b" },
+  lost: { mark: "✕", background: "oklch(0.66 0.2 22)", colour: "#0b0b0b" },
+  none: { mark: "", background: "var(--color-muted-foreground)", colour: "transparent" },
+  pending: { mark: "", background: "var(--color-muted-foreground)", colour: "transparent" },
+} as const;
+
+/**
+ * An agent's last five guide calls on the selected market as a streak, newest first: a green check for a call that won, a red X for
+ * one that lost, a grey dot for one that is not over yet or had no result. Tap a mark (hover on a laptop) to see its call and when it was made.
+ * One label under the row says they are guide calls.
+ */
 export function GuideRecent({ info, className }: { info?: AgentLive; className?: string }) {
   const rows = info?.guideRecent;
+  const [open, setOpen] = React.useState<number | null>(null);
   if (!rows || rows.length === 0) return null;
+  const shown = rows.find((p) => p.round === open);
   return (
-    <ul className={cn("flex flex-col gap-1.5", className)} aria-label="Last five calls, newest first">
-      {rows.map((p) => (
-        <li key={p.round} className="text-[12px] leading-tight">
-          <p className="flex items-baseline gap-2">
-            <span className="w-[4.5rem] shrink-0 whitespace-nowrap font-mono font-semibold" style={{ color: p.call === "UP" ? "var(--color-up)" : "var(--color-down)" }}>
-              {p.call === "UP" ? "▲" : "▼"} {p.call}
-            </span>
-            <span className="font-medium" style={{ color: RESULT[p.res].colour }}>{RESULT[p.res].word}</span>
-          </p>
-          <p className="text-[11px] text-muted-foreground">{GUIDE_LABEL} · made {timeOf(p.at)}</p>
-        </li>
-      ))}
-    </ul>
+    <div className={className}>
+      <ul className="flex gap-2" aria-label="Last five calls, newest first">
+        {rows.map((p) => {
+          const m = MARK[p.res];
+          const text = `${p.call} · ${RESULT[p.res].word} · made ${timeOf(p.at)}`;
+          return (
+            <li key={p.round}>
+              <button
+                type="button"
+                title={text}
+                aria-label={text}
+                aria-pressed={open === p.round}
+                onClick={() => setOpen(open === p.round ? null : p.round)}
+                className="grid size-[18px] place-items-center rounded-full text-[11px] font-bold leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                style={{ background: m.background, color: m.colour }}
+              >
+                {m.mark}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-1.5 min-h-4 text-[11px] leading-tight text-muted-foreground" aria-live="polite">
+        {shown ? `${shown.call} · ${RESULT[shown.res].word} · made ${timeOf(shown.at)}` : "Guide calls, no money"}
+      </p>
+    </div>
   );
 }
