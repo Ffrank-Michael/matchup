@@ -7,7 +7,7 @@ import { useConnection } from "wagmi";
 import type { Agent } from "@/lib/agents";
 import { formatCountdown, frameWords, type Market } from "@/lib/markets";
 import { cn } from "@/lib/utils";
-import { BETA_LIMIT_USDC, estimatePayout, STATUS_TEXT, useMakeCall, usdc, useWalletStatus } from "@/onchain";
+import { APPROVAL_NOTICE, BETA_LIMIT_USDC, estimatePayout, STATUS_TEXT, useMakeCall, usdc, useUsdc, useWalletStatus } from "@/onchain";
 
 import { AgentAvatar } from "./agent-avatar";
 import { INK, Tile } from "./tile";
@@ -115,6 +115,9 @@ export function YourCall({
   const amountRaw = parsed !== null && !tooSmall && !tooBig && Number.isFinite(parsed) ? BigInt(Math.round(parsed * 1_000_000)) : null;
   const canConfirm = connected && !wrongNetwork && !busy && !!chain && !chain.paused && !!side && amountRaw !== null && amountRaw >= chain.minStake;
   const estimate = chain && side && amountRaw !== null ? estimatePayout(side, amountRaw, chain.upTotal, chain.downTotal) : null;
+  // the approval step comes when the wallet's permission is below the call (same test as useMakeCall); until it is known, no notice
+  const { allowanceRaw } = useUsdc();
+  const needsApproval = connected && allowanceRaw !== null && allowanceRaw < (amountRaw ?? 1n);
   const confirmLabel = !chain
     ? "Loading…"
     : chain.paused
@@ -287,6 +290,8 @@ export function YourCall({
           </p>
         </div>
       ) : null}
+
+      {needsApproval ? <p className="mt-4 text-[11px] leading-snug opacity-80">{APPROVAL_NOTICE}</p> : null}
 
       {/* confirm */}
       <button
