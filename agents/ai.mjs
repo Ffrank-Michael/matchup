@@ -159,10 +159,10 @@ const MIN_TRY_MS = 2_000; // a try needs at least this long to be worth starting
  * per-minute limits there). `deadline` (ms since 1970) is when the answer is too late to be useful: no try starts that could not
  * finish before it, and no try may run past it.
  * `schema` is the answer's shape and `parse(text)` turns the answer's text into a value (or null when it is not what was asked for).
- * Returns { ok: true, value, tokensIn, tokensOut, latencyMs, attempts, model } or { ok: false, error, latencyMs, attempts, model }
- * (model: the one that answered, or the last one tried).
- * `plain` is for Gemma models: they take the system instruction but no JSON mode (no response schema) and no thinking setting, so the answer is
- * plain text that `parse` must pick the JSON out of.
+ * Returns { ok: true, value, tokensIn, tokensOut, latencyMs, attempts, model } or { ok: false, error, latencyMs, attempts, model, partial }
+ * (model: the one that answered, or the last one tried; partial: the first 200 characters of the answer body that had arrived when it failed, '' if none).
+ * `plain` is for Gemma models: the instructions go at the start of the user text and no system instruction is sent (a real system_instruction
+ * made Gemma time out on our server), and there is no JSON mode or thinking setting, so the answer is plain text that `parse` must pick the JSON out of.
  * Error texts are fixed short phrases: they never contain the key or the web address.
  */
 export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, schema, parse, maxOutputTokens = 1500, fetchFn = fetch, timeoutMs = 16_000, fallbackTimeoutMs = 8_000, retryDelayMs = 1_000, maxAttempts = 3, retryOn429 = true, plain = false, fallbackModel = null, deadline = Infinity, beforeRetry = () => true, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
@@ -171,6 +171,7 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
   let lastError = 'no answer';
   let attempts = 0;
   let usedModel = model;
+  let partial = '';           // what had arrived of the last answer's body when a try failed
   let sameModelAgain = false; // after a 400 about the thinking setting: the next try is the same model, without that setting
   /** Waits, then says whether another try may start: tries left, time left before the deadline, and the runner's own limits. */
   const mayRetry = async (attempt) => {
@@ -186,7 +187,9 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
     sameModelAgain = false;
     const useThinkingOff = !plain && !noThinking.has(m);
     const body = plain
-      ? { systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts: [{ text: user }] }], generationConfig: { temperature: 0.4, maxOutputTokens } }
+      ? { contents: [{ role: 'user', parts: [{ text: `${system}
+
+${user}` }] }], generationConfig: { temperature: 0.4, maxOutputTokens } }
       : {
           systemInstruction: { parts: [{ text: system }] },
           contents: [{ role: 'user', parts: [{ text: user }] }],
@@ -199,12 +202,15 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
           },
         };
     let res;
+    // each try reads its own body; the clock of this try's signal also covers the reading of the body
+    const signal = AbortSignal.timeout(Math.min(firstKind ? timeoutMs : fallbackTimeoutMs, Math.max(MIN_TRY_MS, deadline - Date.now())));
+    partial = '';
     try {
       res = await fetchFn(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(Math.min(firstKind ? timeoutMs : fallbackTimeoutMs, Math.max(MIN_TRY_MS, deadline - Date.now()))),
+        signal,
       });
     } catch (e) {
       lastError = e?.name === 'TimeoutError' || e?.name === 'AbortError' ? 'timed out' : 'network error';
@@ -222,7 +228,29 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
       break;
     }
     let data;
-    try { data = await res.json(); } catch { lastError = 'unreadable answer'; break; }
+    try {
+      if (res.body && typeof res.body.getReader === 'function') { // read in pieces, so that what arrived before a timeout can be logged
+        const reader = res.body.getReader(), decoder = new TextDecoder();
+        let raw = '';
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          raw += decoder.decode(value, { stream: true });
+          partial = raw.slice(0, 200);
+        }
+        data = JSON.parse(raw);
+      } else {
+        data = await res.json();
+      }
+    } catch (e) {
+      if (e?.name === 'TimeoutError' || e?.name === 'AbortError') { // the body did not finish in time
+        lastError = 'timed out';
+        if (await mayRetry(attempt)) continue;
+        break;
+      }
+      lastError = 'unreadable answer';
+      break;
+    }
     const usage = data?.usageMetadata ?? {};
     const text = data?.candidates?.[0]?.content?.parts?.filter((p) => !p.thought).map((p) => p.text ?? '').join('') ?? '';
     const value = parse(text);
@@ -234,7 +262,7 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
       latencyMs: Date.now() - started, attempts, model: usedModel,
     };
   }
-  return { ok: false, error: lastError, latencyMs: Date.now() - started, attempts, model: usedModel };
+  return { ok: false, error: lastError, latencyMs: Date.now() - started, attempts, model: usedModel, partial };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------
@@ -274,7 +302,7 @@ const COMPACT_SYSTEM = (agent) => [
   'Kairo Markets guide calls: call whether a coin price will be UP or DOWN over a round. No money moves.',
   GUIDE_PERSONAS[agent],
   'For every coin and time frame listed, give one call, UP or DOWN, and one reason: one short plain sentence (under 100 characters) using a real number from the data. Never use the words bet, wager or odds.',
-  'Reply with ONLY this JSON, no code fence and no other text: {"calls":[{"coin":"BTC","frame":"5m","call":"UP","reason":"..."}]} with exactly one entry for every coin and time frame listed.',
+  'Reply with only the JSON, no explanation, no reasoning. Use this shape and no code fence: {"calls":[{"coin":"BTC","frame":"5m","call":"UP","reason":"..."}]} with exactly one entry for every coin and time frame listed.',
 ].join('\n');
 
 /** "BTC/USD" -> "BTC": how the model and the logs name a coin. */

@@ -405,17 +405,17 @@ test('a missing key means no request and no crash', async () => {
 
 // ------------------------------------------------------------------------------------------------ Gemma: plain request, short prompt, plain answer
 
-test('askGemini plain (Gemma): the system instruction is sent as system_instruction, but no JSON mode and no thinking setting', async () => {
+test('askGemini plain (Gemma): the instructions go at the start of the user text; no system_instruction, no JSON mode, no thinking setting', async () => {
   let body;
   const fetchFn = async (url, init) => { body = JSON.parse(init.body); return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'hidden thought', thought: true }, { text: '{"x":1}' }] } }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 } }) }; };
   const out = await askGemini({ apiKey: 'k', model: 'gemma-4-26b-a4b-it', system: 'SYS', user: 'USER', schema: {}, parse: (t) => JSON.parse(t), fetchFn, plain: true });
   assert.equal(out.ok, true);
   assert.deepEqual(out.value, { x: 1 }, 'thought text is left out');
-  assert.deepEqual(body.systemInstruction, { parts: [{ text: 'SYS' }] });
+  assert.equal(body.systemInstruction, undefined);
   assert.equal(body.generationConfig.responseMimeType, undefined);
   assert.equal(body.generationConfig.responseSchema, undefined);
   assert.equal(body.generationConfig.thinkingConfig, undefined);
-  assert.equal(body.contents[0].parts[0].text, 'USER');
+  assert.equal(body.contents[0].parts[0].text, 'SYS\n\nUSER');
 });
 
 test('Gemma prompt: a full 12-call request is over 12K tokens in the normal prompt and under it in the short one', () => {
@@ -444,4 +444,77 @@ test("Gemma's plain-text answer is read: a code fence or a sentence around the J
   }
   assert.equal(parseGuide('I think UP.', entries), null);
   assert.equal(parseGuide('{"calls": [ {broken', entries), null);
+});
+
+// ------------------------------------------------------------------------------------------------ Gemma: 90 s, seconds in the log, what came back on a timeout
+
+test('Gemma timeout is 90 s, the Gemini models keep 16 s; the Gemma instructions say to reply with only the JSON', async () => {
+  assert.equal(GUIDE_MODELS['gemma-4-26b-a4b-it'].timeoutMs, 90_000);
+  assert.equal(GUIDE_MODELS['gemma-4-31b-it'].timeoutMs, 90_000);
+  assert.equal(GUIDE_MODELS['gemini-3.5-flash-lite'].timeoutMs, 16_000);
+  assert.equal(GUIDE_MODELS['gemini-3.1-flash-lite'].timeoutMs, 16_000);
+  const t = setup();
+  await tick1(t);
+  const by = Object.fromEntries(t.asks.map((a) => [a.model, a]));
+  assert.equal(by['gemma-4-26b-a4b-it'].timeoutMs, 90_000);
+  assert.equal(by['gemini-3.5-flash-lite'].timeoutMs, 16_000);
+  assert.equal(by['gemini-3.1-flash-lite'].timeoutMs, 16_000);
+  assert.match(by['gemma-4-26b-a4b-it'].system, /Reply with only the JSON, no explanation, no reasoning\./);
+});
+
+test('a fallback Gemma request is held to the same 90 seconds, counted from the start of the agent\'s work, and to the round\'s lock', async () => {
+  const t = setup({ askFn: async (args) => { t.asks.push(args); if (args.model === 'gemini-3.5-flash-lite') { t.clock.ms += 40_000; return { ok: false, error: 'HTTP 429', attempts: 1, latencyMs: 40_000, model: args.model }; } return answerFor(args); } });
+  await tick1(t);
+  const first = t.asks.find((a) => a.model === 'gemini-3.5-flash-lite');
+  const fb = t.asks.find((a) => a.model === 'gemma-4-31b-it' && a.system.includes('Chart Reader'));
+  assert.ok(fb, 'Chart Reader fell back');
+  // the deadline of a Gemma request is at most 90 s after the work began, never later than the lock
+  const startedMs = (T0 + 3) * 1000;
+  assert.ok(fb.deadline <= startedMs + 90_000, 'not past 90 s from the start');
+  assert.ok(fb.deadline <= first.deadline);
+});
+
+test('askGemini: a Gemma answer that is still arriving when the time is up is a timeout, and what had arrived is returned', async () => {
+  const enc = new TextEncoder();
+  const fetchFn = async (url, init) => ({
+    ok: true, status: 200,
+    body: {
+      getReader() {
+        let n = 0;
+        return {
+          read: () => (n++ === 0
+            ? Promise.resolve({ done: false, value: enc.encode('{"candidates":[{"content":{"parts":[{"text":"Thinking about the chart... ' + 'x'.repeat(300) + '"') })
+            : new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason)))),
+        };
+      },
+    },
+  });
+  const out = await askGemini({ apiKey: 'k', model: 'gemma-4-26b-a4b-it', system: 's', user: 'u', schema: {}, parse: () => ({}), fetchFn, plain: true, timeoutMs: 60, maxAttempts: 1, sleep: async () => {} });
+  assert.equal(out.ok, false);
+  assert.equal(out.error, 'timed out');
+  assert.equal(out.partial.length, 200);
+  assert.match(out.partial, /^\{"candidates":\[\{"content"/);
+  // nothing came back at all: an empty string
+  const none = await askGemini({ apiKey: 'k', model: 'gemma-4-26b-a4b-it', system: 's', user: 'u', schema: {}, parse: () => ({}), plain: true, timeoutMs: 40, maxAttempts: 1, sleep: async () => {}, fetchFn: (u, init) => new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason))) });
+  assert.equal(none.error, 'timed out');
+  assert.equal(none.partial, '');
+});
+
+test('the log says how many seconds a Gemma call took, and on a timeout the first 200 characters that came back', async () => {
+  const t = setup({ askFn: async (args) => {
+    t.asks.push(args);
+    if (args.model === 'gemma-4-26b-a4b-it') return { ok: false, error: 'timed out', attempts: 1, latencyMs: 90_000, model: args.model, partial: '{"calls":[{"coin":"BTC"' };
+    return answerFor(args);
+  } });
+  await tick1(t);
+  assert.ok(t.logs.some((l) => /gemma-4-26b-a4b-it timed out after 90\.0 s; first 200 characters that came back: "\{\\"calls\\":\[\{\\"coin\\":\\"BTC\\""/.test(l)), t.logs.join('\n'));
+  const t2 = setup({ askFn: async (args) => { t2.asks.push(args); return args.model === 'gemma-4-26b-a4b-it' ? { ok: false, error: 'timed out', attempts: 1, latencyMs: 90_000, model: args.model, partial: '' } : answerFor(args); } });
+  await tick1(t2);
+  assert.ok(t2.logs.some((l) => /gemma-4-26b-a4b-it timed out after 90\.0 s; nothing had come back/.test(l)));
+  // a call that finishes: its seconds are in the "saved" line
+  const t3 = setup({ askFn: async (args) => { t3.asks.push(args); const r = answerFor(args); return { ...r, latencyMs: args.model === 'gemma-4-26b-a4b-it' ? 6200 : 900 }; } });
+  await tick1(t3);
+  assert.ok(t3.logs.some((l) => /GUIDE trend-follower: 6 calls saved for 6 rounds \(gemma-4-26b-a4b-it, 100 in \/ 50 out tokens, took 6\.2 s\)/.test(l)));
+  // a Gemini model's timeout is not shown in the Gemma way
+  assert.ok(!t.logs.some((l) => /gemini.* timed out after/.test(l)));
 });

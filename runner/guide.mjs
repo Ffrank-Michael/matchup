@@ -40,13 +40,14 @@ export const GUIDE_AI_AGENTS = ['trend-follower', 'contrarian', 'chart-reader'];
 // WHICH MODEL EACH AGENT USES, AND THE LIMITS OF EACH MODEL: the one place to read or change them. Each agent has its own model so that
 // no model gets more than one agent's requests (about 288 a day each). The limits are Google AI Studio's free-tier limits for our key;
 // dailyCap is kept below Google's own daily limit, perMinute is our own ceiling per model.
-//   plain: Gemma takes the system instruction but no JSON mode and no thinking setting, and only 16K input tokens a minute: its prompt is the shorter one
-//   (agents/ai.mjs buildGuidePrompt compact) and its answer is plain text. Gemma gets one request a minute per model and no second try, for the same reason.
+//   plain: Gemma gets the instructions at the start of the user text (no system_instruction: with it our calls timed out), no JSON mode and no thinking
+//   setting, and it takes only 16K input tokens a minute: its prompt is the shorter one (agents/ai.mjs buildGuidePrompt compact) and its answer is plain text.
+//   timeoutMs: Gemma gets 90 s (it answers in 6 s to a minute): a call only has to be saved before its round locks, at least 100 s after its window opens. Gemma gets one request a minute per model and no second try, for the same reason.
 export const GUIDE_MODELS = {
   'gemini-3.5-flash-lite': { dailyCap: 450, perMinute: 10, plain: false, timeoutMs: 16_000, maxAttempts: 2 }, // Google: 500 a day, 15 a minute
   'gemini-3.1-flash-lite': { dailyCap: 450, perMinute: 10, plain: false, timeoutMs: 16_000, maxAttempts: 2 }, // Google: 500 a day, 15 a minute
-  'gemma-4-26b-a4b-it': { dailyCap: 5000, perMinute: 1, plain: true, timeoutMs: 30_000, maxAttempts: 1 },            // Google: 14400 a day, 30 a minute, 16K input tokens a minute
-  'gemma-4-31b-it': { dailyCap: 5000, perMinute: 1, plain: true, timeoutMs: 30_000, maxAttempts: 1 },            // Google: 14400 a day, 30 a minute, 16K input tokens a minute
+  'gemma-4-26b-a4b-it': { dailyCap: 5000, perMinute: 1, plain: true, timeoutMs: 90_000, maxAttempts: 1 },            // Google: 14400 a day, 30 a minute, 16K input tokens a minute
+  'gemma-4-31b-it': { dailyCap: 5000, perMinute: 1, plain: true, timeoutMs: 90_000, maxAttempts: 1 },            // Google: 14400 a day, 30 a minute, 16K input tokens a minute
 };
 export const AGENT_MODELS = { 'chart-reader': 'gemini-3.5-flash-lite', contrarian: 'gemini-3.1-flash-lite', 'trend-follower': 'gemma-4-26b-a4b-it' };
 /** Used for an agent whose own model is at its daily cap or answers with a limit or quota error (or does not exist). */
@@ -98,6 +99,7 @@ export const resultOf = (call, outcome) => (outcome === 'FLAT' ? 'none' : call =
 
 const usd = (p) => '$' + Number(p).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const hhmm = (ms) => new Date(ms).toISOString().slice(11, 16);
+const secs = (ms) => `${(ms / 1000).toFixed(1)} s`;
 
 /** The newest finished minute must be in the candles: make sure of it (the AI is asked seconds after a minute turns). */
 export async function freshCandles(candleSource, coin, { nowMs = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
@@ -247,6 +249,7 @@ export function createGuide({
   }
 
   async function runAgent(agent, entries, cycle) {
+    const startedAt = now();
     const asked = [];
     const coins = [];
     const byCoin = new Map();
@@ -268,13 +271,16 @@ export function createGuide({
       const why = reserve(model);
       if (why) { log(`GUIDE ${agent}: ${model} not used (${why})`); continue; }
       const { system, user } = buildGuidePrompt({ agent, coins, compact: lim.plain });
+      // a Gemma request, the fallback included, never runs past its timeout counted from the start of this agent's work (and never past the round's lock)
+      const until = lim.plain ? Math.min(deadline, startedAt + lim.timeoutMs) : deadline;
       out = await askFn({
-        apiKey, model, plain: lim.plain, system, user, deadline, retryOn429: false, maxAttempts: lim.maxAttempts, beforeRetry: () => reserve(model) === null,
+        apiKey, model, plain: lim.plain, system, user, deadline: until, retryOn429: false, maxAttempts: lim.maxAttempts, beforeRetry: () => reserve(model) === null,
         timeoutMs: lim.timeoutMs, fallbackTimeoutMs: 8_000,
         schema: guideSchema(keys), parse: (text) => parseGuide(text, keys), maxOutputTokens: lim.plain ? 600 + 120 * keys.length : 300 + 90 * keys.length, sleep,
       });
       if (out.ok) break;
-      log(`GUIDE ${agent}: no answer from ${model} (${out.error}, ${out.attempts} tries, ${out.latencyMs} ms)`);
+      log(`GUIDE ${agent}: no answer from ${model} (${out.error}, ${out.attempts} tries, took ${secs(out.latencyMs)})`);
+      if (lim.plain && out.error === 'timed out') log(`GUIDE ${agent}: ${model} timed out after ${secs(out.latencyMs)}; ${out.partial ? `first 200 characters that came back: ${JSON.stringify(String(out.partial).split(apiKey || ' ').join('***').slice(0, 200))}` : 'nothing had come back'}`);
       if (out.error === 'HTTP 429') { // a limit or quota answer: never retried, and this model rests for a while
         quotaUntil[model] = now() + cfg.quotaPauseMs;
         log(`GUIDE: ${model} says too many requests (a limit or quota). Not asking it again until ${hhmm(quotaUntil[model])} UTC${model !== fallbackModel ? `; ${agent} tries ${fallbackModel}` : ''}`);
@@ -301,7 +307,7 @@ export function createGuide({
     giveUp(asked.filter((d, i) => !recs[i]), agent, 'missing from the answer');
     made = saveCalls(recs.filter(Boolean));
     const lines = recs.filter(Boolean).map((r) => `         ${r.market} round ${r.r}: ${r.c} "${r.t}"`);
-    log(`GUIDE ${agent}: ${made} calls saved for ${asked.length} rounds (${out.model}, ${out.tokensIn} in / ${out.tokensOut} out tokens, ${out.latencyMs} ms${missing ? `, ${missing} missing` : ''})\n${lines.join('\n')}`);
+    log(`GUIDE ${agent}: ${made} calls saved for ${asked.length} rounds (${out.model}, ${out.tokensIn} in / ${out.tokensOut} out tokens, took ${secs(out.latencyMs)}${missing ? `, ${missing} missing` : ''})\n${lines.join('\n')}`);
   }
 
   function startAI(agent, entries, cycle) {
