@@ -4,15 +4,18 @@ import { AGENTS, type Agent, type AgentKey } from "./agents";
 // Who a wallet address on the chain is, in words: one of the four house agents (their public addresses are in the
 // deployment file), "You" for the connected wallet, or "Player 0x37…C4" for anyone else. The site never shows a raw address.
 
+// The deployment file may list no agents (mainnet has none until the house agent wallets exist), so its type is spelled out.
+const DEPLOYED_AGENTS: ReadonlyArray<{ key: string; address: string }> = deployment.agents ?? [];
+
 const AGENT_BY_ADDRESS = new Map<string, Agent>(
-  (deployment.agents ?? []).flatMap((a) => {
+  DEPLOYED_AGENTS.flatMap((a) => {
     const agent = AGENTS.find((x) => x.key === a.key);
     return agent ? [[a.address.toLowerCase(), agent] as const] : [];
   }),
 );
 
 /** The house agents' public addresses, from the deployment file. */
-export const AGENT_ADDRESSES: ReadonlyArray<{ key: AgentKey; address: string }> = (deployment.agents ?? []).flatMap((a) => (AGENTS.some((x) => x.key === a.key) ? [{ key: a.key as AgentKey, address: a.address.toLowerCase() }] : []));
+export const AGENT_ADDRESSES: ReadonlyArray<{ key: AgentKey; address: string }> = DEPLOYED_AGENTS.flatMap((a) => (AGENTS.some((x) => x.key === a.key) ? [{ key: a.key as AgentKey, address: a.address.toLowerCase() }] : []));
 
 export type Who = { kind: "you" } | { kind: "agent"; agent: Agent } | { kind: "player" };
 

@@ -1,19 +1,18 @@
 "use client";
 
 import * as React from "react";
-import { formatUnits } from "viem";
 import { IS_MAINNET } from "@/lib/network";
-import { useBalance, useConnect, useConnection, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
+import { useConnect, useConnection, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
 
 import { chipAddress } from "@/lib/arc";
-import { useRevokeApproval, useUsdc } from "@/onchain";
-import { activeChain as arcTestnet } from "@/onchain/wagmiConfig";
+import { useRevokeApproval, useUsdc, usdcRaw } from "@/onchain";
+import { activeChain } from "@/onchain/wagmiConfig";
 import { cn } from "@/lib/utils";
 
-// "Connect wallet" for Arc testnet (browser wallets and wallet apps; Google sign-in comes later).
+// "Connect wallet" for the site's Arc network (NEXT_PUBLIC_NETWORK; browser wallets and wallet apps; Google sign-in comes later).
 // - Wallets are found automatically. On a phone they appear when this page is opened inside a wallet
 //   app's own browser; from a normal phone browser the window offers "open in <wallet app>" links.
-// - After connecting, a wallet on another network is asked to switch to Arc Testnet, and to add it first
+// - After connecting, a wallet on another network is asked to switch to the site's Arc network, and to add it first
 //   if it does not know it. A pill in the top bar stays amber ("Wrong network") until that is done.
 
 const pillBase =
@@ -71,7 +70,7 @@ function ConnectView({ onDone }: { onDone: () => void }) {
                 disabled={isPending}
                 onClick={() => {
                   reset();
-                  connect({ connector: c, chainId: arcTestnet.id }, { onSuccess: onDone });
+                  connect({ connector: c, chainId: activeChain.id }, { onSuccess: onDone });
                 }}
               >
                 {c.icon ? (
@@ -98,7 +97,7 @@ function ConnectView({ onDone }: { onDone: () => void }) {
             disabled={isPending}
             onClick={() => {
               reset();
-              connect({ connector: walletConnect, chainId: arcTestnet.id });
+              connect({ connector: walletConnect, chainId: activeChain.id });
               // Close this window now: it is a native modal <dialog> (top layer), so Reown's wallet list, which opens outside it, would sit behind it and could not be tapped.
               onDone();
             }}
@@ -146,7 +145,7 @@ function ConnectView({ onDone }: { onDone: () => void }) {
       ) : null}
 
       {IS_MAINNET ? (
-        <p className="mt-4 text-[12px] text-muted-foreground">Kairo runs on Arc. If your wallet does not have the network yet, it will ask to add it. Fees are paid in USDC.</p>
+        <p className="mt-4 text-[12px] text-muted-foreground">Kairo runs on {activeChain.name}. If your wallet does not have the network yet, it will ask to add it. Fees are paid in USDC.</p>
       ) : (
         <p className="mt-4 text-[12px] text-muted-foreground">
           Kairo runs on Arc Testnet. If your wallet does not have it yet, it will ask to add it. Fees are paid in test USDC (free from{" "}
@@ -210,7 +209,7 @@ function RemoveAccess() {
 function AccountView({ address, wrongNetwork, onDone }: { address: `0x${string}`; wrongNetwork: boolean; onDone: () => void }) {
   const { mutate: disconnect } = useDisconnect();
   const { mutate: switchChain, isPending: switching, error: switchError } = useSwitchChain();
-  const { data: balance } = useBalance({ address, chainId: arcTestnet.id, query: { enabled: !wrongNetwork } });
+  const { balanceRaw } = useUsdc(); // the USDC token (6 decimals), never the 18-decimal native view of the same money
   const [copied, setCopied] = React.useState(false);
 
   const copy = async () => {
@@ -231,7 +230,7 @@ function AccountView({ address, wrongNetwork, onDone }: { address: `0x${string}`
           {copied ? "Copied" : "Copy address"}
         </button>
         <a
-          href={`${arcTestnet.blockExplorers.default.url}/address/${address}`}
+          href={`${activeChain.blockExplorers.default.url}/address/${address}`}
           target="_blank"
           rel="noreferrer"
           className="flex-1 rounded-full border border-border px-3 py-2 text-center text-[12px] font-medium hover:bg-muted"
@@ -242,22 +241,22 @@ function AccountView({ address, wrongNetwork, onDone }: { address: `0x${string}`
 
       {wrongNetwork ? (
         <div className="mt-4 rounded-2xl border border-amber-400/50 bg-amber-400/10 p-3">
-          <p className="text-[13px]">Your wallet is on a different network. Kairo runs on Arc Testnet.</p>
+          <p className="text-[13px]">Your wallet is on a different network. Kairo runs on {activeChain.name}.</p>
           <button
             type="button"
             disabled={switching}
-            onClick={() => switchChain({ chainId: arcTestnet.id })}
+            onClick={() => switchChain({ chainId: activeChain.id })}
             className="mt-2 w-full rounded-full bg-foreground px-4 py-2.5 text-[13px] font-semibold text-background disabled:opacity-60"
           >
-            {switching ? "Check your wallet…" : "Switch to Arc Testnet"}
+            {switching ? "Check your wallet…" : `Switch to ${activeChain.name}`}
           </button>
           {switchError ? <p className="mt-2 text-[12px] text-muted-foreground">{friendly(switchError)}</p> : null}
         </div>
       ) : (
         <p className="mt-4 flex items-center justify-between rounded-2xl border border-border px-4 py-3 text-[13px]">
-          <span className="text-muted-foreground">Arc Testnet · balance</span>
+          <span className="text-muted-foreground">{activeChain.name} · balance</span>
           <span className="font-mono font-semibold tabular-nums">
-            {balance ? `${Number(formatUnits(balance.value, balance.decimals)).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC` : "…"}
+            {balanceRaw !== null ? `${usdcRaw(balanceRaw)} USDC` : "…"}
           </span>
         </p>
       )}
@@ -292,7 +291,7 @@ export function WalletButton() {
   }, [open]);
 
   const connected = status === "connected" && address !== undefined;
-  const wrongNetwork = connected && chainId !== arcTestnet.id;
+  const wrongNetwork = connected && chainId !== activeChain.id;
 
   let button: React.ReactNode;
   if (status === "reconnecting" || status === "connecting") {
@@ -302,12 +301,12 @@ export function WalletButton() {
       </button>
     );
   } else if (connected && wrongNetwork) {
-    // one tap asks the wallet to switch (and to add Arc Testnet first if needed)
+    // one tap asks the wallet to switch (and to add the Arc network first if needed)
     button = (
       <button
         type="button"
         disabled={switching}
-        onClick={() => switchChain({ chainId: arcTestnet.id })}
+        onClick={() => switchChain({ chainId: activeChain.id })}
         className={cn(pillBase, "bg-amber-400 text-black hover:opacity-90")}
       >
         {switching ? "Check your wallet…" : "Wrong network"}
