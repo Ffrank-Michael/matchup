@@ -45,7 +45,7 @@ export function arcChain(net, rpc) {
  * Clients for one network. The key is read from .env and never printed.
  * needKey false (a read-only dry run): a missing key is allowed and the account is only an address
  * (MAINNET_DEPLOYER_ADDRESS from .env, or a placeholder); wallet is then null.
- * role 'runner': the round runner's key (see runnerKey.mjs): RUNNER_PRIVATE_KEY, and on mainnet nothing else, so the runner
+ * role 'runner': the round runner's key (see runnerKey.mjs): RUNNER_PRIVATE_KEY on testnet, MAINNET_RUNNER_PRIVATE_KEY on mainnet and nothing else, so the runner
  * never reads the deployer key there.
  */
 export function setup(network = 'testnet', { needKey = true, role = 'deployer' } = {}) {

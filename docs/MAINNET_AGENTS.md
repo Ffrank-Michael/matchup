@@ -180,7 +180,33 @@ node runner/supervise.mjs --mainnet --i-understand-this-spends-real-usdc # super
 
 The log goes to `data/runner-mainnet.log`; alert titles say "MAINNET". The `kairo-runner` service file still starts the testnet runner; change its `ExecStart` only when you decide to go live.
 
-**Known mismatch to settle before the deploy:** `scripts/deploy.mjs` still sets the relay pusher from `RUNNER_PRIVATE_KEY`, while the mainnet runner reads `MAINNET_RUNNER_PRIVATE_KEY`. They must be the same wallet, or the runner's pushes are refused (the startup check catches this and stops).
+### Making the wallets and deploying the contracts (nothing is spent until the last command)
+
+1. **Make the two wallets** (on your PC, once):
+
+   ```
+   node scripts/create-mainnet-wallets.mjs
+   ```
+
+   It writes `MAINNET_DEPLOYER_PRIVATE_KEY` and `MAINNET_RUNNER_PRIVATE_KEY` into `.env` and prints only the two addresses. It stops without changing anything if `.env` is missing, is not ignored by git, or already has either key. Keep a private backup of `.env`: if it is lost, so is any USDC in those wallets.
+
+2. **Dry run** (no flag; sends nothing). It checks Chainlink on chain and prints the estimated cost of the arena, the 3 relays and the 12 markets in USDC, what the runner will spend, and a safe amount for each wallet:
+
+   ```
+   node scripts/deploy.mjs --set mainnet
+   ```
+
+3. **Fund** the two printed addresses with USDC on Arc mainnet.
+
+4. **Deploy** (spends real USDC; the flag alone is enough, `--send` is not needed). The relay pusher is set to the address of `MAINNET_RUNNER_PRIVATE_KEY`; the script checks that it is not the owner, the final owner or a house agent:
+
+   ```
+   node scripts/deploy.mjs --set mainnet --i-understand-this-spends-real-usdc
+   ```
+
+   It saves `deployments/arc-mainnet.json`. Put the arena address from it into `.env` as `MAINNET_ARENA_ADDRESS`, then dry-run the runner.
+
+Testnet is unchanged: `node scripts/deploy.mjs --set rehearsal --send`, and the testnet runner keeps using `RUNNER_PRIVATE_KEY` (or the testnet deployer key).
 
 ### Still to build
 

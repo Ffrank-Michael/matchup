@@ -2,25 +2,28 @@
 //
 //   node scripts/deploy.mjs --set rehearsal                  DRY RUN on Arc TESTNET (default). Compiles, checks, estimates. Sends nothing.
 //   node scripts/deploy.mjs --set rehearsal --send           Deploys 3 test stand-ins for Chainlink, the arena, 3 relays, 12 markets, then verifies.
-//   node scripts/deploy.mjs --set mainnet                    DRY RUN on Arc MAINNET: reads Chainlink on chain and checks it. Sends nothing.
-//   node scripts/deploy.mjs --set mainnet --send --i-understand-this-spends-real-usdc
-//                                                            Real deployment on Arc MAINNET (real USDC for gas).
+//   node scripts/deploy.mjs --set mainnet                    DRY RUN on Arc MAINNET (no flag): reads Chainlink on chain, checks it and
+//                                                            estimates the cost of the arena, 3 relays and 12 markets in USDC. Sends nothing.
+//   node scripts/deploy.mjs --set mainnet --i-understand-this-spends-real-usdc
+//                                                            Real deployment on Arc MAINNET (real USDC for gas). The flag alone sends; --send is not needed.
 //   node scripts/deploy.mjs --set X --verify-only            Re-check the addresses saved in deployments/arc-<testnet|mainnet>.json.
 //   node scripts/deploy.mjs --set X --send --arena 0x..      The arena was already deployed elsewhere (for example by Arc Studio): use it.
 //   node scripts/deploy.mjs --set X --send --pusher 0x..     TESTNET only: the address allowed to push prices (default: the deployer wallet).
 //
-// On MAINNET the pusher is always the address of RUNNER_PRIVATE_KEY in .env: the runner's own wallet, separate from the deployer
+// On MAINNET the pusher is always the address of MAINNET_RUNNER_PRIVATE_KEY in .env: the runner's own wallet, separate from the deployer
 // (the owner) and from any wallet people play with. The script derives only the ADDRESS from that key, never prints the key, and
 // stops if the key is missing or the address is also the deployer, the final owner or a house agent. --pusher is refused on mainnet.
 // Settling needs no special right (anyone may settle), so the runner's wallet settles with the same key.
+// (node scripts/create-mainnet-wallets.mjs makes both mainnet wallets and writes their keys into .env.)
 //
 // Safe to re-run: every finished step is saved to the deployment file and skipped next time.
 // The owner is the deployer wallet. Keys are read from .env (DEPLOYER_PRIVATE_KEY on testnet, MAINNET_DEPLOYER_PRIVATE_KEY on
 // mainnet) and never printed. Market lists, bands and Chainlink addresses live in scripts/markets.mjs.
 import fs from 'node:fs';
 import path from 'node:path';
-import { formatUnits, getAddress, isAddress, zeroAddress, encodeDeployData } from 'viem';
-import { setup, ROOT, usdcBalance } from './lib.mjs';
+import { formatUnits, getAddress, isAddress, zeroAddress, encodeDeployData, createPublicClient, http } from 'viem';
+import { setup, ROOT, usdcBalance, NETWORKS, arcChain } from './lib.mjs';
+import { deployMode, UNDERSTAND_FLAG } from './deployFlags.mjs';
 import { compile, normalise } from './compile.mjs';
 import { SETS, COINS, CHAINLINK_MAINNET, MIN_STAKE, FEED_DECIMALS, MAX_GUARD_AGE_SECONDS, marketName, relayDescription, standInDescription, validateSet, judgeGuard } from './markets.mjs';
 import { createExchangePrices } from '../runner/exchangePrices.mjs';
@@ -32,7 +35,6 @@ const opt = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : un
 function fail(msg) { console.error('\nSTOP: ' + msg); process.exit(1); }
 function step(msg) { console.log('\n== ' + msg); }
 
-const SEND = flag('--send');
 const VERIFY_ONLY = flag('--verify-only');
 const SET_NAME = opt('--set') || 'rehearsal';
 const SET = SETS[SET_NAME];
@@ -40,11 +42,11 @@ if (!SET) fail(`--set must be one of: ${Object.keys(SETS).join(', ')}`);
 const problems = validateSet(SET_NAME);
 if (problems.length) fail('the market list is wrong:\n  ' + problems.join('\n  '));
 const MAINNET = SET.network === 'mainnet';
-if (MAINNET && SEND && !flag('--i-understand-this-spends-real-usdc')) {
-  fail('Mainnet spends real USDC. Add --i-understand-this-spends-real-usdc to --send once you have read the dry run.');
-}
+// Testnet sends with --send. Mainnet sends only with --i-understand-this-spends-real-usdc; with no flag it is a dry run.
+const { send: SEND, error: modeError } = deployMode(args, { mainnet: MAINNET });
+if (modeError) fail(modeError);
 
-if (MAINNET && opt('--pusher')) fail('--pusher is not allowed on mainnet. The pusher is always the address of RUNNER_PRIVATE_KEY in .env.');
+if (MAINNET && opt('--pusher')) fail('--pusher is not allowed on mainnet. The pusher is always the address of MAINNET_RUNNER_PRIVATE_KEY in .env.');
 
 const COIN_KEYS = Object.keys(COINS);
 const STATE_FILE = path.join(ROOT, 'deployments', MAINNET ? 'arc-mainnet.json' : 'arc-testnet.json');
@@ -54,12 +56,21 @@ const saveState = (s) => {
   fs.writeFileSync(STATE_FILE, JSON.stringify(s, null, 2) + '\n');
 };
 
-const { env, pub, wallet, account, chain, usdc, hasKey } = setup(SET.network, { needKey: SEND });
+let clients;
+try { clients = setup(SET.network, { needKey: SEND }); } catch (e) {
+  if (!MAINNET) throw e; // testnet: unchanged
+  fail(`${e.message}${SEND ? ' Run node scripts/create-mainnet-wallets.mjs to make the mainnet wallets.' : ''}`);
+}
+const { env, pub, wallet, account, chain, usdc, hasKey } = clients;
 const explorer = chain.blockExplorers.default.url;
 
-/** The relay's pusher. Mainnet: the runner's own wallet (RUNNER_PRIVATE_KEY), checked against every wallet it must not be. Testnet: --pusher or the deployer. */
+/**
+ * The relay's pusher. Mainnet: the runner's own wallet (MAINNET_RUNNER_PRIVATE_KEY), checked against every wallet it must not be.
+ * Testnet: --pusher or the deployer. A mainnet dry run (not sending) may go on without the runner key: it returns null.
+ */
 function choosePusher(owner) {
   if (!MAINNET) return opt('--pusher') ? getAddress(opt('--pusher')) : owner;
+  if (!SEND && !env.MAINNET_RUNNER_PRIVATE_KEY) return null;
   const agents = [];
   try {
     for (const a of JSON.parse(fs.readFileSync(path.join(ROOT, 'deployments', 'circle-mainnet.json'), 'utf8')).agents || []) agents.push([`the ${a.name || a.key} agent wallet`, a.address]);
@@ -91,6 +102,62 @@ async function readGuardProblems(coin, address) {
   ]);
   const found = { description, decimals, answer: round[1], updatedAt: Number(round[3]) };
   return { found, problems: judgeGuard(found, coin, now), ageHours: ((now - found.updatedAt) / 3600).toFixed(1) };
+}
+
+// Gas of createMarket, MEASURED on the testnet arena: the highest of the createMarket receipts listed in deployments/arc-testnet.json
+// (the first market also pays for the first storage writes). The mainnet arena does not exist yet, so it cannot be estimated there.
+async function measuredMarketGas() {
+  try {
+    const hashes = JSON.parse(fs.readFileSync(path.join(ROOT, 'deployments', 'arc-testnet.json'), 'utf8')).markets.map((m) => m.tx).filter(Boolean);
+    const net = NETWORKS.testnet;
+    const rpc = env.ARC_TESTNET_RPC_URL || net.rpc;
+    const testnet = createPublicClient({ chain: arcChain(net, rpc), transport: http(rpc) });
+    const receipts = await Promise.all(hashes.map((hash) => testnet.getTransactionReceipt({ hash })));
+    const gas = receipts.reduce((m, r) => (r.gasUsed > m ? r.gasUsed : m), 0n);
+    if (gas > 0n) return { gas, how: `measured on the testnet: the highest of ${receipts.length} createMarket transactions` };
+  } catch { /* no testnet record or no answer: use the guess */ }
+  return { gas: 400_000n, how: 'guess' };
+}
+
+/** What deploying costs. Node estimates where the node can give them; the testnet keeps its older guesses. */
+async function estimateDeploy(art, owner, pusher) {
+  const gasPrice = await pub.getGasPrice();
+  const est = async (c, a) => { try { return { gas: await pub.estimateGas({ account: owner, data: deployData(c, a) }), how: 'node estimate' }; } catch { return { gas: guessDeployGas(c), how: 'guess from code size' }; } };
+  const arenaE = await est(art.arena, [usdc, owner]);
+  const feedE = await est(art.feed, [owner, FEED_DECIMALS, standInDescription('btc')]);
+  // On mainnet the Chainlink proxies already exist, so the relays can be estimated by the node too.
+  const relayEs = await Promise.all(COIN_KEYS.map((coin) => (MAINNET
+    ? est(art.relay, [owner, pusher, getAddress(CHAINLINK_MAINNET[coin].toLowerCase()), COINS[coin].bandBps, relayDescription(coin, SET_NAME)])
+    : { gas: guessDeployGas(art.relay), how: 'guess from code size' })));
+  const relayGas = relayEs.reduce((t, x) => t + x.gas, 0n);
+  const market = MAINNET ? await measuredMarketGas() : { gas: 400_000n, how: 'guess' };
+  const seeds = MAINNET ? 0n : 3n * (feedE.gas + 90_000n);
+  const totalGas = arenaE.gas + relayGas + BigInt(SET.markets.length) * market.gas + seeds;
+  return { gasPrice, arenaE, feedE, relayEs, relayGas, market, totalGas, cost: totalGas * gasPrice };
+}
+
+const ceilHalf = (x) => Math.ceil(x * 2) / 2; // round a USDC amount up to the next 0.50
+// Gas of one relay price push and one settle, with room. Measured on the testnet: a push uses about 111k (8 receipts from the price log);
+// a settle about 136k before matched calls, so 180k is an assumption.
+const PUSH_GAS = 120_000n;
+const SETTLE_GAS = 180_000n;
+
+/** Mainnet dry run: what the runner wallet spends on gas, and safe amounts for both wallets. */
+function runnerCosts(gasPrice, pusher, deployCost) {
+  const usdc4 = (wei) => Number(formatUnits(wei, 18));
+  const day = 86400;
+  // One push serves every market of a coin and its markets line up with the shortest one: 2 pushes per shortest round per coin.
+  const pushesPerDay = COIN_KEYS.reduce((t, coin) => t + 2 * (day / Math.min(...SET.markets.filter((m) => m.coin === coin).map((m) => m.round))), 0);
+  const settlesPerDay = SET.markets.reduce((t, m) => t + day / m.round, 0);
+  const push = PUSH_GAS * gasPrice, settle = SETTLE_GAS * gasPrice;
+  const worstDay = BigInt(pushesPerDay) * push + BigInt(settlesPerDay) * settle;
+  const deployerSafe = Math.max(2, ceilHalf(2 * usdc4(deployCost))); // 2 USDC is also the least the live deploy accepts
+  const runnerSafe = Math.max(1, ceilHalf(usdc4(worstDay)));
+  console.log(`\nRunner wallet    : ${pusher ?? 'not created yet (node scripts/create-mainnet-wallets.mjs)'}`);
+  console.log(`  one price push about ${usdc4(push).toFixed(4)} USDC, one settle about ${usdc4(settle).toFixed(4)} USDC (gas used for this: ${PUSH_GAS} and ${SETTLE_GAS})`);
+  console.log(`  worst day (every round of all ${SET.markets.length} markets has calls on both sides): ${pushesPerDay} pushes + ${settlesPerDay} settles = ${usdc4(worstDay).toFixed(2)} USDC`);
+  console.log('  Rounds with no calls or one side only cost nothing, so a real day costs a fraction of that.');
+  console.log(`\nSafe amounts     : deployer ${deployerSafe.toFixed(2)} USDC (twice the deploy estimate, also covers a later owner action or two); runner ${runnerSafe.toFixed(2)} USDC (one worst-case day; the runner stops below 0.10 USDC)`);
 }
 
 async function main() {
@@ -130,30 +197,32 @@ async function main() {
 
   // ---------- dry run ----------
   if (!SEND) {
-    step('DRY RUN (nothing is sent). Add --send to deploy for real.');
-    const gasPrice = await pub.getGasPrice();
-    const est = async (c, a) => { try { return { gas: await pub.estimateGas({ account: owner, data: deployData(c, a) }), how: 'node estimate' }; } catch { return { gas: guessDeployGas(c), how: 'guess from code size' }; } };
-    const arenaE = await est(art.arena, [usdc, owner]);
-    const feedE = await est(art.feed, [owner, FEED_DECIMALS, standInDescription('btc')]);
-    const relayGas = guessDeployGas(art.relay);
-    const MARKET_GAS = 400_000n;
-    const seeds = MAINNET ? 0n : 3n * (feedE.gas + 90_000n);
-    const totalGas = arenaE.gas + 3n * relayGas + BigInt(SET.markets.length) * MARKET_GAS + seeds;
-    const cost = totalGas * gasPrice;
-    console.log(`Gas price        : ${formatUnits(gasPrice, 9)} gwei`);
-    console.log(`Estimated gas    : arena ${arenaE.gas} (${arenaE.how}), 3 relays ${relayGas} each (guess from code size), ${SET.markets.length} createMarket ${MARKET_GAS} each (guess)${MAINNET ? '' : `, 3 test stand-ins ${feedE.gas} each plus a first price`}`);
-    console.log(`Estimated cost   : about ${formatUnits(cost, 18)} USDC (native 18-decimal view of the same USDC)`);
+    step(`DRY RUN (nothing is sent). ${MAINNET ? `Add ${UNDERSTAND_FLAG}` : 'Add --send'} to deploy for real.`);
+    const pusherAddr = choosePusher(owner); // mainnet without a runner key yet: null (the estimate uses a placeholder, the cost is the same)
+    const e = await estimateDeploy(art, owner, pusherAddr ?? owner);
+    console.log(`Gas price        : ${formatUnits(e.gasPrice, 9)} gwei`);
+    if (MAINNET) {
+      const usd = (g) => (Number(formatUnits(g * e.gasPrice, 18))).toFixed(4);
+      console.log(`Estimated gas    : arena ${e.arenaE.gas} (${e.arenaE.how}), relays ${e.relayEs.map((x) => x.gas).join(' + ')} (${e.relayEs[0].how}), ${SET.markets.length} createMarket ${e.market.gas} each (${e.market.how})`);
+      console.log(`  arena     ${usd(e.arenaE.gas)} USDC`);
+      console.log(`  3 relays  ${usd(e.relayGas)} USDC`);
+      console.log(`  ${SET.markets.length} markets ${usd(BigInt(SET.markets.length) * e.market.gas)} USDC`);
+    } else {
+      console.log(`Estimated gas    : arena ${e.arenaE.gas} (${e.arenaE.how}), 3 relays ${e.relayEs[0].gas} each (guess from code size), ${SET.markets.length} createMarket ${e.market.gas} each (guess), 3 test stand-ins ${e.feedE.gas} each plus a first price`);
+    }
+    console.log(`Estimated cost   : about ${formatUnits(e.cost, 18)} USDC (native 18-decimal view of the same USDC)`);
     if (!hasKey) console.log('Balance not checked (no key in .env).');
-    else if (bal.raw * 10n ** 12n < cost * 2n) console.log('WARNING: balance is less than twice the estimate. Fund the wallet before --send.');
+    else if (bal.raw * 10n ** 12n < e.cost * 2n) console.log('WARNING: balance is less than twice the estimate. Fund the wallet before sending.');
     else console.log('Balance covers the estimate with room to spare.');
-    console.log('\nPlan on --send:');
+    if (MAINNET) runnerCosts(e.gasPrice, pusherAddr, e.cost);
+    console.log('\nPlan on sending:');
     for (const coin of COIN_KEYS) {
       console.log(MAINNET
         ? `  guard ${COINS[coin].pair}: Chainlink proxy ${CHAINLINK_MAINNET[coin]} (nothing deployed)`
         : `  guard ${COINS[coin].pair}: new MockPriceFeed "${standInDescription(coin)}" (owner ${owner}), first price from Bitfinex`);
     }
     console.log(`  arena PredictionArena(usdc ${usdc}, owner ${owner})${opt('--arena') ? ` -> already deployed at ${opt('--arena')}, used as it is` : ''}`);
-    for (const coin of COIN_KEYS) console.log(`  relay ${COINS[coin].pair}: "${relayDescription(coin, SET_NAME)}", band ${COINS[coin].bandBps} bps, pusher ${choosePusher(owner)}${MAINNET ? ' (the address of RUNNER_PRIVATE_KEY)' : ''}`);
+    for (const coin of COIN_KEYS) console.log(`  relay ${COINS[coin].pair}: "${relayDescription(coin, SET_NAME)}", band ${COINS[coin].bandBps} bps, pusher ${pusherAddr ?? '(the runner wallet: not created yet, run node scripts/create-mainnet-wallets.mjs)'}${MAINNET ? ' (the address of MAINNET_RUNNER_PRIVATE_KEY)' : ''}`);
     for (const m of SET.markets) console.log(`  market "${marketName(m)}": round ${m.round}s, offset ${m.offset}s, min stake ${MIN_STAKE} (0.50 USDC), feed = the ${m.coin.toUpperCase()} relay, feedB = none`);
     return;
   }
@@ -170,8 +239,10 @@ async function main() {
   if (getAddress(st.owner) !== getAddress(owner)) fail(`${path.basename(STATE_FILE)} belongs to a different owner wallet.`);
   if (getAddress(st.pusher || owner) !== pusher) fail('This deployment already uses a different pusher address.');
   if (MAINNET) {
-    const need = 2n * 10n ** 6n; // 2 USDC
-    if (bal.raw < need) fail(`Deployer holds ${bal.text} USDC; mainnet needs at least 2 USDC (cost plus room). Fund it first.`);
+    const e = await estimateDeploy(art, owner, pusher);
+    const floor = 2n * 10n ** 6n; // never less than 2 USDC
+    const need = (e.cost * 3n / 2n) / 10n ** 12n > floor ? (e.cost * 3n / 2n) / 10n ** 12n : floor; // or one and a half times the estimate (18 decimals -> 6)
+    if (bal.raw < need) fail(`Deployer holds ${bal.text} USDC; mainnet needs at least ${formatUnits(need, 6)} USDC (the estimate is ${formatUnits(e.cost, 18)}, plus room). Fund it first.`);
   }
 
   const send = async (what, p) => {
