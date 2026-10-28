@@ -20,8 +20,8 @@ export const MIN_RUNNER_BALANCE = 100_000_000_000_000_000n; // 0.10 USDC in the 
 /** The only settings the mainnet runner takes from .env. Everything else in the file is ignored, so no other key is ever held. */
 export const RUNNER_ENV_NAMES = [
   'MAINNET_RUNNER_PRIVATE_KEY', 'MAINNET_ARENA_ADDRESS', 'ARC_MAINNET_RPC_URL', 'USDC_ADDRESS',
-  // the guide calls (runner/guide.mjs): the AI agents' model and the place the website reads the calls from
-  'GEMINI_API_KEY', 'GEMINI_MODEL', 'GEMINI_FALLBACK_MODEL', 'GEMINI_TIMEOUT_SECONDS', 'GEMINI_FALLBACK_TIMEOUT_SECONDS', 'GEMINI_MAX_CALLS_PER_DAY',
+  // the guide calls (runner/guide.mjs): the key for the AI models (which model each agent uses is in the code) and the place the website reads the calls from
+  'GEMINI_API_KEY',
   'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN',
 ];
 export const readRunnerEnv = (text) => {

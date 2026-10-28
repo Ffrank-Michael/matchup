@@ -161,9 +161,11 @@ const MIN_TRY_MS = 2_000; // a try needs at least this long to be worth starting
  * `schema` is the answer's shape and `parse(text)` turns the answer's text into a value (or null when it is not what was asked for).
  * Returns { ok: true, value, tokensIn, tokensOut, latencyMs, attempts, model } or { ok: false, error, latencyMs, attempts, model }
  * (model: the one that answered, or the last one tried).
+ * `plain` is for Gemma models: they take no system instruction, no JSON mode and no thinking setting, so the system text goes in front of the
+ * user text and the answer is plain text that `parse` must pick the JSON out of.
  * Error texts are fixed short phrases: they never contain the key or the web address.
  */
-export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, schema, parse, maxOutputTokens = 1500, fetchFn = fetch, timeoutMs = 16_000, fallbackTimeoutMs = 8_000, retryDelayMs = 1_000, maxAttempts = 3, retryOn429 = true, fallbackModel = null, deadline = Infinity, beforeRetry = () => true, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, schema, parse, maxOutputTokens = 1500, fetchFn = fetch, timeoutMs = 16_000, fallbackTimeoutMs = 8_000, retryDelayMs = 1_000, maxAttempts = 3, retryOn429 = true, plain = false, fallbackModel = null, deadline = Infinity, beforeRetry = () => true, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   const started = Date.now();
   if (!Number.isFinite(deadline)) deadline = Infinity;
   let lastError = 'no answer';
@@ -182,18 +184,20 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
     const firstKind = attempt === 1 || sameModelAgain; // the first try, or the same try again without the thinking setting: the longer limit
     usedModel = m;
     sameModelAgain = false;
-    const useThinkingOff = !noThinking.has(m);
-    const body = {
-      systemInstruction: { parts: [{ text: system }] },
-      contents: [{ role: 'user', parts: [{ text: user }] }],
-      generationConfig: {
-        temperature: 0.4,
-        maxOutputTokens,
-        responseMimeType: 'application/json',
-        responseSchema: schema,
-        ...(useThinkingOff ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-      },
-    };
+    const useThinkingOff = !plain && !noThinking.has(m);
+    const body = plain
+      ? { contents: [{ role: 'user', parts: [{ text: `${system}\n\n${user}` }] }], generationConfig: { temperature: 0.4, maxOutputTokens } }
+      : {
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: 'user', parts: [{ text: user }] }],
+          generationConfig: {
+            temperature: 0.4,
+            maxOutputTokens,
+            responseMimeType: 'application/json',
+            responseSchema: schema,
+            ...(useThinkingOff ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+          },
+        };
     let res;
     try {
       res = await fetchFn(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, {
@@ -220,7 +224,7 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
     let data;
     try { data = await res.json(); } catch { lastError = 'unreadable answer'; break; }
     const usage = data?.usageMetadata ?? {};
-    const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
+    const text = data?.candidates?.[0]?.content?.parts?.filter((p) => !p.thought).map((p) => p.text ?? '').join('') ?? '';
     const value = parse(text);
     if (value === null || value === undefined) { lastError = 'answer was not the required JSON'; break; }
     return {
@@ -255,6 +259,24 @@ const GUIDE_SYSTEM = (agent) => [
   'Reply with JSON only: {"calls":[{"coin":"BTC","frame":"5m","call":"UP"|"DOWN","reason":"..."}, ...]} with exactly one entry for every coin and time frame asked, and nothing else.',
 ].join('\n');
 
+// Gemma takes at most 16K input tokens a minute, so a request to it stays under about 12K. Its prompt is shorter: a shorter instruction, fewer
+// candles (cut until the estimate fits) and plain numbers. The other models' prompt is not touched.
+export const GEMMA_INPUT_BUDGET = 11_000; // estimated tokens: below the 12K target, because the estimate can be a little low
+const MIN_COMPACT_CANDLES = 20;
+/** A cautious token estimate for this kind of text: Gemma reads every digit as a token of its own, other characters about half a token. */
+export function estimateTokens(text) {
+  let digits = 0;
+  for (const ch of text) if (ch >= '0' && ch <= '9') digits++;
+  return Math.ceil(digits + (text.length - digits) * 0.5);
+}
+
+const COMPACT_SYSTEM = (agent) => [
+  'Kairo Markets guide calls: call whether a coin price will be UP or DOWN over a round. No money moves.',
+  GUIDE_PERSONAS[agent],
+  'For every coin and time frame listed, give one call, UP or DOWN, and one reason: one short plain sentence (under 100 characters) using a real number from the data. Never use the words bet, wager or odds.',
+  'Reply with ONLY this JSON, no code fence and no other text: {"calls":[{"coin":"BTC","frame":"5m","call":"UP","reason":"..."}]} with exactly one entry for every coin and time frame listed.',
+].join('\n');
+
 /** "BTC/USD" -> "BTC": how the model and the logs name a coin. */
 export const coinShort = (pair) => String(pair).split('/')[0];
 
@@ -269,23 +291,37 @@ export function guideWording(text) {
  * The prompt for one agent at one moment.
  *   coins: [{ coin ("BTC/USD"), candles [{time, open, high, low, close}], frames: [{ label ("5m"), roundSeconds, secondsToLock }] }]
  */
-export function buildGuidePrompt({ agent, coins }) {
+export function buildGuidePrompt({ agent, coins, compact = false }) {
+  if (compact) { // for Gemma: shorter instruction, fewer candles until the estimate fits
+    const system = COMPACT_SYSTEM(agent);
+    let user = '';
+    for (let cap = MAX_SENT; ; cap = Math.max(MIN_COMPACT_CANDLES, Math.floor(cap * 0.85))) {
+      user = guideUser(coins, { cap, compact: true });
+      if (estimateTokens(system + user) <= GEMMA_INPUT_BUDGET || cap <= MIN_COMPACT_CANDLES) break;
+    }
+    return { system, user };
+  }
+  return { system: GUIDE_SYSTEM(agent), user: guideUser(coins, { cap: MAX_SENT, compact: false }) };
+}
+
+function guideUser(coins, { cap, compact }) {
+  const fmt = compact ? (n) => String(Math.round(n * 100) / 100) : num; // compact: no thousands separators
   const parts = ['Make one guide call for every coin and time frame listed.'];
   for (const c of coins) {
     const longest = Math.max(...c.frames.map((f) => f.roundSeconds));
-    const candles = c.candles.slice(-candlesFor(longest));
+    const candles = c.candles.slice(-Math.min(cap, candlesFor(longest)));
     const price = candles[candles.length - 1].close;
     parts.push(
       '',
-      `Coin: ${coinShort(c.coin)}. Current price: ${num(price)}.`,
+      `Coin: ${coinShort(c.coin)}. Current price: ${fmt(price)}.`,
       'Time frames to answer (the next round of each is about to take calls):',
       ...c.frames.map((f) => `- ${f.label}: rounds of ${Math.round(f.roundSeconds / 60)} minutes, calling closes in about ${Math.max(0, Math.round(f.secondsToLock))} seconds`),
       `Last ${candles.length} one-minute candles of ${coinShort(c.coin)}, oldest first, as "time(UTC) open high low close":`,
-      ...candles.map((k) => `${utc(k.time)} ${num(k.open)} ${num(k.high ?? Math.max(k.open, k.close))} ${num(k.low ?? Math.min(k.open, k.close))} ${num(k.close)}`),
+      ...candles.map((k) => `${utc(k.time)} ${fmt(k.open)} ${fmt(k.high ?? Math.max(k.open, k.close))} ${fmt(k.low ?? Math.min(k.open, k.close))} ${fmt(k.close)}`),
     );
   }
   parts.push('', 'Reply with JSON only, one entry for every coin and time frame listed above.');
-  return { system: GUIDE_SYSTEM(agent), user: parts.join('\n') };
+  return parts.join('\n');
 }
 
 /** The shape the model must answer in, for the given entries [{ coin: "BTC", frame: "5m" }]. */
@@ -318,7 +354,12 @@ export function guideSchema(entries) {
  */
 export function parseGuide(text, entries) {
   let v;
-  try { v = JSON.parse(text); } catch { return null; }
+  try { v = JSON.parse(text); } catch {
+    // Gemma answers in plain text: possibly a code fence or a sentence around the JSON. Take what is between the first { and the last }.
+    const a = text.indexOf('{'), b = text.lastIndexOf('}');
+    if (a < 0 || b <= a) return null;
+    try { v = JSON.parse(text.slice(a, b + 1)); } catch { return null; }
+  }
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
   if (Object.keys(v).length !== 1 || !Array.isArray(v.calls)) return null;
   const wanted = new Set(entries.map((e) => `${e.coin}:${e.frame}`));

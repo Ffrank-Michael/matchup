@@ -15,10 +15,12 @@
 //   Each call is saved with the time it was made, before its round locks, and is never changed afterwards: the file is append-only, the
 //   runner never saves a (market, round, agent) twice, and the copy on Upstash is written with HSETNX (set only if it is not there yet).
 //   Where the site reads them: Upstash hash kairo:guide, field "<market>:<round>:<agent>"; the score of a round is field "<market>:<round>:res".
-// GEMINI LIMITS
-//   A limit or quota answer (HTTP 429) ends that request: no retry, and nothing is asked for 10 minutes. Any other failure skips those
-//   calls ("Couldn't decide this round"). One retry only for a timeout or a server error, counted like any request. Everything Gemini
-//   does runs in the background: the runner's price pushes and settles are never held up. The runner logs the number of requests each hour.
+// GEMINI LIMITS (see GUIDE_MODELS below: the model of each agent, and each model's daily cap)
+//   Each agent has its own model, so no model gets more than one agent's requests: about 288 a day each. Each model has a daily cap (counted per
+//   Pacific day, Google's reset) below Google's own limit. When an agent's model is at its cap, is resting, or answers with a limit or quota
+//   error (HTTP 429, never retried; that model then rests 10 minutes), the agent uses the fallback model; if that fails too, the call shows
+//   "Couldn't decide this round". Any other failure skips those calls. One retry only for a timeout or a server error on a Gemini model; none
+//   on Gemma (16K input tokens a minute). Everything runs in the background: price pushes and settles are never held up. Hourly log line: requests per model.
 // SCORING
 //   When a round ends each call is scored against the Bitfinex price at its start and end: the same prices the runner put on chain
 //   (its price log) when the round was played, otherwise the first trade after the lock and the last trade before the end, asked from
@@ -27,13 +29,30 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT } from '../scripts/lib.mjs';
-import { askGemini, buildGuidePrompt, guideSchema, parseGuide, coinShort, frameLabel, MIN_CANDLES, COULDNT_DECIDE, DEFAULT_MODEL, DEFAULT_FALLBACK_MODEL } from '../agents/ai.mjs';
+import { askGemini, buildGuidePrompt, guideSchema, parseGuide, coinShort, frameLabel, MIN_CANDLES, COULDNT_DECIDE } from '../agents/ai.mjs';
 import { lockTime } from './plan.mjs';
 import { readPriceLog } from './priceLog.mjs';
 import { SYMBOLS } from './exchangePrices.mjs';
 
 export const GUIDE_AGENTS = ['trend-follower', 'contrarian', 'chart-reader', 'coin-flipper'];
 export const GUIDE_AI_AGENTS = ['trend-follower', 'contrarian', 'chart-reader'];
+
+// WHICH MODEL EACH AGENT USES, AND THE LIMITS OF EACH MODEL: the one place to read or change them. Each agent has its own model so that
+// no model gets more than one agent's requests (about 288 a day each). The limits are Google AI Studio's free-tier limits for our key;
+// dailyCap is kept below Google's own daily limit, perMinute is our own ceiling per model.
+//   plain: Gemma takes no system instruction, no JSON mode and no thinking setting, and only 16K input tokens a minute: its prompt is the shorter one
+//   (agents/ai.mjs buildGuidePrompt compact) and its answer is plain text. Gemma gets one request a minute per model and no second try, for the same reason.
+export const GUIDE_MODELS = {
+  'gemini-3.5-flash-lite': { dailyCap: 450, perMinute: 10, plain: false, timeoutMs: 16_000, maxAttempts: 2 }, // Google: 500 a day, 15 a minute
+  'gemini-3.1-flash-lite': { dailyCap: 450, perMinute: 10, plain: false, timeoutMs: 16_000, maxAttempts: 2 }, // Google: 500 a day, 15 a minute
+  'gemma-4-26b': { dailyCap: 5000, perMinute: 1, plain: true, timeoutMs: 30_000, maxAttempts: 1 },            // Google: 14400 a day, 30 a minute, 16K input tokens a minute
+  'gemma-4-31b': { dailyCap: 5000, perMinute: 1, plain: true, timeoutMs: 30_000, maxAttempts: 1 },            // Google: 14400 a day, 30 a minute, 16K input tokens a minute
+};
+export const AGENT_MODELS = { 'chart-reader': 'gemini-3.5-flash-lite', contrarian: 'gemini-3.1-flash-lite', 'trend-follower': 'gemma-4-26b' };
+/** Used for an agent whose own model is at its daily cap or answers with a limit or quota error (or does not exist). */
+export const FALLBACK_MODEL = 'gemma-4-31b';
+/** Google resets the daily limits at midnight Pacific time: the counters follow that day. */
+export const limitDay = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(ms);
 export const GUIDE_FILE = path.join(ROOT, 'data', 'guide-calls-mainnet.jsonl');
 export const GUIDE_STATE_FILE = path.join(ROOT, 'data', 'guide-state-mainnet.json');
 export const GUIDE_PRICE_FILE = path.join(ROOT, 'data', 'guide-prices-mainnet.jsonl');
@@ -50,10 +69,8 @@ export const GUIDE_CFG = {
   fetchGapMs: 1_500,      // between two trade-history requests (Bitfinex allows 10 to 90 a minute)
   retryFetchMs: 60_000,   // a price that could not be fetched is asked again after this
   keepSeconds: 3 * 86400, // calls older than this are removed from Upstash
-  quotaPauseMs: 10 * 60_000, // after HTTP 429 nothing is asked for this long
-  dailyCap: 1200,         // the runner's own ceiling on Gemini requests per UTC day (GEMINI_MAX_CALLS_PER_DAY)
-  perMinute: 6,           // ... and per minute (the free tier allows about 10)
-  expectedPerDay: 3 * (86400 / CYCLE_SECONDS), // 3 AI agents x 288 cycles = 864 requests a day when every request succeeds
+  quotaPauseMs: 10 * 60_000, // after HTTP 429 that model is not asked for this long (its agent uses the fallback model meanwhile)
+  expectedPerDayEach: 86400 / CYCLE_SECONDS, // one request per agent per cycle: 288 a day on each agent's own model
 };
 
 export const callField = (m, r, agent) => `${m}:${r}:${agent}`;
@@ -96,12 +113,10 @@ export async function freshCandles(candleSource, coin, { nowMs = Date.now, sleep
 export function createGuide({
   env = process.env, live = false, log = () => {}, getCandles, askFn = askGemini, fetchFn = fetch, now = () => Date.now(),
   random = Math.random, file = GUIDE_FILE, stateFile = GUIDE_STATE_FILE, priceFile = GUIDE_PRICE_FILE, chainPriceLog = () => readPriceLog(),
-  cfg: over = {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  cfg: over = {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), models = GUIDE_MODELS, agentModels = AGENT_MODELS, fallbackModel = FALLBACK_MODEL,
 } = {}) {
-  const cfg = { ...GUIDE_CFG, dailyCap: numOr(env.GEMINI_MAX_CALLS_PER_DAY, GUIDE_CFG.dailyCap), ...over };
+  const cfg = { ...GUIDE_CFG, ...over };
   const apiKey = env.GEMINI_API_KEY || '';
-  const model = env.GEMINI_MODEL || DEFAULT_MODEL;
-  const fallbackModel = env.GEMINI_FALLBACK_MODEL || DEFAULT_FALLBACK_MODEL;
   const redisUrl = String(env.UPSTASH_REDIS_REST_URL || '').replace(/\/+$/, '');
   const redisToken = env.UPSTASH_REDIS_REST_TOKEN || '';
   const nowSec = () => Math.floor(now() / 1000);
@@ -112,10 +127,10 @@ export function createGuide({
   const busy = new Set();     // agents with a request in flight
   const woulds = new Set();   // dry run: what was already announced
   const cycleCandles = new Map(); // "cycle:coin" -> Promise of candles, shared by the three agents' requests
-  let state = { asked: {}, day: { date: '', started: 0 } };
-  const hour = { key: '', started: 0, byAgent: {} };
-  const recent = [];          // start times of the last minute's requests
-  let pausedUntil = 0;
+  let state = { asked: {}, day: { date: '', byModel: {} } }; // day: the counts since midnight Pacific (Google's reset), per model
+  const hour = { key: '', byModel: {} };
+  const recentBy = {};        // model -> start times of its last minute's requests
+  const quotaUntil = {};      // model -> ms: not asked until then (it answered with a limit or quota error)
   let warnedNoKey = false, warnedRedis = false, scoring = false, lastPrune = 0, markets = [];
 
   // ---- local files (append-only) ----
@@ -176,31 +191,37 @@ export function createGuide({
   /** A call that could not be made. A round that is still open at the next cycle is simply asked again then (one request per cycle, never a loop); one that locks before that gets its "Couldn't decide this round". */
   const giveUp = (list, agent, why) => saveCalls(list.filter((d) => d.lock - nowSec() < CYCLE_SECONDS + cfg.askAfter + cfg.minLeft).map((d) => skipRecord(d, agent, why)));
 
-  // ---- counting Gemini requests ----
+  // ---- counting Gemini requests, per model ----
   function rollDay() {
-    const d = new Date(now()).toISOString().slice(0, 10);
-    if (state.day.date !== d) { state.day = { date: d, started: 0 }; saveState(); }
+    const d = limitDay(now());
+    if (state.day.date !== d || !state.day.byModel) { state.day = { date: d, byModel: {} }; saveState(); }
   }
+  const total = (by) => Object.values(by).reduce((x, y) => x + y, 0);
+  const counts = (by) => Object.keys(models).map((m) => `${m} ${by[m] ?? 0}`).join(', ');
   function rollHour() {
     const k = new Date(now()).toISOString().slice(0, 13);
     if (hour.key === k) return;
     if (hour.key) {
-      const per = GUIDE_AI_AGENTS.map((a) => `${a} ${hour.byAgent[a] ?? 0}`).join(', ');
-      log(`GUIDE Gemini requests: ${hour.started} in the last hour (${per}); ${state.day.started} so far today (UTC); expected about ${cfg.expectedPerDay} a day (3 agents x ${86400 / CYCLE_SECONDS} five-minute cycles, one request each)${state.day.started > cfg.dailyCap * 0.9 ? ' - NEAR THE DAILY CAP' : ''}`);
+      const near = Object.keys(models).filter((m) => (state.day.byModel[m] ?? 0) > models[m].dailyCap * 0.9);
+      log(`GUIDE Gemini requests: ${total(hour.byModel)} in the last hour (${counts(hour.byModel)}); today (Pacific day, Google's reset): ${counts(state.day.byModel)}; caps ${Object.entries(models).map(([m, l]) => `${m} ${l.dailyCap}`).join(', ')}; expected about ${cfg.expectedPerDayEach} a day on each agent's own model${near.length ? ` - NEAR THE DAILY CAP: ${near.join(', ')}` : ''}`);
     }
-    hour.key = k; hour.started = 0; hour.byAgent = {};
+    hour.key = k; hour.byModel = {};
   }
-  /** One request about to be sent (first try or a retry): counts it, and says no at either limit. */
-  function allowRequest(agent) {
+  /** One request about to be sent to `model` (first try or a retry). Counts it and returns null, or returns why it may not be sent. */
+  function reserve(model) {
     rollDay();
-    if (state.day.started >= cfg.dailyCap) return false;
+    const lim = models[model];
+    if (!lim) return 'unknown model';
+    if (now() < (quotaUntil[model] ?? 0)) return `paused until ${hhmm(quotaUntil[model])} UTC after a limit answer`;
+    if ((state.day.byModel[model] ?? 0) >= lim.dailyCap) return `daily cap ${lim.dailyCap} reached`;
     const t = now();
-    while (recent.length && recent[0] < t - 60_000) recent.shift();
-    if (recent.length >= cfg.perMinute) return false;
+    const recent = (recentBy[model] = (recentBy[model] ?? []).filter((x) => x > t - 60_000));
+    if (recent.length >= lim.perMinute) return `${lim.perMinute} a minute reached`;
     recent.push(t);
-    state.day.started++; hour.started++; hour.byAgent[agent] = (hour.byAgent[agent] ?? 0) + 1;
+    state.day.byModel[model] = (state.day.byModel[model] ?? 0) + 1;
+    hour.byModel[model] = (hour.byModel[model] ?? 0) + 1;
     saveState();
-    return true;
+    return null;
   }
 
   // ---- Coin Flipper ----
@@ -239,20 +260,36 @@ export function createGuide({
     }
     if (asked.length === 0) return;
     const keys = asked.map((d) => ({ coin: d.short, frame: d.label }));
-    const { system, user } = buildGuidePrompt({ agent, coins });
     const deadline = Math.min(...asked.map((d) => d.lock)) * 1000 - 10_000; // an answer is useless once the first of these rounds locks
-    const out = await askFn({
-      apiKey, model, fallbackModel, system, user, deadline, retryOn429: false, maxAttempts: 2, beforeRetry: () => allowRequest(agent),
-      timeoutMs: numOr(env.GEMINI_TIMEOUT_SECONDS, 16) * 1000, fallbackTimeoutMs: numOr(env.GEMINI_FALLBACK_TIMEOUT_SECONDS, 8) * 1000,
-      schema: guideSchema(keys), parse: (text) => parseGuide(text, keys), maxOutputTokens: 300 + 90 * keys.length, sleep,
-    });
-    if (!out.ok) {
-      if (out.error === 'HTTP 429') {
-        pausedUntil = now() + cfg.quotaPauseMs;
-        log(`GUIDE: Gemini says too many requests (a limit or quota). Not asking again until ${hhmm(pausedUntil)} UTC; ${agent} skips these calls`);
+    // the agent's own model first; when it is at its daily cap, is paused, or answers with a limit or quota error (or does not exist), the fallback model
+    let out = null;
+    for (const model of [...new Set([agentModels[agent], fallbackModel])]) {
+      const lim = models[model];
+      const why = reserve(model);
+      if (why) { log(`GUIDE ${agent}: ${model} not used (${why})`); continue; }
+      const { system, user } = buildGuidePrompt({ agent, coins, compact: lim.plain });
+      out = await askFn({
+        apiKey, model, plain: lim.plain, system, user, deadline, retryOn429: false, maxAttempts: lim.maxAttempts, beforeRetry: () => reserve(model) === null,
+        timeoutMs: lim.timeoutMs, fallbackTimeoutMs: 8_000,
+        schema: guideSchema(keys), parse: (text) => parseGuide(text, keys), maxOutputTokens: lim.plain ? 600 + 120 * keys.length : 300 + 90 * keys.length, sleep,
+      });
+      if (out.ok) break;
+      log(`GUIDE ${agent}: no answer from ${model} (${out.error}, ${out.attempts} tries, ${out.latencyMs} ms)`);
+      if (out.error === 'HTTP 429') { // a limit or quota answer: never retried, and this model rests for a while
+        quotaUntil[model] = now() + cfg.quotaPauseMs;
+        log(`GUIDE: ${model} says too many requests (a limit or quota). Not asking it again until ${hhmm(quotaUntil[model])} UTC${model !== fallbackModel ? `; ${agent} tries ${fallbackModel}` : ''}`);
+        continue;
       }
-      log(`GUIDE ${agent}: no answer (${out.error}, ${out.attempts} tries, ${out.latencyMs} ms), so these ${asked.length} calls are skipped`);
-      giveUp(asked, agent, out.error);
+      if (out.error === 'HTTP 404') { // no such model: the name in GUIDE_MODELS is wrong
+        quotaUntil[model] = now() + 3_600_000;
+        log(`GUIDE: ${model} was not found (HTTP 404): check its name in GUIDE_MODELS (runner/guide.mjs). Not asking it again for an hour`);
+        continue;
+      }
+      break; // any other failure (timeout, server error, an answer that is not the JSON): these calls are skipped, nothing is tried in a loop
+    }
+    if (!out?.ok) {
+      log(`GUIDE ${agent}: no answer, so these ${asked.length} calls are skipped`);
+      giveUp(asked, agent, out?.error ?? 'no model available');
       return;
     }
     let made = 0, missing = 0;
@@ -270,17 +307,11 @@ export function createGuide({
   function startAI(agent, entries, cycle) {
     state.asked[agent] = cycle; // one request per agent per cycle, even when it fails: nothing is asked again in a loop
     const labels = entries.map((d) => `${d.short} ${d.label}`).join(', ');
-    if (!live) { log(`WOULD ask ${model} for ${agent}: ${entries.length} calls (${labels}), one request`); return; }
+    if (!live) { log(`WOULD ask ${agentModels[agent]} for ${agent} (fallback ${fallbackModel}): ${entries.length} calls (${labels}), one request`); return; }
     saveState();
     if (!apiKey) {
       if (!warnedNoKey) { warnedNoKey = true; log('GUIDE: GEMINI_API_KEY is not set in .env, so the three AI agents make no guide calls ("Couldn\'t decide this round").'); }
       giveUp(entries, agent, 'no API key');
-      return;
-    }
-    if (now() < pausedUntil) { giveUp(entries, agent, 'rate limited'); return; }
-    if (!allowRequest(agent)) {
-      log(`GUIDE: Gemini request limit reached (${cfg.dailyCap} a day or ${cfg.perMinute} a minute); ${agent} skips ${entries.length} calls`);
-      giveUp(entries, agent, 'request limit');
       return;
     }
     busy.add(agent);
@@ -413,6 +444,6 @@ export function createGuide({
       return Math.max(1, Math.ceil((t >= thisAsk ? thisAsk + CYCLE_SECONDS : thisAsk) - t));
     },
     /** For the log: today's request count. */
-    summary() { rollDay(); return `GUIDE today: ${state.day.started} Gemini requests (expected about ${cfg.expectedPerDay} a day)`; },
+    summary() { rollDay(); return `GUIDE today (Pacific day): ${counts(state.day.byModel)} (expected about ${cfg.expectedPerDayEach} a day on each agent's own model)`; },
   };
 }

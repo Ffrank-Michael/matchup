@@ -7,7 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { askGemini, buildGuidePrompt, guideSchema, parseGuide, guideWording, GUIDE_LABEL } from '../agents/ai.mjs';
-import { createGuide, dueRounds, outcomeOf, resultOf, callField, resField, GUIDE_AI_AGENTS, GUIDE_CFG, GUIDE_HASH } from './guide.mjs';
+import { createGuide, dueRounds, outcomeOf, resultOf, callField, resField, limitDay, GUIDE_AI_AGENTS, GUIDE_CFG, GUIDE_HASH, GUIDE_MODELS, AGENT_MODELS, FALLBACK_MODEL } from './guide.mjs';
+import { estimateTokens } from '../agents/ai.mjs';
 
 // Cycle-aligned clock: T0 is a multiple of 300, so the 5-minute cycle starts at T0 and the AI is due at T0 + 3.
 const T0 = 1_800_000_000;
@@ -18,6 +19,16 @@ const markets = () => [
   mk(3, 'BTC/USD 10m', 600, 0, T0 + 600), mk(4, 'ETH/USD 10m', 600, 100, T0 + 100), mk(5, 'SOL/USD 10m', 600, 200, T0 + 200),
 ];
 const candles = Array.from({ length: 60 }, (_, i) => ({ time: T0 - 3600 + i * 60, open: 100 + i, high: 102 + i, low: 99 + i, close: 101 + i }));
+
+// what a model that works answers: one UP/DOWN call and reason for every entry asked
+function answerFor(args) {
+  const n = args.schema.properties.calls.minItems;
+  const coins = args.schema.properties.calls.items.properties.coin.enum, frames = args.schema.properties.calls.items.properties.frame.enum;
+  const list = [];
+  for (const c of coins) for (const f of frames) list.push({ coin: c, frame: f });
+  const wanted = list.filter((e) => args.user.includes(`Coin: ${e.coin}.`) && args.user.includes(`- ${e.frame}:`)).slice(0, n);
+  return { ok: true, value: args.parse(JSON.stringify({ calls: wanted.map((e, i) => ({ coin: e.coin, frame: e.frame, call: i % 2 ? 'DOWN' : 'UP', reason: `${e.coin} ${e.frame} moved 0.2%` })) })), tokensIn: 100, tokensOut: 50, latencyMs: 5, attempts: 1, model: args.model };
+}
 
 function setup(over = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'guide-test-'));
@@ -33,7 +44,7 @@ function setup(over = {}) {
     const list = [];
     for (const c of coins) for (const f of frames) list.push({ coin: c, frame: f });
     const wanted = list.filter((e) => args.user.includes(`Coin: ${e.coin}.`) && args.user.includes(`- ${e.frame}:`)).slice(0, n);
-    return { ok: true, value: args.parse(JSON.stringify({ calls: wanted.map((e, i) => ({ coin: e.coin, frame: e.frame, call: i % 2 ? 'DOWN' : 'UP', reason: `${e.coin} ${e.frame} moved 0.2%` })) })), tokensIn: 100, tokensOut: 50, latencyMs: 5, attempts: 1, model: 'test-model' };
+    return { ok: true, value: args.parse(JSON.stringify({ calls: wanted.map((e, i) => ({ coin: e.coin, frame: e.frame, call: i % 2 ? 'DOWN' : 'UP', reason: `${e.coin} ${e.frame} moved 0.2%` })) })), tokensIn: 100, tokensOut: 50, latencyMs: 5, attempts: 1, model: args.model };
   };
   const askFn = over.askFn ?? (async (args) => { asks.push(args); return answer(args); });
   const fetchFn = over.fetchFn ?? (async (url, init) => {
@@ -43,7 +54,7 @@ function setup(over = {}) {
   const g = createGuide({
     env: { GEMINI_API_KEY: 'k', UPSTASH_REDIS_REST_URL: 'https://redis.test', UPSTASH_REDIS_REST_TOKEN: 't', ...(over.env ?? {}) }, live: over.live ?? true,
     log: (m) => logs.push(m), getCandles: async () => candles, askFn, fetchFn, now: () => clock.ms, random: over.random ?? (() => 0.7),
-    chainPriceLog: over.chainPriceLog ?? (() => []), sleep: async () => {}, ...files, cfg: over.cfg,
+    chainPriceLog: over.chainPriceLog ?? (() => []), sleep: async () => {}, ...files, cfg: over.cfg, ...(over.models ? { models: over.models } : {}),
   });
   return { g, logs, clock, asks, redis, files, dir, snap: { markets: over.markets ?? markets() } };
 }
@@ -120,34 +131,11 @@ test('dry run: it only says what it would ask and save, sends nothing and writes
   t.g.tick(t.snap);
   await settle();
   assert.equal(t.logs.filter((l) => l.startsWith('WOULD ask')).length, 3, 'one line per AI agent, once');
+  for (const [agent, model] of Object.entries(AGENT_MODELS)) assert.ok(t.logs.some((l) => l.startsWith(`WOULD ask ${model} for ${agent}`)), agent);
   assert.equal(t.logs.filter((l) => l.startsWith('WOULD save guide call: Coin Flipper')).length, 6);
   assert.equal(t.redis.length, 0);
   assert.equal(fs.readdirSync(t.dir).length, 0, 'no files written');
   assert.equal(t.g.calls.size, 0);
-});
-
-test('live: ONE Gemini request per AI agent covers every coin and time frame, and Coin Flipper calls without Gemini', async () => {
-  const t = setup();
-  t.g.tick(t.snap);
-  await settle();
-  assert.equal(t.asks.length, 3, 'three requests: one per AI agent');
-  for (const a of t.asks) {
-    assert.equal(a.retryOn429, false);
-    assert.equal(a.maxAttempts, 2);
-    for (const coin of ['BTC', 'ETH', 'SOL']) assert.match(a.user, new RegExp(`Coin: ${coin}\\.`));
-    assert.equal(a.schema.properties.calls.minItems, 6, '3 coins x 5m, plus 10m for the three coins');
-  }
-  // every agent has a call on every one of the six open rounds
-  const fields = calledFields(t.g);
-  assert.equal(fields.length, 4 * 6);
-  for (const agent of [...GUIDE_AI_AGENTS, 'coin-flipper']) for (const m of markets()) assert.ok(t.g.calls.has(callField(m.id, m.nextRound, agent)), `${agent} market ${m.id}`);
-  // each call is saved before its round locks, with the time it was made
-  for (const rec of t.g.calls.values()) { assert.ok(rec.at < rec.lock, 'made before the lock'); assert.equal(rec.s, 'called'); assert.ok(rec.c === 'UP' || rec.c === 'DOWN'); assert.equal(rec.g, 1); }
-  // the coin flipper: 0.7 is 0.50 or more, so UP, with its reason in the call words
-  const flip = t.g.calls.get(callField(0, markets()[0].nextRound, 'coin-flipper'));
-  assert.equal(flip.c, 'UP');
-  assert.equal(flip.src, 'random');
-  assert.doesNotMatch(flip.t, /\b(bet|wager|odds)\b/i);
 });
 
 test('live: nothing more is asked in the same cycle, and the next cycle asks once more per agent', async () => {
@@ -193,37 +181,6 @@ test('a restart does not ask again in the same cycle and does not make the same 
   assert.equal(second.calls.size, 24, 'the saved calls were read back');
 });
 
-test('a limit or quota answer skips the calls, is never retried, and nothing is asked for 10 minutes; the runner is not affected', async () => {
-  let asked = 0;
-  const t = setup({ askFn: async () => { asked++; return { ok: false, error: 'HTTP 429', attempts: 1, latencyMs: 3, model: 'm' }; } });
-  assert.doesNotThrow(() => t.g.tick(t.snap));
-  await settle();
-  assert.equal(asked, 3);
-  assert.ok(t.logs.some((l) => /too many requests/.test(l)));
-  // ETH and SOL rounds lock within the cycle: they get "Couldn't decide this round"; the rounds that stay open are simply asked again later
-  const skipped = [...t.g.calls.values()].filter((r) => r.s === 'skipped' && r.a !== 'coin-flipper');
-  assert.ok(skipped.length > 0);
-  assert.ok(skipped.every((r) => r.c === null && /decide/.test(r.t)));
-  assert.equal(t.g.calls.has(callField(3, markets()[3].nextRound, 'trend-follower')), false, 'BTC 10m stays open past the next cycle: asked again then');
-  assert.equal(t.g.calls.has(callField(0, markets()[0].nextRound, 'trend-follower')), true, 'BTC 5m locks before the next cycle: it gets its skip');
-  // inside the pause: nothing is asked
-  t.clock.ms = (T0 + 300 + 3) * 1000;
-  t.g.tick({ markets: markets().map((m) => ({ ...m, nextRound: m.nextRound + 1 })) }); await settle();
-  assert.equal(asked, 3, 'paused for 10 minutes');
-  // after the pause it asks again
-  t.clock.ms = (T0 + 900 + 3) * 1000;
-  t.g.tick({ markets: markets().map((m) => ({ ...m, nextRound: m.nextRound + 2 })) }); await settle();
-  assert.equal(asked, 6);
-});
-
-test('any other failure skips those calls once and carries on', async () => {
-  const t = setup({ askFn: async () => ({ ok: false, error: 'timed out', attempts: 2, latencyMs: 24_000, model: 'm' }) });
-  t.g.tick(t.snap); await settle();
-  assert.ok(t.logs.some((l) => /no answer \(timed out/.test(l)));
-  assert.ok(t.g.calls.has(callField(1, markets()[1].nextRound, 'chart-reader')), 'ETH 5m locks soon: it gets its skip');
-  assert.equal([...t.g.calls.values()].filter((r) => r.a === 'coin-flipper' && r.s === 'called').length, 6, 'Coin Flipper does not need Gemini');
-});
-
 test('an answer that comes after the round locks is dropped', async () => {
   const t = setup({ askFn: async (args) => { t.clock.ms = (T0 + 203) * 1000; return (await (async () => ({ ok: true, value: args.parse(JSON.stringify({ calls: [{ coin: 'BTC', frame: '5m', call: 'UP', reason: 'late' }, { coin: 'ETH', frame: '5m', call: 'UP', reason: 'late' }, { coin: 'SOL', frame: '5m', call: 'UP', reason: 'late' }, { coin: 'BTC', frame: '10m', call: 'UP', reason: 'late' }, { coin: 'ETH', frame: '10m', call: 'UP', reason: 'late' }, { coin: 'SOL', frame: '10m', call: 'UP', reason: 'late' }] })), tokensIn: 1, tokensOut: 1, latencyMs: 1, attempts: 1, model: 'm' }))()); } });
   t.g.tick(t.snap); await settle();
@@ -233,30 +190,9 @@ test('an answer that comes after the round locks is dropped', async () => {
   for (const r of ai) assert.ok(r.at < r.lock);
 });
 
-test('the daily cap stops the requests, and the hourly line gives the count and the expected daily total', async () => {
-  const t = setup({ cfg: { dailyCap: 2 } });
-  t.g.tick(t.snap); await settle();
-  assert.equal(t.asks.length, 2, 'the third agent hits the cap');
-  assert.ok(t.logs.some((l) => /request limit reached/.test(l)));
-  t.clock.ms += 3600_000; // next hour
-  t.g.tick(t.snap); await settle();
-  const line = t.logs.find((l) => l.startsWith('GUIDE Gemini requests:'));
-  assert.match(line, /2 in the last hour/);
-  assert.match(line, /expected about 864 a day/);
-  assert.equal(GUIDE_CFG.expectedPerDay, 864);
-});
-
-test('a missing key means no request and no crash', async () => {
-  const t = setup({ env: { GEMINI_API_KEY: '' } });
-  assert.doesNotThrow(() => t.g.tick(t.snap));
-  await settle();
-  assert.equal(t.asks.length, 0);
-  assert.ok(t.logs.some((l) => /GEMINI_API_KEY is not set/.test(l)));
-});
-
 // ------------------------------------------------------------------------------------------------ scoring
 
-// a Bitfinex trade-history answer that fits the asked time: the first trade 4 s after a start, the last trade 2 s before an end
+// a Bitfinex trade-history answer that fits the asked time: the first trade 2 s after a start, the last trade 2 s before an end
 const bitfinex = (url, startUsd, endUsd) => {
   const m = /start=(\d+)/.exec(url), e = /end=(\d+)/.exec(url);
   return m ? [[1, Number(m[1]) + 2000, 1, startUsd]] : [[2, Number(e[1]) - 2000, 1, endUsd]];
@@ -332,4 +268,180 @@ test('a price that cannot be fetched is tried again later, and never crashes', a
   await settle(); await settle();
   assert.equal(t.g.scored.size, 0);
   assert.ok(t.logs.some((l) => /no BTC\/USD start price from Bitfinex/.test(l)));
+});
+
+// ------------------------------------------------------------------------------------------------ one model per agent, caps, fallback
+
+const tick1 = async (t) => { t.g.tick(t.snap); await settle(); };
+const nextCycle = (t, n = 1) => { t.clock.ms = (T0 + 300 * n + 3) * 1000; return { markets: markets().map((m) => ({ ...m, nextRound: m.nextRound + n * (m.roundLength === 300 ? 1 : 0.5) })) }; };
+const modelsOf = (t) => t.asks.map((a) => a.model).sort();
+
+test('each AI agent has its own model: Chart Reader gemini-3.5-flash-lite, Contrarian gemini-3.1-flash-lite, Trend Follower gemma-4-26b', async () => {
+  assert.deepEqual(AGENT_MODELS, { 'chart-reader': 'gemini-3.5-flash-lite', contrarian: 'gemini-3.1-flash-lite', 'trend-follower': 'gemma-4-26b' });
+  assert.equal(FALLBACK_MODEL, 'gemma-4-31b');
+  assert.equal(new Set(Object.values(AGENT_MODELS)).size, 3, 'no two agents share a model');
+  assert.deepEqual([GUIDE_MODELS['gemini-3.5-flash-lite'].dailyCap, GUIDE_MODELS['gemini-3.1-flash-lite'].dailyCap, GUIDE_MODELS['gemma-4-26b'].dailyCap, GUIDE_MODELS['gemma-4-31b'].dailyCap], [450, 450, 5000, 5000]);
+  const t = setup();
+  await tick1(t);
+  assert.equal(t.asks.length, 3, 'one request per agent, covering every coin and time frame');
+  const by = Object.fromEntries(t.asks.map((a) => [a.model, a]));
+  assert.deepEqual(Object.keys(by).sort(), ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemma-4-26b']);
+  for (const a of t.asks) {
+    assert.equal(a.retryOn429, false);
+    assert.equal(a.schema.properties.calls.minItems, 6, '3 coins x 5m, plus 10m for the three coins');
+    for (const coin of ['BTC', 'ETH', 'SOL']) assert.match(a.user, new RegExp(`Coin: ${coin}\\.`));
+  }
+  assert.equal(by['gemma-4-26b'].plain, true);
+  assert.equal(by['gemma-4-26b'].maxAttempts, 1, 'no second Gemma request within the minute');
+  assert.equal(by['gemini-3.5-flash-lite'].plain, false);
+  assert.equal(by['gemini-3.5-flash-lite'].maxAttempts, 2);
+  // every agent has a call on every one of the six open rounds, saved before its round locks, with the model that made it
+  assert.equal(t.g.calls.size, 4 * 6);
+  for (const rec of t.g.calls.values()) { assert.ok(rec.at < rec.lock); assert.equal(rec.s, 'called'); }
+  assert.equal(t.g.calls.get(callField(0, markets()[0].nextRound, 'trend-follower')).model, 'gemma-4-26b');
+  assert.equal(t.g.calls.get(callField(0, markets()[0].nextRound, 'chart-reader')).model, 'gemini-3.5-flash-lite');
+  const flip = t.g.calls.get(callField(0, markets()[0].nextRound, 'coin-flipper'));
+  assert.equal(flip.src, 'random');
+  assert.equal(flip.c, 'UP');
+});
+
+test('a model that answers with a limit or quota error is not retried: the agent uses gemma-4-31b for that call', async () => {
+  const t = setup({ askFn: async (args) => { t.asks.push(args); return args.model === 'gemini-3.5-flash-lite' ? { ok: false, error: 'HTTP 429', attempts: 1, latencyMs: 3, model: args.model } : answerFor(args); } });
+  await tick1(t);
+  assert.deepEqual(modelsOf(t), ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemma-4-26b', 'gemma-4-31b'], 'one try on the limited model, one on the fallback');
+  const rec = t.g.calls.get(callField(0, markets()[0].nextRound, 'chart-reader'));
+  assert.equal(rec.s, 'called');
+  assert.equal(rec.model, 'gemma-4-31b');
+  assert.ok(t.logs.some((l) => /gemini-3\.5-flash-lite says too many requests/.test(l) && /chart-reader tries gemma-4-31b/.test(l)));
+  // the limited model rests: next cycle Chart Reader goes straight to the fallback
+  const before = t.asks.length;
+  t.clock.ms += 61_000; // the fallback model's one-request-a-minute is free again
+  t.g.tick(nextCycle(t)); await settle();
+  assert.equal(t.asks.slice(before).filter((a) => a.model === 'gemini-3.5-flash-lite').length, 0, 'not asked again while it rests');
+  assert.equal(t.asks.slice(before).filter((a) => a.model === 'gemma-4-31b').length, 1);
+});
+
+test('a limit answer from every model: the calls are skipped, nothing is retried in a loop, the runner is not affected', async () => {
+  let asked = 0;
+  const t = setup({ askFn: async (args) => { asked++; t.asks.push(args); return { ok: false, error: 'HTTP 429', attempts: 1, latencyMs: 3, model: args.model }; } });
+  assert.doesNotThrow(() => t.g.tick(t.snap));
+  await settle();
+  // trend-follower: gemma-4-26b then gemma-4-31b; the other two find gemma-4-31b already used this minute: 4 requests in all
+  assert.equal(asked, 4);
+  const skipped = [...t.g.calls.values()].filter((r) => r.s === 'skipped' && r.a !== 'coin-flipper');
+  assert.ok(skipped.length > 0);
+  assert.ok(skipped.every((r) => r.c === null && /decide/.test(r.t)));
+  assert.equal(t.g.calls.has(callField(3, markets()[3].nextRound, 'trend-follower')), false, 'BTC 10m stays open past the next cycle: asked again then');
+  assert.equal(t.g.calls.has(callField(0, markets()[0].nextRound, 'trend-follower')), true, 'BTC 5m locks before the next cycle: it gets its skip');
+  t.g.tick(nextCycle(t)); await settle();
+  assert.equal(asked, 4, 'every model rests for 10 minutes');
+  t.g.tick(nextCycle(t, 3)); await settle();
+  assert.equal(asked, 8, 'asked again once, not more');
+});
+
+test('a model that does not exist (HTTP 404) is skipped for an hour and the fallback answers', async () => {
+  const t = setup({ askFn: async (args) => { t.asks.push(args); return args.model === 'gemma-4-26b' ? { ok: false, error: 'HTTP 404', attempts: 1, latencyMs: 3, model: args.model } : answerFor(args); } });
+  await tick1(t);
+  assert.ok(t.logs.some((l) => /gemma-4-26b was not found \(HTTP 404\)/.test(l)));
+  assert.equal(t.g.calls.get(callField(0, markets()[0].nextRound, 'trend-follower')).model, 'gemma-4-31b');
+});
+
+test('any other failure skips those calls once and carries on: no fallback, no retry loop', async () => {
+  const t = setup({ askFn: async (args) => { t.asks.push(args); return { ok: false, error: 'timed out', attempts: 1, latencyMs: 24_000, model: args.model }; } });
+  await tick1(t);
+  assert.equal(t.asks.length, 3);
+  assert.ok(t.logs.some((l) => /no answer from gemini-3\.5-flash-lite \(timed out/.test(l)));
+  assert.ok(t.g.calls.has(callField(1, markets()[1].nextRound, 'chart-reader')), 'ETH 5m locks soon: it gets its skip');
+  assert.equal([...t.g.calls.values()].filter((r) => r.a === 'coin-flipper' && r.s === 'called').length, 6, 'Coin Flipper does not need Gemini');
+});
+
+test("a model at its daily cap is not asked: the agent uses gemma-4-31b; the day follows Google's reset (midnight Pacific)", async () => {
+  const models = { ...GUIDE_MODELS, 'gemini-3.5-flash-lite': { ...GUIDE_MODELS['gemini-3.5-flash-lite'], dailyCap: 1 } };
+  const t = setup({ models });
+  await tick1(t);
+  assert.equal(modelsOf(t).filter((m) => m === 'gemini-3.5-flash-lite').length, 1);
+  t.g.tick(nextCycle(t)); await settle();
+  const second = t.asks.slice(3);
+  assert.equal(second.filter((a) => a.model === 'gemini-3.5-flash-lite').length, 0, 'cap of 1 reached');
+  assert.equal(second.filter((a) => a.model === 'gemma-4-31b').length, 1, 'Chart Reader fell back');
+  assert.ok(t.logs.some((l) => /chart-reader: gemini-3\.5-flash-lite not used \(daily cap 1 reached\)/.test(l)));
+  // midnight Pacific is 07:00 UTC in summer and 08:00 UTC in winter
+  assert.equal(limitDay(Date.UTC(2026, 9, 28, 6, 59)), '2026-10-27');
+  assert.equal(limitDay(Date.UTC(2026, 9, 28, 7, 1)), '2026-10-28');
+  assert.equal(limitDay(Date.UTC(2026, 0, 15, 7, 59)), '2026-01-14');
+  assert.equal(limitDay(Date.UTC(2026, 0, 15, 8, 1)), '2026-01-15');
+});
+
+test('Gemma gets one request a minute per model: with both flash-lite models at their cap only one agent reaches gemma-4-31b', async () => {
+  const cap0 = (m) => ({ ...GUIDE_MODELS[m], dailyCap: 0 });
+  const t = setup({ models: { ...GUIDE_MODELS, 'gemini-3.5-flash-lite': cap0('gemini-3.5-flash-lite'), 'gemini-3.1-flash-lite': cap0('gemini-3.1-flash-lite') } });
+  await tick1(t);
+  assert.deepEqual(modelsOf(t), ['gemma-4-26b', 'gemma-4-31b']);
+  assert.ok(t.logs.some((l) => /gemma-4-31b not used \(1 a minute reached\)/.test(l)));
+  const skip = [...t.g.calls.values()].filter((r) => r.s === 'skipped' && r.a !== 'coin-flipper');
+  assert.ok(skip.length > 0, "the agent that found no model shows Couldn't decide this round");
+});
+
+test('the hourly line counts the requests per model and gives the expected daily total for each', async () => {
+  const t = setup();
+  await tick1(t);
+  t.clock.ms += 3600_000;
+  t.g.tick(t.snap); await settle();
+  const line = t.logs.find((l) => l.startsWith('GUIDE Gemini requests:'));
+  assert.match(line, /3 in the last hour \(gemini-3\.5-flash-lite 1, gemini-3\.1-flash-lite 1, gemma-4-26b 1, gemma-4-31b 0\)/);
+  assert.match(line, /today \(Pacific day/);
+  assert.match(line, /caps gemini-3\.5-flash-lite 450, gemini-3\.1-flash-lite 450, gemma-4-26b 5000, gemma-4-31b 5000/);
+  assert.match(line, /expected about 288 a day/);
+  assert.equal(GUIDE_CFG.expectedPerDayEach, 288);
+});
+
+test('a missing key means no request and no crash', async () => {
+  const t = setup({ env: { GEMINI_API_KEY: '' } });
+  assert.doesNotThrow(() => t.g.tick(t.snap));
+  await settle();
+  assert.equal(t.asks.length, 0);
+  assert.ok(t.logs.some((l) => /GEMINI_API_KEY is not set/.test(l)));
+});
+
+// ------------------------------------------------------------------------------------------------ Gemma: plain request, short prompt, plain answer
+
+test('askGemini plain (Gemma): no system instruction, no JSON mode, no thinking setting; the system text goes in front of the user text', async () => {
+  let body;
+  const fetchFn = async (url, init) => { body = JSON.parse(init.body); return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'hidden thought', thought: true }, { text: '{"x":1}' }] } }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 } }) }; };
+  const out = await askGemini({ apiKey: 'k', model: 'gemma-4-26b', system: 'SYS', user: 'USER', schema: {}, parse: (t) => JSON.parse(t), fetchFn, plain: true });
+  assert.equal(out.ok, true);
+  assert.deepEqual(out.value, { x: 1 }, 'thought text is left out');
+  assert.equal(body.systemInstruction, undefined);
+  assert.equal(body.generationConfig.responseMimeType, undefined);
+  assert.equal(body.generationConfig.responseSchema, undefined);
+  assert.equal(body.generationConfig.thinkingConfig, undefined);
+  assert.equal(body.contents[0].parts[0].text, 'SYS\n\nUSER');
+});
+
+test('Gemma prompt: a full 12-call request is over 12K tokens in the normal prompt and under it in the short one', () => {
+  const big = Array.from({ length: 120 }, (_, i) => { const b = 67000 + Math.sin(i / 5) * 80 + i * 1.7; return { time: T0 + i * 60, open: b + 3.1, high: b + 21.37, low: b - 17.42, close: b + 5.55 }; });
+  const frames = ['5m', '10m', '30m', '1h'].map((l) => ({ label: l, roundSeconds: { '5m': 300, '10m': 600, '30m': 1800, '1h': 3600 }[l], secondsToLock: 200 }));
+  const coins = ['BTC/USD', 'ETH/USD', 'SOL/USD'].map((coin) => ({ coin, candles: big, frames }));
+  for (const agent of ['trend-follower', 'contrarian', 'chart-reader']) {
+    const normal = buildGuidePrompt({ agent, coins });
+    const compact = buildGuidePrompt({ agent, coins, compact: true });
+    assert.ok(estimateTokens(normal.system + normal.user) > 12_000, 'the normal prompt is too big for Gemma');
+    assert.ok(estimateTokens(compact.system + compact.user) <= 11_000, 'the short prompt fits');
+    assert.ok(compact.user.length < normal.user.length);
+    assert.equal((compact.user.match(/^- (5m|10m|30m|1h):/gm) ?? []).length, 12, 'every coin and time frame is still asked');
+    assert.match(compact.user, /Coin: BTC\./);
+  }
+  // the other models' prompt does not change
+  assert.equal(buildGuidePrompt({ agent: 'trend-follower', coins }).user, buildGuidePrompt({ agent: 'trend-follower', coins, compact: false }).user);
+});
+
+test("Gemma's plain-text answer is read: a code fence or a sentence around the JSON, one call and reason for each entry", () => {
+  const entries = [{ coin: 'BTC', frame: '5m' }, { coin: 'ETH', frame: '5m' }];
+  const json = JSON.stringify({ calls: [{ coin: 'BTC', frame: '5m', call: 'UP', reason: 'BTC up 0.2% in 10 minutes' }, { coin: 'ETH', frame: '5m', call: 'DOWN', reason: 'ETH fell 0.1%' }] });
+  for (const text of [json, '```json\n' + json + '\n```', 'Here are my calls:\n' + json + '\nHope that helps.']) {
+    const v = parseGuide(text, entries);
+    assert.deepEqual(v, { 'BTC:5m': { call: 'UP', reason: 'BTC up 0.2% in 10 minutes' }, 'ETH:5m': { call: 'DOWN', reason: 'ETH fell 0.1%' } });
+  }
+  assert.equal(parseGuide('I think UP.', entries), null);
+  assert.equal(parseGuide('{"calls": [ {broken', entries), null);
 });
