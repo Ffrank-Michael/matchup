@@ -151,7 +151,8 @@ const MIN_TRY_MS = 2_000; // a try needs at least this long to be worth starting
 /**
  * One Gemini call, with up to 3 tries. The first try has timeoutMs (16 s: our main model answers up to about 15 s), the second and third
  * fallbackTimeoutMs (8 s each), so the worst case is 16 + 1 + 8 + 1 + 8 = 34 s and the last try still lands long before the round locks. A timeout, a network error or a server
- * error is tried again (up to 3 tries); HTTP 429 only once more (a third request into a quota wall helps nobody).
+ * error is tried again (up to 3 tries); HTTP 429 only once more (a third request into a quota wall helps nobody), or not at all when
+ * `retryOn429` is false (the guide calls: a limit or quota answer is final for that request).
  * The first try uses `model`; the second and third use `fallbackModel` (when one is given): a model that is slow or down at the
  * moment is not asked three times in a row. (After a 400 about the thinking setting the same model is asked again without it.)
  * `beforeRetry()` is asked before every try after the first: false stops the call (the runner counts each retry toward its daily and
@@ -162,7 +163,7 @@ const MIN_TRY_MS = 2_000; // a try needs at least this long to be worth starting
  * (model: the one that answered, or the last one tried).
  * Error texts are fixed short phrases: they never contain the key or the web address.
  */
-export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, schema, parse, maxOutputTokens = 1500, fetchFn = fetch, timeoutMs = 16_000, fallbackTimeoutMs = 8_000, retryDelayMs = 1_000, maxAttempts = 3, fallbackModel = null, deadline = Infinity, beforeRetry = () => true, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, schema, parse, maxOutputTokens = 1500, fetchFn = fetch, timeoutMs = 16_000, fallbackTimeoutMs = 8_000, retryDelayMs = 1_000, maxAttempts = 3, retryOn429 = true, fallbackModel = null, deadline = Infinity, beforeRetry = () => true, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   const started = Date.now();
   if (!Number.isFinite(deadline)) deadline = Infinity;
   let lastError = 'no answer';
@@ -213,7 +214,7 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
         if (attempt < maxAttempts && beforeRetry() !== false) continue;
         break;
       }
-      if ((res.status >= 500 || (res.status === 429 && attempt === 1)) && await mayRetry(attempt)) continue;
+      if ((res.status >= 500 || (res.status === 429 && retryOn429 && attempt === 1)) && await mayRetry(attempt)) continue;
       break;
     }
     let data;
@@ -230,4 +231,111 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
     };
   }
   return { ok: false, error: lastError, latencyMs: Date.now() - started, attempts, model: usedModel };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// GUIDE CALLS (mainnet): no money moves and nothing goes on chain. Each AI agent gets ONE request per 5-minute cycle that covers
+// every coin and every time frame whose next round is open and has no call from it yet (so at most 12 requests an hour per agent).
+// The answer is one call and one short reason for each (coin, time frame) asked.
+// ---------------------------------------------------------------------------------------------------------------------------
+export const GUIDE_LABEL = 'Guide call, no money';
+
+const GUIDE_PERSONAS = {
+  'trend-follower': 'You are the Trend Follower: you believe in momentum, a price that has been moving one way tends to keep going over the next few minutes. You ride the trend and look at the direction and strength of the recent move.',
+  contrarian: 'You are the Contrarian: you fade over-extended moves, when the price has run hard one way you lean the other way. No crowd can be seen, so give the side you would take against the recent move or the likely crowd.',
+  'chart-reader': 'You are the Chart Reader: you read candle shapes and levels: the size and direction of candles, wicks, highs and lows, recent support and resistance, and how the short-term average compares with the longer one.',
+};
+
+const GUIDE_SYSTEM = (agent) => [
+  'You make guide calls in Kairo Markets, a small game where each player calls whether a coin price will be UP or DOWN over a round. A guide call moves no money: it only shows how you read the market.',
+  GUIDE_PERSONAS[agent],
+  'You are given, for each coin, the last one-minute candles and the time frames whose next round is about to take calls. For every coin and time frame asked, give one call. You must call UP or DOWN and cannot skip.',
+  'A round starts when calling closes; its start price is the first trade after that and its end price is the last trade when it ends. UP wins if the end price is higher than the start price.',
+  'Each reason is ONE short plain sentence (under 140 characters) in your own style that uses a real number or fact from the data you were given. No advice, no hype, no mention of being an AI. Never use the words bet, wager or odds: say call or position.',
+  'Reply with JSON only: {"calls":[{"coin":"BTC","frame":"5m","call":"UP"|"DOWN","reason":"..."}, ...]} with exactly one entry for every coin and time frame asked, and nothing else.',
+].join('\n');
+
+/** "BTC/USD" -> "BTC": how the model and the logs name a coin. */
+export const coinShort = (pair) => String(pair).split('/')[0];
+
+/** The model's words for a call must follow the site's wording: call, position, back an agent. */
+export function guideWording(text) {
+  return text
+    .replace(/\bbetting\b/gi, 'calling').replace(/\bbets\b/gi, 'calls').replace(/\bbet\b/gi, 'call')
+    .replace(/\bwagers\b/gi, 'calls').replace(/\bwager\b/gi, 'call').replace(/\bodds\b/gi, 'chances');
+}
+
+/**
+ * The prompt for one agent at one moment.
+ *   coins: [{ coin ("BTC/USD"), candles [{time, open, high, low, close}], frames: [{ label ("5m"), roundSeconds, secondsToLock }] }]
+ */
+export function buildGuidePrompt({ agent, coins }) {
+  const parts = ['Make one guide call for every coin and time frame listed.'];
+  for (const c of coins) {
+    const longest = Math.max(...c.frames.map((f) => f.roundSeconds));
+    const candles = c.candles.slice(-candlesFor(longest));
+    const price = candles[candles.length - 1].close;
+    parts.push(
+      '',
+      `Coin: ${coinShort(c.coin)}. Current price: ${num(price)}.`,
+      'Time frames to answer (the next round of each is about to take calls):',
+      ...c.frames.map((f) => `- ${f.label}: rounds of ${Math.round(f.roundSeconds / 60)} minutes, calling closes in about ${Math.max(0, Math.round(f.secondsToLock))} seconds`),
+      `Last ${candles.length} one-minute candles of ${coinShort(c.coin)}, oldest first, as "time(UTC) open high low close":`,
+      ...candles.map((k) => `${utc(k.time)} ${num(k.open)} ${num(k.high ?? Math.max(k.open, k.close))} ${num(k.low ?? Math.min(k.open, k.close))} ${num(k.close)}`),
+    );
+  }
+  parts.push('', 'Reply with JSON only, one entry for every coin and time frame listed above.');
+  return { system: GUIDE_SYSTEM(agent), user: parts.join('\n') };
+}
+
+/** The shape the model must answer in, for the given entries [{ coin: "BTC", frame: "5m" }]. */
+export function guideSchema(entries) {
+  const coins = [...new Set(entries.map((e) => e.coin))];
+  const frames = [...new Set(entries.map((e) => e.frame))];
+  return {
+    type: 'OBJECT',
+    properties: {
+      calls: {
+        type: 'ARRAY',
+        minItems: entries.length,
+        maxItems: entries.length,
+        items: {
+          type: 'OBJECT',
+          properties: { coin: { type: 'STRING', enum: coins }, frame: { type: 'STRING', enum: frames }, call: { type: 'STRING', enum: ['UP', 'DOWN'] }, reason: { type: 'STRING' } },
+          required: ['coin', 'frame', 'call', 'reason'],
+          propertyOrdering: ['coin', 'frame', 'call', 'reason'],
+        },
+      },
+    },
+    required: ['calls'],
+  };
+}
+
+/**
+ * Strict reading of the answer: { calls: [ { coin, frame, call, reason } ] } with exactly those keys. Returns
+ * { "BTC:5m": { call, reason } | null, ... } for the entries asked (a missing or malformed one is null: that call is skipped),
+ * or null when nothing at all could be used.
+ */
+export function parseGuide(text, entries) {
+  let v;
+  try { v = JSON.parse(text); } catch { return null; }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  if (Object.keys(v).length !== 1 || !Array.isArray(v.calls)) return null;
+  const wanted = new Set(entries.map((e) => `${e.coin}:${e.frame}`));
+  const out = {};
+  let usable = 0;
+  for (const item of v.calls) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const key = `${item.coin}:${item.frame}`;
+    if (!wanted.has(key) || key in out) continue;
+    const keys = Object.keys(item);
+    if (keys.length !== 4 || !['coin', 'frame', 'call', 'reason'].every((k) => keys.includes(k))) continue;
+    const d = readDecision({ call: item.call, reason: item.reason });
+    if (!d) continue;
+    out[key] = { call: d.call, reason: guideWording(d.reason) };
+    usable++;
+  }
+  if (usable === 0) return null;
+  for (const k of wanted) if (!(k in out)) out[k] = null;
+  return out;
 }

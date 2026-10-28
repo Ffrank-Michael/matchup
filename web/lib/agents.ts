@@ -30,4 +30,14 @@ export type AgentLive = {
   profit?: number;
   /** The last five results, newest first */
   last5?: ReadonlyArray<"won" | "lost" | "refunded">;
+  /** The call above is a guide call: made for the round whether or not anyone plays, no money, nothing on chain */
+  guide?: boolean;
+  /** When the call above was made (seconds) */
+  callAt?: number;
+  /** The call above is a real call sent on chain by the agent's wallet: the transaction */
+  callTx?: string;
+  /** Guide calls only: the last five calls on this market, newest first, and how each ended (pending until the round ends) */
+  guideRecent?: ReadonlyArray<{ round: number; call: "UP" | "DOWN"; at: number; res: "won" | "lost" | "none" | "pending" }>;
+  /** Guide calls only: how many calls the win rate comes from */
+  guideDecided?: number;
 };

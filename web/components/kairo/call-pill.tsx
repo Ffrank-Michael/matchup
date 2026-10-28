@@ -1,11 +1,11 @@
 import { INK } from "./tile";
 
-/** An agent's call for the open round as a big lime UP or lilac DOWN pill; "Hasn't called yet" while it has not. */
-export function CallPill({ call }: { call: "UP" | "DOWN" | null }) {
+/** An agent's call for the open round as a big lime UP or lilac DOWN pill; "Hasn't called yet" while it has not (or "No call this round" when it could not decide). */
+export function CallPill({ call, skipped }: { call: "UP" | "DOWN" | null; skipped?: boolean }) {
   if (!call) {
     return (
       <span className="inline-flex h-11 items-center rounded-full border border-dashed border-border px-4">
-        <span className="text-[12px] text-muted-foreground">Hasn&apos;t called yet</span>
+        <span className="text-[12px] text-muted-foreground">{skipped ? "No call this round" : "Hasn't called yet"}</span>
       </span>
     );
   }

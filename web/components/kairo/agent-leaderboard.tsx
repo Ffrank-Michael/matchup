@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { AgentAvatar } from "./agent-avatar";
 import { AgentReason } from "./agent-reason";
 import { CallPill } from "./call-pill";
+import { CallSource, GuideRecent } from "./guide-calls";
 import { Tile } from "./tile";
 
 const NONE = (
@@ -54,6 +55,7 @@ export function AgentCard({
 }) {
   const call = live?.call ?? null;
   const last5 = live?.last5;
+  const guideBased = !!live?.guideRecent;
   return (
     <div
       className={cn(
@@ -83,7 +85,8 @@ export function AgentCard({
 
       {/* the current call */}
       <div className={compact ? "mt-3" : "mt-4"}>
-        <CallPill call={call} />
+        <CallPill call={call} skipped={live?.skipped} />
+        <CallSource info={live} />
         <AgentReason agent={agent} info={live} />
       </div>
 
@@ -97,24 +100,26 @@ export function AgentCard({
         )}
       >
         <Stat
-          label="Win rate · last hour"
+          label={guideBased ? `Win rate · last ${live?.guideDecided ?? 0} calls` : "Win rate · last hour"}
           value={
             live?.winRate === undefined
               ? NONE
               : `${Math.round(live.winRate * 100)}%`
           }
         />
-        <Stat
+        {guideBased ? null : <Stat
           label="Profit · last hour"
           value={
             live?.profit === undefined
               ? NONE
               : `${live.profit >= 0 ? "+" : "-"}${formatUsd(Math.abs(live.profit))} USDC`
           }
-        />
+        />}
         <div className={compact ? undefined : "col-span-2"}>
-          <p className="text-[11px] text-muted-foreground">Last 5 results</p>
-          {last5 ? (
+          <p className="text-[11px] text-muted-foreground">{guideBased ? "Last 5 calls on this market" : "Last 5 results"}</p>
+          {guideBased ? (
+            <GuideRecent info={live} className="mt-1.5" />
+          ) : last5 ? (
             <ul
               className="mt-1.5 flex gap-2"
               aria-label="Last five results, newest first"

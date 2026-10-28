@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test onchain/payout.test.ts"
+    "test": "node --test onchain/payout.test.ts lib/guide-merge.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

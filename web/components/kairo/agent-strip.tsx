@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { AgentAvatar } from "./agent-avatar";
 import { AgentReason } from "./agent-reason";
 import { CallPill } from "./call-pill";
+import { CallSource } from "./guide-calls";
 
 /**
  * The four agents as a compact row of robot heads (phone and laptop alike). Tap one to see how it decides (and its reason
@@ -67,7 +68,8 @@ export function AgentStrip({
             {agent.name} <span className="font-medium" style={{ color: agent.colour }}>· {agent.tagline}</span>
           </p>
           <div className="mt-3">
-            <CallPill call={info?.call ?? null} />
+            <CallPill call={info?.call ?? null} skipped={info?.skipped} />
+            <CallSource info={info} />
           </div>
           <AgentReason agent={agent} info={info} />
           <button

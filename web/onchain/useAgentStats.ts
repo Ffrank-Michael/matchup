@@ -27,7 +27,10 @@ export function useAgentStats(roundsByMarket: Record<number, Round[]> | null, ne
 
     // its call for the round that can be called now on the selected market
     const open = nextRound === null ? undefined : calls.find((c) => c.marketId === marketId && c.roundIndex === nextRound);
-    if (open) live.call = open.side;
+    if (open) {
+      live.call = open.side;
+      live.callTx = open.tx;
+    }
 
     // one result per round (an agent may call a round more than once: its amounts add up)
     const perRound = new Map<string, { side: "UP" | "DOWN"; stake: bigint; round: Round }>();

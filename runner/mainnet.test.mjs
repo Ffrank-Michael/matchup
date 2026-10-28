@@ -28,10 +28,11 @@ test('env: only the runner\'s own settings are taken from .env; the deployer key
   const text = [
     `MAINNET_RUNNER_PRIVATE_KEY=${KEY}`, `MAINNET_ARENA_ADDRESS=${ARENA}`,
     `MAINNET_DEPLOYER_PRIVATE_KEY=${DEPLOYER_KEY}`, `DEPLOYER_PRIVATE_KEY=${DEPLOYER_KEY}`, `RUNNER_PRIVATE_KEY=${DEPLOYER_KEY}`,
-    'CIRCLE_API_KEY=x', 'GEMINI_API_KEY=y',
+    'CIRCLE_API_KEY=x', 'GEMINI_API_KEY=y', 'UPSTASH_REDIS_REST_URL=https://r.example', 'UPSTASH_REDIS_REST_TOKEN=z', 'SOME_OTHER_SECRET=q',
   ].join('\n');
   const env = readRunnerEnv(text);
-  assert.deepEqual(Object.keys(env).sort(), ['MAINNET_ARENA_ADDRESS', 'MAINNET_RUNNER_PRIVATE_KEY']);
+  // the guide calls also need the Gemini key and the Upstash address the website reads; nothing else comes along
+  assert.deepEqual(Object.keys(env).sort(), ['GEMINI_API_KEY', 'MAINNET_ARENA_ADDRESS', 'MAINNET_RUNNER_PRIVATE_KEY', 'UPSTASH_REDIS_REST_TOKEN', 'UPSTASH_REDIS_REST_URL']);
   assert.ok(!JSON.stringify(env).includes(DEPLOYER_KEY));
   assert.ok(Object.keys(env).every((k) => RUNNER_ENV_NAMES.includes(k)));
 });

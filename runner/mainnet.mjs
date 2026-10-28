@@ -1,7 +1,8 @@
 // Helpers for the MAINNET round runner (runner/run-mainnet.mjs). Real USDC is at stake here, so everything that decides
 // "may this send a transaction?" lives in this file, small and tested (runner/mainnet.test.mjs).
 //
-//   - the runner reads only the names in RUNNER_ENV_NAMES from .env: its own key and the arena address, never the deployer key
+//   - the runner reads only the names in RUNNER_ENV_NAMES from .env: its own key and the arena address, plus the Gemini and Upstash
+//     settings of the guide calls (no money, nothing on chain), never the deployer key
 //   - nothing is sent unless --i-understand-this-spends-real-usdc is given; without it the executor only logs what it would do
 //   - a price is checked against Chainlink off chain first (the same band the relay enforces), so a bad price never costs gas
 // Nothing in here prints a key: error messages name the setting, never its value.
@@ -17,7 +18,12 @@ export const MAINNET_PRICE_LOG_FILE = path.join(ROOT, 'data', 'price-log-mainnet
 export const MIN_RUNNER_BALANCE = 100_000_000_000_000_000n; // 0.10 USDC in the 18-decimal native view: below this a live runner stops (the supervisor alerts)
 
 /** The only settings the mainnet runner takes from .env. Everything else in the file is ignored, so no other key is ever held. */
-export const RUNNER_ENV_NAMES = ['MAINNET_RUNNER_PRIVATE_KEY', 'MAINNET_ARENA_ADDRESS', 'ARC_MAINNET_RPC_URL', 'USDC_ADDRESS'];
+export const RUNNER_ENV_NAMES = [
+  'MAINNET_RUNNER_PRIVATE_KEY', 'MAINNET_ARENA_ADDRESS', 'ARC_MAINNET_RPC_URL', 'USDC_ADDRESS',
+  // the guide calls (runner/guide.mjs): the AI agents' model and the place the website reads the calls from
+  'GEMINI_API_KEY', 'GEMINI_MODEL', 'GEMINI_FALLBACK_MODEL', 'GEMINI_TIMEOUT_SECONDS', 'GEMINI_FALLBACK_TIMEOUT_SECONDS', 'GEMINI_MAX_CALLS_PER_DAY',
+  'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN',
+];
 export const readRunnerEnv = (text) => {
   const all = parseEnv(text);
   return Object.fromEntries(RUNNER_ENV_NAMES.filter((n) => all[n]).map((n) => [n, all[n]]));

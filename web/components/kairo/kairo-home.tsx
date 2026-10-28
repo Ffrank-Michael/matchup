@@ -15,7 +15,9 @@ import {
   type MarketKey,
 } from "@/lib/markets";
 import { hourPoints, lastPrice, usePriceFeed } from "@/lib/price-feed";
+import { withGuideCalls } from "@/lib/guide-merge";
 import { noteOf, useAgentNotes } from "@/lib/use-agent-notes";
+import { useGuideCalls } from "@/lib/use-guide-calls";
 import { useNowSeconds } from "@/lib/use-now";
 import { useStartPrice } from "@/lib/use-start-price";
 import {
@@ -105,6 +107,8 @@ export function KairoHome() {
   // The three AI agents' one-sentence reasons for that open round (or that the AI could not decide), from the runner's notes.
   const openRound = selectedChain?.nextRound ?? null;
   const notes = useAgentNotes(market.id, openRound === null ? [] : [openRound]);
+  // The guide calls: every agent's call on every round, made whether or not anyone plays (no money, nothing on chain).
+  const guide = useGuideCalls(market.id, openRound);
   const agentLive = React.useMemo(() => {
     const out = { ...chainAgentLive };
     if (openRound === null) return out;
@@ -117,8 +121,8 @@ export function KairoHome() {
       }
       else if (n?.s === "skipped" && !out[a.key]?.call) out[a.key] = { ...out[a.key], skipped: true };
     }
-    return out;
-  }, [chainAgentLive, notes, openRound]);
+    return withGuideCalls(out, guide);
+  }, [chainAgentLive, notes, openRound, guide]);
   // The contract records a round's start price when it settles it; while the round runs the site finds the same trade the runner uses.
   const runningRound = selectedChain
     ? roundsByMarket?.[market.id]?.find(
