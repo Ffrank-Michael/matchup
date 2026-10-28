@@ -158,7 +158,7 @@ function runnerCosts(gasPrice, pusher, deployCost) {
   console.log(`\nRunner wallet    : ${pusher ?? 'not created yet (node scripts/create-mainnet-wallets.mjs)'}`);
   console.log(`  one price push about ${usdc4(push).toFixed(4)} USDC, one settle about ${usdc4(settle).toFixed(4)} USDC (gas used for this: ${PUSH_GAS} and ${SETTLE_GAS})`);
   console.log(`  worst day (every round of all ${SET.markets.length} markets has calls on both sides): ${pushesPerDay} pushes + ${settlesPerDay} settles = ${usdc4(worstDay).toFixed(2)} USDC`);
-  console.log('  Rounds with no calls or one side only cost nothing, so a real day costs a fraction of that.');
+  console.log('  Rounds with no calls cost nothing and a round with calls on one side only costs one cheap settle (about 70,000 gas, no price push), so a real day costs a fraction of that.');
   console.log(`\nSafe amounts     : deployer ${deployerSafe.toFixed(2)} USDC (twice the deploy estimate, also covers a later owner action or two); runner ${runnerSafe.toFixed(2)} USDC (one worst-case day; the runner stops below 0.10 USDC)`);
 }
 

@@ -8,7 +8,7 @@
 // It works like runner/run.mjs, with these differences:
 //   - it reads MAINNET_ARENA_ADDRESS and MAINNET_RUNNER_PRIVATE_KEY from .env (nothing else: see RUNNER_ENV_NAMES in mainnet.mjs)
 //   - it only pushes prices and settles: the mainnet house agents are not built yet
-//   - a round with no calls, or calls on one side only, gets no price push and no settle, so no gas is spent on it
+//   - a round with no calls gets no price push and no settle; a round with calls on one side only gets no price push but is settled right after it ends (the contract refunds it at once, so its callers can claim); a round with calls on both sides gets both
 //   - every price is checked against Chainlink off chain before it is sent (the relay checks it again on chain)
 // Without the flag the wallet client is never even created, so a dry run cannot send anything.
 import fs from 'node:fs';

@@ -117,7 +117,7 @@ export function useMyPositions(
       address,
       // Re-fetch when rounds change (state changes after settle)
       markets?.map((m) => m.nextRound).join(","),
-      Object.keys(roundsByMarket).length,
+      Object.values(roundsByMarket).reduce((n, list) => n + list.length, 0),
     ],
     queryFn: async (): Promise<MyPosition[]> => {
       if (!arenaAddress || !address || !client || queries.length === 0) {

@@ -19,8 +19,10 @@
 //           pushPrice carries { round } = the running round the price belongs to; every live push is written to the public price log (priceLog.mjs)
 //
 // Two opt-in settings for the mainnet runner (both off on the testnet):
-//   cfg.matchedOnly  prices and settles only for rounds with calls on BOTH sides. An empty or one-sided round is never settled (the contract
-//                    refunds it when someone claims after the settle window) and gets no price push, so no gas is spent on it.
+//   cfg.matchedOnly  price pushes only for rounds with calls on BOTH sides, and settles only for rounds with at least one real call (money that
+//                    is not a house agent's). A one-sided round is settled right after it ends so its callers can claim the refund at once: the
+//                    contract refunds it without looking at a price, so it gets no price push (zero ids, the cheapest settle). A round with
+//                    no calls at all is never settled and costs no gas.
 //   cfg.runnerOnly   no house agents: no bets, no claims (the mainnet house agents are not built yet).
 import * as trendFollower from '../agents/trendFollower.mjs';
 import * as chartReader from '../agents/chartReader.mjs';
@@ -190,7 +192,7 @@ export function unmatchedBack(r, p) {
   return stake - (stake * M + T - 1n) / T;
 }
 
-/** Calls on both sides: the only kind of round that needs a price and a settle when cfg.matchedOnly is set. */
+/** Calls on both sides: the only kind of round that needs a price push when cfg.matchedOnly is set. */
 const twoSided = (r) => !!r && r.up > 0 && r.down > 0;
 
 export function priceDue(m, now, cfg) {
@@ -237,7 +239,7 @@ export function planTick(snap, cfg, decided = new Set()) {
     for (let j = Math.max(0, k - lookbackFor(m, cfg)); j < k; j++) {
       const r = m.rounds[j];
       if (!r || r.state !== 'Unsettled' || r.up + r.down === 0) continue;
-      if (cfg.matchedOnly && !twoSided(r)) continue; // one-sided: refunded at claim, no settle transaction
+      if (cfg.matchedOnly && realMoney(m, j, snap.agents) === 0) continue; // no real call (only a house agent's money): nothing to settle, no gas
       const et = endTime(m, j);
       if (now <= et || now > et + cfg.settleWindow) continue;
       const ids = r.up === 0 || r.down === 0

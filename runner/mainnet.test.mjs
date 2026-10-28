@@ -236,9 +236,29 @@ test('matched only: an ended round with calls on both sides is settled, with the
   assert.deepEqual(r.actions.filter((a) => a.type === 'settle').map((a) => [a.round, a.startId, a.endId]), [[8, id(1), id(2)]]);
 });
 
-test('matched only: an empty round and a one-sided round are not settled (no gas)', () => {
-  const r = plan(2705, [mk(0, 10, { 7: R(0, 0), 8: R(5_000_000, 0), 6: R(0, 2_000_000) })]);
+test('matched only: a round nobody called is not settled (no gas)', () => {
+  const r = plan(2705, [mk(0, 10, { 7: R(0, 0), 8: R(0, 0) })]);
   assert.deepEqual(types(r), []);
+});
+
+test('matched only: a one-sided round with a real call is settled right after it ends, with zero ids, and gets no price push', () => {
+  const r = plan(2705, [mk(0, 10, { 8: R(5_000_000, 0), 6: R(0, 2_000_000) })]);
+  assert.deepEqual(r.actions.map((a) => [a.type, a.round, a.startId, a.endId]), [['settle', 6, 0n, 0n], ['settle', 8, 0n, 0n]]);
+  // both ended long enough ago to be inside the settle window; neither needs a price
+  assert.equal(r.actions.some((a) => a.type === 'pushPrice'), false);
+});
+
+test('matched only: a one-sided round is settled only inside the settle window and only once', () => {
+  assert.deepEqual(types(plan(2700, [mk(0, 10, { 8: R(5_000_000, 0) })])), []); // 8 ends at 2700: not before it has ended
+  assert.deepEqual(types(plan(2705 + 3600, [mk(0, 10 + 12, { 8: R(5_000_000, 0) })])), []); // window over: the contract refunds it at claim
+  assert.deepEqual(types(plan(2705, [mk(0, 10, { 8: R(5_000_000, 0, 'Refunded') })])), []); // already refunded
+});
+
+test('matched only: money that is only a house agent\x27s is not a real call, so that round is not settled', () => {
+  const house = { key: 'coin-flipper', balance: 0, allowance: 0, positions: { '0:8': { up: 500_000, down: 0, claimed: false } } };
+  const snap = (rounds) => ({ now: 2705, markets: [mk(0, 10, rounds)], agents: [house], candles: {} });
+  assert.deepEqual(types(planTick(snap({ 8: R(500_000, 0) }), cfg())), []); // only the house agent called
+  assert.deepEqual(types(planTick(snap({ 8: R(1_500_000, 0) }), cfg())), ['settle']); // a real person called too
 });
 
 test('testnet behaviour is unchanged: without matchedOnly a one-sided round is still settled (zero ids)', () => {

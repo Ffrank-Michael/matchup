@@ -22,7 +22,9 @@ import {
   useAgentStats,
   useAllRounds,
   useMarkets,
+  useMyOlderRounds,
   useMyPositions,
+  type Round,
 } from "@/onchain";
 
 import { AgentLeaderboard } from "./agent-leaderboard";
@@ -81,7 +83,15 @@ export function KairoHome() {
   // Everything about rounds and money comes from the contract (read every few seconds); null until it has been read.
   const { markets: chainMarkets } = useMarkets();
   const { roundsByMarket } = useAllRounds(chainMarkets);
-  const { positions } = useMyPositions(chainMarkets, roundsByMarket ?? {});
+  // The wallet's own calls also reach older rounds, so a refund or a win that is still waiting stays claimable after the first hour.
+  const olderRounds = useMyOlderRounds(chainMarkets, roundsByMarket);
+  const myRounds = React.useMemo(() => {
+    if (!roundsByMarket) return null;
+    const all: Record<number, Round[]> = {};
+    for (const id of Object.keys(roundsByMarket)) all[Number(id)] = [...roundsByMarket[Number(id)], ...(olderRounds?.[Number(id)] ?? [])];
+    return all;
+  }, [roundsByMarket, olderRounds]);
+  const { positions } = useMyPositions(chainMarkets, myRounds ?? {});
   const chainOf = (id: number) =>
     chainMarkets?.find((c) => c.id === id) ?? null;
   // The start price of the round running now (the one before the next bettable round), once the contract has recorded it.
@@ -211,7 +221,7 @@ export function KairoHome() {
               />
               <YourCalls
                 positions={positions}
-                roundsByMarket={roundsByMarket}
+                roundsByMarket={myRounds}
                 nowSec={now}
                 onOpen={openWatch}
                 index={7}
@@ -274,7 +284,7 @@ export function KairoHome() {
         <WatchSheet
           watch={watch}
           onClose={closeWatch}
-          roundsByMarket={roundsByMarket}
+          roundsByMarket={myRounds}
           positions={positions}
           candlesFor={(m) => feed.candles[m.key]}
           nowSec={now}

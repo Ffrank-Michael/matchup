@@ -10,6 +10,7 @@ export * from "./useWalletStatus";
 export * from "./useMarkets";
 export * from "./useRounds";
 export * from "./useMyPositions";
+export * from "./useMyOlderRounds";
 export * from "./useUsdc";
 export * from "./useMakeCall";
 export * from "./useClaim";
