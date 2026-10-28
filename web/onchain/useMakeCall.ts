@@ -41,7 +41,7 @@ export const DEFAULT_APPROVAL_USDC = 50;
 export const APPROVAL_NOTICE = "Your wallet will ask you to approve once. This lets Kairo take only the amount of each call you make, never more than your limit (50 USDC). Nothing is taken until you make a call. If you switch it off, you can't make calls until you approve again.";
 
 /** Kept back for network fees (Arc pays fees in USDC). */
-export const GAS_RESERVE_RAW = 50_000n; // $0.05
+export const GAS_RESERVE_RAW = 10_000n; // $0.01 (the approval and the call cost about $0.004 together)
 
 // ── Status ────────────────────────────────────────────────────
 
@@ -178,7 +178,7 @@ export function useMakeCall(): UseMakeCallReturn {
         }
         if (balance < amountRaw + GAS_RESERVE_RAW) {
           return stop(
-            `Your USDC balance is too low. You need at least $${(Number(amountRaw + GAS_RESERVE_RAW) / 1_000_000).toFixed(2)}: the call plus $0.05 kept for network fees (Arc pays fees in USDC).`,
+            `Your USDC balance is too low. You need at least $${(Number(amountRaw + GAS_RESERVE_RAW) / 1_000_000).toFixed(2)}: the call plus $${(Number(GAS_RESERVE_RAW) / 1_000_000).toFixed(2)} kept for network fees (Arc pays fees in USDC).`,
           );
         }
 

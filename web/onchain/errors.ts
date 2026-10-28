@@ -162,7 +162,7 @@ function matchWalletError(err: unknown): string | null {
     lower.includes("insufficient funds for gas") ||
     lower.includes("insufficient funds for intrinsic gas")
   ) {
-    return "Not enough USDC to cover the network fee. Keep at least $0.05 spare.";
+    return "Not enough USDC to cover the network fee. Keep at least $0.01 spare.";
   }
 
   // Network / RPC unreachable

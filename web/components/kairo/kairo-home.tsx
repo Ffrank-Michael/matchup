@@ -140,7 +140,7 @@ export function KairoHome() {
     <RoundCardProvider roundsByMarket={roundsByMarket} nowSec={now} me={me}>
       <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-4 sm:px-8 sm:py-8">
         {/* Top bar */}
-        <header className="kairo-rise mb-3 flex flex-nowrap items-center justify-between gap-3 px-1">
+        <header className="kairo-rise relative z-20 mb-3 flex flex-nowrap items-center justify-between gap-3 px-1">
           <Link
             href="/"
             aria-label="Kairo Markets, home"

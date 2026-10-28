@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { APPROVAL_NOTICE, BETA_LIMIT_USDC, estimatePayout, STATUS_TEXT, useMakeCall, usdc, useUsdc, useWalletStatus } from "@/onchain";
 
 import { AgentAvatar } from "./agent-avatar";
+import { ContractNote } from "./contract-note";
 import { INK, Tile } from "./tile";
 
 export type Side = "UP" | "DOWN";
@@ -308,6 +309,8 @@ export function YourCall({
       >
         {busy ? STATUS_TEXT[call.status].replace("…", "") : confirmLabel}
       </button>
+
+      <ContractNote className="mt-2 text-center text-[11px] leading-snug opacity-80" />
 
       {call.status === "done" || call.status === "failed" ? (
         <div className="mt-2 text-center text-[12px] leading-snug" role="status">

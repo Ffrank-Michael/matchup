@@ -2,11 +2,11 @@
 
 import * as React from "react";
 import { IS_MAINNET } from "@/lib/network";
-import { useConnect, useConnection, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
+import { useConnect, useConnection, useConnectors, useSwitchChain } from "wagmi";
 
 import { chipAddress } from "@/lib/arc";
 import { useRevokeApproval, useUsdc, usdcRaw } from "@/onchain";
-import { activeChain } from "@/onchain/wagmiConfig";
+import { activeChain, isAnnouncedWallet, useDisconnectWallet } from "@/onchain/wagmiConfig";
 import { cn } from "@/lib/utils";
 
 // "Connect wallet" for the site's Arc network (NEXT_PUBLIC_NETWORK; browser wallets and wallet apps; Google sign-in comes later).
@@ -41,12 +41,14 @@ function Row({ children, onClick, disabled }: { children: React.ReactNode; onCli
 
 function ConnectView({ onDone }: { onDone: () => void }) {
   const connectors = useConnectors();
-  const { mutate: connect, isPending, variables, error, reset } = useConnect();
+  // onSuccess is set here, not on connect(): this list is replaced by the account view the moment the wallet connects
+  const { mutate: connect, isPending, variables, error, reset } = useConnect({ mutation: { onSuccess: onDone } });
 
-  // Wallets announced by the browser (EIP-6963). Older wallet browsers only provide window.ethereum.
+  // Every wallet extension announced by the browser (EIP-6963) gets its own row, with its own name and icon. Older wallet
+  // browsers only provide window.ethereum: they get one plain "Browser wallet" row.
   // WalletConnect (Reown): phone users in any browser pick a wallet app, which opens and asks to connect. Only present when a project id is set.
   const walletConnect = connectors.find((c) => c.id === "walletConnect");
-  const announced = connectors.filter((c) => c.rdns);
+  const announced = connectors.filter(isAnnouncedWallet).sort((a, b) => a.name.localeCompare(b.name));
   const hasLegacy = typeof window !== "undefined" && "ethereum" in window;
   const wallets = announced.length ? announced : hasLegacy ? connectors.filter((c) => c.id === "injected") : [];
 
@@ -70,7 +72,7 @@ function ConnectView({ onDone }: { onDone: () => void }) {
                 disabled={isPending}
                 onClick={() => {
                   reset();
-                  connect({ connector: c, chainId: activeChain.id }, { onSuccess: onDone });
+                  connect({ connector: c, chainId: activeChain.id });
                 }}
               >
                 {c.icon ? (
@@ -87,7 +89,7 @@ function ConnectView({ onDone }: { onDone: () => void }) {
         </ul>
       ) : (
         <p className="text-[13px] text-muted-foreground">
-          {isMobile ? "No wallet found in this browser." : "No wallet found in this browser. Install one, then reload this page:"}
+          {isMobile ? "No browser wallet found." : "No browser wallet found. Install one, then reload this page:"}
         </p>
       )}
 
@@ -207,7 +209,7 @@ function RemoveAccess() {
 }
 
 function AccountView({ address, wrongNetwork, onDone }: { address: `0x${string}`; wrongNetwork: boolean; onDone: () => void }) {
-  const { mutate: disconnect } = useDisconnect();
+  const disconnect = useDisconnectWallet();
   const { mutate: switchChain, isPending: switching, error: switchError } = useSwitchChain();
   const { balanceRaw } = useUsdc(); // the USDC token (6 decimals), never the 18-decimal native view of the same money
   const [copied, setCopied] = React.useState(false);
@@ -277,6 +279,101 @@ function AccountView({ address, wrongNetwork, onDone }: { address: `0x${string}`
   );
 }
 
+const menuItem =
+  "block w-full rounded-xl px-3 py-2.5 text-left text-[13px] font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+/** The address button's small menu: copy the address, pick another wallet, disconnect (and the full wallet window for the rest). */
+function AccountMenu({ address, onSwitch, onDetails }: { address: `0x${string}`; onSwitch: () => void; onDetails: () => void }) {
+  const disconnect = useDisconnectWallet();
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  const wrap = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    const away = (e: PointerEvent) => {
+      if (wrap.current && !wrap.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [menuOpen]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setTimeout(() => {
+        setCopied(false);
+        setMenuOpen(false);
+      }, 900);
+    } catch {
+      setMenuOpen(false); // clipboard not allowed here: the full address is in "Wallet details"
+    }
+  };
+
+  return (
+    <div ref={wrap} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((v) => !v)}
+        className={cn(pillBase, "flex items-center gap-2 border border-border hover:bg-muted")}
+      >
+        <span className="size-2 rounded-full bg-up" aria-hidden />
+        {chipAddress(address)}
+      </button>
+      {menuOpen ? (
+        <div role="menu" className="absolute right-0 top-full z-50 mt-2 w-48 rounded-2xl border border-border bg-card p-1.5 text-card-foreground shadow-lg">
+          <button type="button" role="menuitem" onClick={copy} className={menuItem}>
+            {copied ? "Copied" : "Copy address"}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setMenuOpen(false);
+              disconnect(onSwitch); // the wallet list opens once the old wallet is disconnected
+            }}
+            className={menuItem}
+          >
+            Switch wallet
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setMenuOpen(false);
+              onDetails();
+            }}
+            className={menuItem}
+          >
+            Wallet details
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setMenuOpen(false);
+              disconnect();
+            }}
+            className={menuItem}
+          >
+            Disconnect
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function WalletButton() {
   const { address, chainId, status } = useConnection();
   const { mutate: switchChain, isPending: switching } = useSwitchChain();
@@ -313,12 +410,7 @@ export function WalletButton() {
       </button>
     );
   } else if (connected) {
-    button = (
-      <button type="button" onClick={() => setOpen(true)} className={cn(pillBase, "flex items-center gap-2 border border-border hover:bg-muted")}>
-        <span className="size-2 rounded-full bg-up" aria-hidden />
-        {chipAddress(address)}
-      </button>
-    );
+    button = <AccountMenu address={address} onSwitch={() => setOpen(true)} onDetails={() => setOpen(true)} />;
   } else {
     button = (
       <button type="button" onClick={() => setOpen(true)} className={cn(pillBase, "bg-foreground text-background hover:opacity-90")}>

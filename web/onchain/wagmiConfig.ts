@@ -5,7 +5,7 @@
  * Wrong network: useEnsureNetwork() switches (the wallet adds Arc first if it does not know it).
  */
 import { useCallback } from "react";
-import { createConfig, http, useConnection, useSwitchChain } from "wagmi";
+import { createConfig, http, useConnection, useDisconnect, useSwitchChain } from "wagmi";
 import { injected, walletConnect } from "wagmi/connectors";
 
 import { arcMainnet, arcTestnet } from "./chains";
@@ -48,6 +48,34 @@ export const wagmiConfig = createConfig({
   multiInjectedProviderDiscovery: true,
   ssr: true,
 });
+
+/** A browser wallet that announced itself (own name and icon), as opposed to the plain "window.ethereum" connector. */
+export const isAnnouncedWallet = (c: { type: string; id: string }) => c.type === "injected" && c.id !== "injected";
+
+/** Disconnect, and make sure nothing reconnects by itself on the next visit: the visitor picks a wallet again. `then` runs once it is done. */
+export function useDisconnectWallet() {
+  const { mutateAsync } = useDisconnect();
+  // The promise form: the buttons that call this disappear the moment the wallet is disconnected, and callbacks given to mutate() would be dropped.
+  return useCallback(
+    async (then?: () => void) => {
+      try {
+        await mutateAsync();
+      } catch {
+        /* nothing to disconnect */
+      }
+      // wagmi remembers "disconnected" per connector, so mark every browser-wallet connector (they can share one provider)
+      const { storage, connectors } = wagmiConfig;
+      try {
+        await storage?.removeItem("recentConnectorId");
+        for (const c of connectors) if (c.type === "injected") await storage?.setItem(`${c.id}.disconnected`, true);
+      } catch {
+        /* storage not available: the wallet's own disconnected mark still holds */
+      }
+      then?.();
+    },
+    [mutateAsync],
+  );
+}
 
 export function useEnsureNetwork() {
   const { chainId } = useConnection();

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type * as React from "react";
 
+import { ContractNote } from "@/components/kairo/contract-note";
 import { AGENTS } from "@/lib/agents";
 
 export const metadata: Metadata = {
@@ -182,11 +183,20 @@ export default function HowItWorks() {
         </li>
         <li>
           <span className="font-semibold text-foreground">
+            Network fee:
+          </span>{" "}
+          Arc fees are paid in USDC and are tiny, about $0.004 for the
+          permission and a call together. Kairo asks you to keep $0.01 in your
+          wallet on top of your call for them.
+        </li>
+        <li>
+          <span className="font-semibold text-foreground">
             One side per round:
           </span>{" "}
           in a round you can call UP or DOWN, not both.
         </li>
       </ul>
+      <ContractNote className="mt-3 text-[15px] leading-relaxed text-muted-foreground" />
 
       <p className="mt-6 text-[13px] text-muted-foreground">
         Prices are the last live trade on Bitfinex. Charts by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">TradingView Lightweight Charts™</a>. Kairo is in beta: each

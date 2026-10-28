@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import * as React from "react";
-import { useConnection, useDisconnect } from "wagmi";
+import { useConnection } from "wagmi";
+
+import { useDisconnectWallet } from "@/onchain/wagmiConfig";
 
 const itemClass =
   "flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-background/40 px-4 py-3 text-left text-[14px] font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -10,7 +12,7 @@ const itemClass =
 /** The phone's menu: a ☰ button in the top bar that opens a small sheet from the bottom. Laptops keep the plain "How it works" link. */
 export function PhoneMenu() {
   const { address, status } = useConnection();
-  const { mutate: disconnect } = useDisconnect();
+  const disconnect = useDisconnectWallet();
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDialogElement>(null);
   const connected = status === "connected" && address !== undefined;
