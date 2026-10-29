@@ -1,5 +1,6 @@
 {
   "network": "arc-mainnet",
+  "contractVersion": 2,
   "set": "mainnet",
   "chainId": 5042,
   "usdc": "0x3600000000000000000000000000000000000000",
@@ -21,25 +22,25 @@
   },
   "feeds": {
     "btc": {
-      "address": "0xfd32cf3e61b3aeaa76c29a59be7db450ebe7acc2",
-      "tx": "0x464e5b9e424a225c105148910fdfdb2ffa886482fb25695063adec75782029d7",
-      "block": 28287446
+      "address": "0x15dbb61c92fd8c301a19b769d984491731afab60",
+      "tx": "0xe8b389949915036078cd29378e9a41aa58a99f73f5de1c1703f86e197770ace9",
+      "block": 28496721
     },
     "eth": {
-      "address": "0x765fc8acd7e11855da1ddb67b84cd57e0f80ee44",
-      "tx": "0x66a127506ff7b92506f280326c6bff23d1d54af4ab769c4ef90eb628f4df4e81",
-      "block": 28287451
+      "address": "0xdbb8d2106f1e45aa5287b666a4c8841bead356c0",
+      "tx": "0x9f5a5862f1808211245923a98666bd0a69a061eac0322b469fc094a1f234d345",
+      "block": 28496727
     },
     "sol": {
-      "address": "0x1ff132b7bf86350651610b8c04ac5e76b7c86c0c",
-      "tx": "0xc700426f389e45454a96c97b23edd9e7c84390fd561c10cdc156a52538964cd6",
-      "block": 28287455
+      "address": "0x5f6952050147e922c7aa1264896aa62bafbc5462",
+      "tx": "0x8cc6e3fb0be8a05d9308c755bb3b1944900d6e23dd273586a20d669ad5e2ee36",
+      "block": 28496733
     }
   },
   "arena": {
-    "address": "0x2dea2ea4cffd8a201d54d3ab1567f28c2ed49758",
-    "tx": "0x416d0d47d6ddbed9094557ef5fc56dc0f230fc8e301f3cc19aa9f0a4bf84fbea",
-    "block": 28287441
+    "address": "0xaebac196c76a2c9338a30aef663e4799ffa0d364",
+    "tx": "0x18e2464b3354f42b42a87d5359ae4e41e3081e87636d086cef2765c13774498f",
+    "block": 28496716
   },
   "markets": [
     {
@@ -48,10 +49,10 @@
       "coin": "btc",
       "round": 300,
       "offset": 0,
-      "feed": "0xfd32cf3e61b3aeaa76c29a59be7db450ebe7acc2",
+      "feed": "0x15dbb61c92fd8c301a19b769d984491731afab60",
       "minStake": 500000,
-      "tx": "0xbb0904f14d02c5d9c5f3c7df0a34c52d0521020a61ff57c14dbd135c7a36adc5",
-      "block": 28287458
+      "tx": "0xeba93e9a207ce7907dba03c23458db18638a6bb5a77fc2718f674d4e1c9cce3d",
+      "block": 28496736
     },
     {
       "id": 1,
@@ -59,10 +60,10 @@
       "coin": "eth",
       "round": 300,
       "offset": 100,
-      "feed": "0x765fc8acd7e11855da1ddb67b84cd57e0f80ee44",
+      "feed": "0xdbb8d2106f1e45aa5287b666a4c8841bead356c0",
       "minStake": 500000,
-      "tx": "0x6e428aea0a98115023fec3ab7f8fda18cf1e6ee5ba00afa0c4a07bfee38a8a78",
-      "block": 28287461
+      "tx": "0x661e0eb24926a4ef927b9efbb4bf32ca4f606734d7e41e183e0852058cb85a46",
+      "block": 28496739
     },
     {
       "id": 2,
@@ -70,10 +71,10 @@
       "coin": "sol",
       "round": 300,
       "offset": 200,
-      "feed": "0x1ff132b7bf86350651610b8c04ac5e76b7c86c0c",
+      "feed": "0x5f6952050147e922c7aa1264896aa62bafbc5462",
       "minStake": 500000,
-      "tx": "0xc89ba5e6a672b543c1a0de2e3093f5a8091d7e648718a18c79f1a3e40ff901c8",
-      "block": 28287464
+      "tx": "0x939c36260cd712c9a76323190adc69b8e996379e1fb954c33cddd662d2450a21",
+      "block": 28496742
     },
     {
       "id": 3,
@@ -81,10 +82,10 @@
       "coin": "btc",
       "round": 600,
       "offset": 0,
-      "feed": "0xfd32cf3e61b3aeaa76c29a59be7db450ebe7acc2",
+      "feed": "0x15dbb61c92fd8c301a19b769d984491731afab60",
       "minStake": 500000,
-      "tx": "0x856d11b9db02a30755e9ef975148fa2af25264d6bc5d31bf49d246a94da12cb0",
-      "block": 28287467
+      "tx": "0x7c685e348a04d6251cebc46ba234b58ebbfe416ae472d1d884e43b7a0c3c6e27",
+      "block": 28496746
     },
     {
       "id": 4,
@@ -92,10 +93,10 @@
       "coin": "eth",
       "round": 600,
       "offset": 100,
-      "feed": "0x765fc8acd7e11855da1ddb67b84cd57e0f80ee44",
+      "feed": "0xdbb8d2106f1e45aa5287b666a4c8841bead356c0",
       "minStake": 500000,
-      "tx": "0xe0fd65006560a5260db18b645b99c03b767e8c529cd578d064a08dc6aa5fd8f8",
-      "block": 28287469
+      "tx": "0x78e95fd9966b278f68c4be6a1b3ca5b2365bf86a402444e4597ce587a370669b",
+      "block": 28496749
     },
     {
       "id": 5,
@@ -103,10 +104,10 @@
       "coin": "sol",
       "round": 600,
       "offset": 200,
-      "feed": "0x1ff132b7bf86350651610b8c04ac5e76b7c86c0c",
+      "feed": "0x5f6952050147e922c7aa1264896aa62bafbc5462",
       "minStake": 500000,
-      "tx": "0x91142ab0b748b937501799520bfccc9ff2a8695160907cc7e071e86afe805694",
-      "block": 28287473
+      "tx": "0xa55544e4d174c66aa8b6571fe949432e4cf1ee641df139449a753f73809203f0",
+      "block": 28496752
     },
     {
       "id": 6,
@@ -114,10 +115,10 @@
       "coin": "btc",
       "round": 1800,
       "offset": 0,
-      "feed": "0xfd32cf3e61b3aeaa76c29a59be7db450ebe7acc2",
+      "feed": "0x15dbb61c92fd8c301a19b769d984491731afab60",
       "minStake": 500000,
-      "tx": "0x55612e0c2f4fc3584dacc624a9314011181043def6914c3f8016476f5c35d722",
-      "block": 28287476
+      "tx": "0xf16e46637244b5387b36a974bf3441b8914a6cf2d574ccdbdabc5baf82bcb877",
+      "block": 28496755
     },
     {
       "id": 7,
@@ -125,10 +126,10 @@
       "coin": "eth",
       "round": 1800,
       "offset": 100,
-      "feed": "0x765fc8acd7e11855da1ddb67b84cd57e0f80ee44",
+      "feed": "0xdbb8d2106f1e45aa5287b666a4c8841bead356c0",
       "minStake": 500000,
-      "tx": "0x9b62e0c675612b08fad2a35e33f8138c57a1e0870aad5659ed4d45bc70efe445",
-      "block": 28287479
+      "tx": "0xc525902444e7ee6db9417c05eaeeab062068b0394d264bed279114cf4e00aa0f",
+      "block": 28496758
     },
     {
       "id": 8,
@@ -136,10 +137,10 @@
       "coin": "sol",
       "round": 1800,
       "offset": 200,
-      "feed": "0x1ff132b7bf86350651610b8c04ac5e76b7c86c0c",
+      "feed": "0x5f6952050147e922c7aa1264896aa62bafbc5462",
       "minStake": 500000,
-      "tx": "0x93b1c2a263dedea4185b439ed3b59d6f2593b52badeae3819ffc84394a9e35bf",
-      "block": 28287482
+      "tx": "0x9a944ec67192b63d2f775262dfa0e4cf613f9b31ee4f1b244540f618b273bfe0",
+      "block": 28496761
     },
     {
       "id": 9,
@@ -147,10 +148,10 @@
       "coin": "btc",
       "round": 3600,
       "offset": 0,
-      "feed": "0xfd32cf3e61b3aeaa76c29a59be7db450ebe7acc2",
+      "feed": "0x15dbb61c92fd8c301a19b769d984491731afab60",
       "minStake": 500000,
-      "tx": "0xe8fa15f7018f5281295673b882cac00d1ca2bed1079a753910226cbf412b7283",
-      "block": 28287485
+      "tx": "0x1a29848c2708c4f5c395aab39bfb07dd6e09885d3f60ad9f3594cc577a23acd0",
+      "block": 28496765
     },
     {
       "id": 10,
@@ -158,10 +159,10 @@
       "coin": "eth",
       "round": 3600,
       "offset": 100,
-      "feed": "0x765fc8acd7e11855da1ddb67b84cd57e0f80ee44",
+      "feed": "0xdbb8d2106f1e45aa5287b666a4c8841bead356c0",
       "minStake": 500000,
-      "tx": "0x001af1c2df2b42555939a8b1fd546d3c7d24eb4b46e4404e1ada7c67757ffa87",
-      "block": 28287487
+      "tx": "0x78a210b15ea28719d6a5f62d5efc81903b982d6279e8e244428ffb95fd7d8ed3",
+      "block": 28496769
     },
     {
       "id": 11,
@@ -169,11 +170,11 @@
       "coin": "sol",
       "round": 3600,
       "offset": 200,
-      "feed": "0x1ff132b7bf86350651610b8c04ac5e76b7c86c0c",
+      "feed": "0x5f6952050147e922c7aa1264896aa62bafbc5462",
       "minStake": 500000,
-      "tx": "0xbae317427d7fdbc52e0b8e562ec0f6d7089c3fba5fbb84ffb086a4072e474a4f",
-      "block": 28287489
+      "tx": "0xd3be90b2796542b47d9b3c5563b80ac68ad057410e943ec6cb261a77ba427602",
+      "block": 28496772
     }
   ],
-  "deployedAt": "2026-10-28T09:54:11.183Z"
+  "deployedAt": "2026-10-29T15:22:31.913Z"
 }
