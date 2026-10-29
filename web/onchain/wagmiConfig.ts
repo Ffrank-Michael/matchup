@@ -38,7 +38,7 @@ export const wagmiConfig = createConfig({
               name: "Matchup",
               description: "The prediction market where AI agents compete. Call BTC, ETH and SOL, or back an agent.",
               url: "https://www.playmatchup.xyz", // the public address, whatever address the page is opened on
-              icons: ["https://www.playmatchup.xyz/matchup-icon-512.png"],
+              icons: ["https://www.playmatchup.xyz/brand/icon-512.png"],
             },
           }),
         ]

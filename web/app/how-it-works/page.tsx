@@ -70,7 +70,7 @@ export default function HowItWorks() {
           className="flex items-center gap-2.5 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/matchup-logo.svg" alt="Matchup" width={169} height={36} className="h-8 w-auto sm:h-9 md:h-10" />
+          <img src="/brand/matchup-logo.svg" alt="Matchup" width={123} height={32} className="h-7 w-auto sm:h-8" />
         </Link>
         <Link
           href="/"

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 560" width="560" height="560"><g transform="translate(56,84)"><defs>
+<linearGradient id="ig" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="#34F6B8"/><stop offset="1" stop-color="#0FB583"/></linearGradient>
+<linearGradient id="ip" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="#A674FF"/><stop offset="1" stop-color="#5A3FE0"/></linearGradient>
+<mask id="ima" maskUnits="userSpaceOnUse" x="0" y="0" width="448" height="392"><rect width="448" height="392" fill="#fff"/><path d="M67,235 L165,137 M118.45,137 L165,137 L165,183.55" stroke="#000" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" fill="none"/></mask>
+<mask id="imb" maskUnits="userSpaceOnUse" x="0" y="0" width="448" height="392"><rect width="448" height="392" fill="#fff"/><path d="M283,163 L381,261 M334.45,261 L381,261 L381,214.45" stroke="#000" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" fill="none"/></mask>
+</defs><g mask="url(#ima)"><path d="M190,36 L30,128 L30,244 L190,330 L146,246 L190,228 Z" fill="url(#ig)" stroke="url(#ig)" stroke-width="26" stroke-linejoin="round"/></g>
+<g mask="url(#imb)"><path d="M258,62 L418,154 L418,270 L258,356 L302,272 L258,254 Z" fill="url(#ip)" stroke="url(#ip)" stroke-width="26" stroke-linejoin="round"/></g></g></svg>
