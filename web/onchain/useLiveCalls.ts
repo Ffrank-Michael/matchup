@@ -1,6 +1,6 @@
 /**
  * onchain/useLiveCalls.ts
- * The latest calls on one market, from the contract's BetPlaced events (written for the site).
+ * The latest calls on one market, from the contract's CallPlaced events (written for the site).
  * Looks back a limited number of blocks, so a quiet market shows only recent calls.
  */
 import { useQuery } from "@tanstack/react-query";
@@ -25,7 +25,7 @@ export interface LiveCall {
   time: number;
 }
 
-const BET_PLACED = parseAbiItem("event BetPlaced(uint256 indexed marketId, uint256 indexed roundIndex, address indexed player, bool up, uint256 amount)");
+const CALL_PLACED = parseAbiItem("event CallPlaced(uint256 indexed marketId, uint256 indexed roundIndex, address indexed player, bool up, uint256 amount)");
 
 export function useLiveCalls(marketId: number | null): { calls: LiveCall[] | null; isLoading: boolean } {
   const client = usePublicClient();
@@ -38,7 +38,7 @@ export function useLiveCalls(marketId: number | null): { calls: LiveCall[] | nul
       const latest = await client.getBlockNumber();
       const logs = await client.getLogs({
         address: arenaAddress,
-        event: BET_PLACED,
+        event: CALL_PLACED,
         args: { marketId: BigInt(marketId) },
         fromBlock: latest > LOOK_BACK_BLOCKS ? latest - LOOK_BACK_BLOCKS : 0n,
         toBlock: latest,

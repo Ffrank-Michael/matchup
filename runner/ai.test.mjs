@@ -31,7 +31,7 @@ const snap = (now, markets, { agents = KEYS.map((k) => agent(k)), candles = CAND
 const ans = (up = 'UP', down = 'DOWN') => ({ 'trend-follower': { call: up, reason: 'Trend says ' + up + '.' }, contrarian: { call: down, reason: 'Fading to ' + down + '.' }, 'chart-reader': { call: up, reason: 'Candles say ' + up + '.' } });
 const mkAi = (results = {}) => ({ results: new Map(Object.entries(results)) });
 const cfg = (ai, over = {}) => ({ ...CFG, random: mulberry32(7), ai, aiMarkets: 'all', ...over });
-const bets = (r) => r.actions.filter((a) => a.type === 'bet');
+const calls = (r) => r.actions.filter((a) => a.type === 'call');
 const BATCH = 'ai:BTC/USD:6000';
 const EARLY_DONE = new Set(['0:11:trend-follower', '0:11:chart-reader', '0:11:coin-flipper', '3:21:trend-follower', '3:21:chart-reader', '3:21:coin-flipper']);
 
@@ -98,14 +98,14 @@ test('a paused market, or one the AI does not play (aiMarkets), is not asked abo
 test('the early agents act 10 s after the opening, not before, each on its own market\'s answer', () => {
   const ai = mkAi({ [BATCH]: { ok: true, decisions: { 0: ans('UP', 'DOWN'), 3: ans('DOWN', 'UP') } } });
   const markets = (n) => [BTC10(n), BTC5(n)];
-  assert.deepEqual(bets(planTick(snap(6009, markets(6009)), cfg(ai))).filter((b) => b.ai), []);
+  assert.deepEqual(calls(planTick(snap(6009, markets(6009)), cfg(ai))).filter((b) => b.ai), []);
   const r = planTick(snap(6010, markets(6010)), cfg(ai));
-  const side = (market, agentKey) => bets(r).find((b) => b.market === market && b.agent === agentKey)?.side;
+  const side = (market, agentKey) => calls(r).find((b) => b.market === market && b.agent === agentKey)?.side;
   assert.deepEqual([side(0, 'trend-follower'), side(0, 'chart-reader')], ['UP', 'UP']);
   assert.deepEqual([side(3, 'trend-follower'), side(3, 'chart-reader')], ['DOWN', 'DOWN']);
-  const b = bets(r).find((x) => x.market === 0 && x.agent === 'trend-follower');
+  const b = calls(r).find((x) => x.market === 0 && x.agent === 'trend-follower');
   assert.deepEqual([b.reason, b.ai, b.rule, b.stake], ['Trend says UP.', true, false, 500_000]);
-  assert.ok(bets(r).some((x) => x.agent === 'coin-flipper' && x.market === 0), 'the coin flipper acts at the same time, at random');
+  assert.ok(calls(r).some((x) => x.agent === 'coin-flipper' && x.market === 0), 'the coin flipper acts at the same time, at random');
 });
 
 test('a failed answer makes all three agents skip, for good, with the standard words', () => {
@@ -115,14 +115,14 @@ test('a failed answer makes all three agents skip, for good, with the standard w
     const d = r.decisions.find((x) => x.agent === key);
     assert.deepEqual([d.decision.action, d.decision.reason, d.decision.aiFailed, d.retry], ['SKIP', COULDNT_DECIDE, true, false]);
   }
-  assert.ok(!bets(r).some((b) => b.ai));
+  assert.ok(!calls(r).some((b) => b.ai));
 });
 
 test('a decision missing from an otherwise good answer only skips that agent', () => {
   const partial = { ...ans(), 'chart-reader': null };
   const r = planTick(snap(6012, [BTC10(6012)]), cfg(mkAi({ [BATCH]: { ok: true, decisions: { 0: partial } } })));
   assert.equal(r.decisions.find((x) => x.agent === 'chart-reader').decision.aiFailed, true);
-  assert.equal(bets(r).find((b) => b.agent === 'trend-follower').ai, true);
+  assert.equal(calls(r).find((b) => b.agent === 'trend-follower').ai, true);
 });
 
 test('while the answer is on its way the AI agents wait (no decision, no skip)', () => {
@@ -145,27 +145,27 @@ const contra = (ai, m, now = 6032) => planTick(snap(now, [m]), cfg(ai), EARLY_DO
 test('the contrarian acts 20 s after the early agents, and only once they are done', () => {
   const ai = mkAi({ [BATCH]: { ok: true, decisions: { 0: ans('UP', 'UP') } } });
   const m = (n) => BTC10(n, { rounds: { 11: { state: 'Unsettled', up: 300_000, down: 500_000 } } });
-  assert.deepEqual(bets(planTick(snap(6029, [m(6029)]), cfg(ai), EARLY_DONE)).filter((b) => b.agent === 'contrarian'), []);
-  assert.equal(bets(planTick(snap(6030, [m(6030)]), cfg(ai), EARLY_DONE)).filter((b) => b.agent === 'contrarian').length, 1);
+  assert.deepEqual(calls(planTick(snap(6029, [m(6029)]), cfg(ai), EARLY_DONE)).filter((b) => b.agent === 'contrarian'), []);
+  assert.equal(calls(planTick(snap(6030, [m(6030)]), cfg(ai), EARLY_DONE)).filter((b) => b.agent === 'contrarian').length, 1);
   const notDone = new Set(['0:11:trend-follower', '0:11:coin-flipper']);
-  assert.deepEqual(bets(planTick(snap(6032, [m(6032)]), cfg(ai), notDone)).filter((b) => b.agent === 'contrarian'), []);
+  assert.deepEqual(calls(planTick(snap(6032, [m(6032)]), cfg(ai), notDone)).filter((b) => b.agent === 'contrarian'), []);
 });
 
 test('contrarian: money on both sides, the AI view is used as it is (even split too)', () => {
   const ai = mkAi({ [BATCH]: { ok: true, decisions: { 0: ans('UP', 'UP') } } });
   for (const [up, down] of [[500_000, 300_000], [400_000, 400_000]]) {
-    const b = bets(contra(ai, withMoney(up, down))).find((x) => x.agent === 'contrarian');
+    const b = calls(contra(ai, withMoney(up, down))).find((x) => x.agent === 'contrarian');
     assert.deepEqual([b.side, b.reason, b.rule, b.stake], ['UP', 'Fading to UP.', false, 400_000]);
   }
 });
 
 test('contrarian: with one side empty the empty side is taken, and a view that disagrees gets a plain-number reason', () => {
   const ai = mkAi({ [BATCH]: { ok: true, decisions: { 0: ans('UP', 'UP') } } }); // the AI view is UP
-  const b = bets(contra(ai, withMoney(500_000, 0))).find((x) => x.agent === 'contrarian'); // all the money is on UP, so DOWN is empty? no: UP has it
+  const b = calls(contra(ai, withMoney(500_000, 0))).find((x) => x.agent === 'contrarian'); // all the money is on UP, so DOWN is empty? no: UP has it
   assert.equal(b.side, 'DOWN');
   assert.equal(b.rule, true);
   assert.equal(b.reason, 'All the money is on UP ($0.50), so I take DOWN.');
-  const c = bets(contra(ai, withMoney(0, 700_000))).find((x) => x.agent === 'contrarian'); // UP is empty and the view is UP
+  const c = calls(contra(ai, withMoney(0, 700_000))).find((x) => x.agent === 'contrarian'); // UP is empty and the view is UP
   assert.deepEqual([c.side, c.rule, c.reason], ['UP', false, 'Fading to UP.'], 'the model already agrees: its own words stay');
 });
 
@@ -198,7 +198,7 @@ test('elsewhere (aiMarkets) the contrarian only answers money that is not the ho
 test('without cfg.ai the agents use their plain rules (tests and simulation)', () => {
   const r = planTick(snap(6070, [BTC10(6070)]), { ...CFG, random: mulberry32(7) });
   assert.deepEqual(r.aiRequests, []);
-  assert.ok(bets(r).some((b) => b.agent === 'trend-follower' && !b.ai));
+  assert.ok(calls(r).some((b) => b.agent === 'trend-follower' && !b.ai));
 });
 
 test('the runner looks more often around an opening, then goes back to the slow rhythm', () => {

@@ -73,7 +73,7 @@ contract ClaimInvariantHandler is Test {
     RoundKey[] public touchedRounds;
     mapping(uint256 => mapping(uint256 => bool)) public isTouched;
 
-    struct GhostPos { bool hasBet; bool up; }
+    struct GhostPos { bool hasCall; bool up; }
     mapping(uint256 => mapping(uint256 => mapping(address => GhostPos))) public ghostPos;
 
     // Conservation ghost vars.
@@ -84,7 +84,7 @@ contract ClaimInvariantHandler is Test {
     uint256 constant MAX_ROUND = 20;
 
     // ── Coverage counters ─────────────────────────────────────
-    uint256 public betsPlaced;
+    uint256 public callsPlaced;
     uint256 public settledUp;
     uint256 public settledDown;
     // How many times each RefundReason showed up in a RoundSettled event.
@@ -248,7 +248,7 @@ contract ClaimInvariantHandler is Test {
     function _owedRefunded(uint256 mid, uint256 rnd) internal view returns (uint256 owed) {
         for (uint256 p = 0; p < N_PLAYERS; p++) {
             address who = players[p];
-            if (!ghostPos[mid][rnd][who].hasBet) continue;
+            if (!ghostPos[mid][rnd][who].hasCall) continue;
             (uint128 pUp, uint128 pDown, bool claimed) = arena.positions(mid, rnd, who);
             if (!claimed) owed += uint256(pUp) + uint256(pDown);
         }
@@ -289,7 +289,7 @@ contract ClaimInvariantHandler is Test {
     ) internal view returns (uint256 owed) {
         for (uint256 p = 0; p < N_PLAYERS; p++) {
             address who = players[p];
-            if (!ghostPos[mid][rnd][who].hasBet) continue;
+            if (!ghostPos[mid][rnd][who].hasCall) continue;
             (uint128 pUp, uint128 pDown, bool claimed) = arena.positions(mid, rnd, who);
             if (claimed) continue;
             owed += _owedOneSettled(pUp, pDown, upWon, U, D);
@@ -338,7 +338,7 @@ contract ClaimInvariantHandler is Test {
         uint256 M    = ctx.M;
         uint256 Dist = M - M * 200 / 10_000;
         for (uint256 p = 0; p < N_PLAYERS; p++) {
-            if (!ghostPos[mid][rnd][players[p]].hasBet) continue;
+            if (!ghostPos[mid][rnd][players[p]].hasCall) continue;
             (uint128 pU, uint128 pD, bool clmd) = arena.positions(mid, rnd, players[p]);
             uint256 ws = ctx.upWon ? uint256(pU) : uint256(pD);
             if (ws == 0) continue;
@@ -382,7 +382,7 @@ contract ClaimInvariantHandler is Test {
         uint256 sumLoserMatched;
         bool anyLoserUnclaimed;
         for (uint256 p = 0; p < N_PLAYERS; p++) {
-            if (!ghostPos[mid][rnd][players[p]].hasBet) continue;
+            if (!ghostPos[mid][rnd][players[p]].hasCall) continue;
             (uint128 pU, uint128 pD, bool clmd) = arena.positions(mid, rnd, players[p]);
             uint256 loseStake = upWon ? uint256(pD) : uint256(pU);
             if (loseStake == 0) continue;
@@ -395,10 +395,10 @@ contract ClaimInvariantHandler is Test {
 
     // ── Handler actions ───────────────────────────────────────
 
-    // ─── FREE-FORM BET ────────────────────────────────────────
+    // ─── FREE-FORM CALL ────────────────────────────────────────
 
-    /// Place a bet for a random player on a random market.
-    function bet(
+    /// Place a call for a random player on a random market.
+    function makeCall(
         uint8   marketIdx,
         uint8   playerIdx,
         bool    up,
@@ -410,7 +410,7 @@ contract ClaimInvariantHandler is Test {
         address who = players[playerIdx];
         uint256 amt = bound(uint256(amount), 100_000, 5_000_000);
 
-        uint256 rnd = arena.nextBettableRound(mid);
+        uint256 rnd = arena.nextCallableRound(mid);
         if (rnd == 0 || rnd > MAX_ROUND) return;
 
         (uint128 pUp, uint128 pDown, bool clmd) = arena.positions(mid, rnd, who);
@@ -420,34 +420,34 @@ contract ClaimInvariantHandler is Test {
 
         _fund(who, amt);
         vm.prank(who);
-        try arena.placeBet(mid, rnd, up, amt) {
-            betsPlaced++;
+        try arena.placeCall(mid, rnd, up, amt) {
+            callsPlaced++;
             ghostTotalDeposited += amt;
             _touch(mid, rnd);
             ghostPos[mid][rnd][who] = GhostPos(true, up);
-        } catch { /* excess/invalid bet; no state change */ }
+        } catch { /* excess/invalid call; no state change */ }
     }
 
     // ─── FULL CYCLE (the guided action that hits SettledUp/Down) ──────────
 
-    /// Places UP + DOWN bets from multiple players on market `mi`, then:
+    /// Places UP + DOWN calls from multiple players on market `mi`, then:
     ///   warps past lock, pushes start price, pushes end price (higher or lower
     ///   based on `seed`), warps past end, settles with correct ids, and lets
     ///   a random subset claim.
     ///
-    /// Bet sizes are prime-ish to ensure rounding dust occurs.
+    /// Call sizes are prime-ish to ensure rounding dust occurs.
     function fullCycle(uint8 marketIdx, uint256 seed) external {
         marketIdx = uint8(bound(marketIdx, 0, 2));
         uint8   mi  = marketIdx;
         uint256 mid = mids[mi];
 
-        uint256 rnd = arena.nextBettableRound(mid);
+        uint256 rnd = arena.nextCallableRound(mid);
         if (rnd == 0 || rnd > MAX_ROUND) return;
 
-        // Must be before lock to place bets.
+        // Must be before lock to place calls.
         if (block.timestamp >= arena.lockTime(mid, rnd)) return;
 
-        // Bet amounts: prime-ish to ensure rounding dust.
+        // Call amounts: prime-ish to ensure rounding dust.
         // UP: p0=100_003, p1=200_011  DOWN: p2=130_007, p3=170_003
         uint256[4] memory amts = [uint256(100_003), 200_011, 130_007, 170_003];
         bool[4]    memory ups  = [true, true, false, false];
@@ -457,8 +457,8 @@ contract ClaimInvariantHandler is Test {
             if (clmd || pUp != 0 || pDown != 0) continue;
             _fund(who, amts[p]);
             vm.prank(who);
-            try arena.placeBet(mid, rnd, ups[p], amts[p]) {
-                betsPlaced++;
+            try arena.placeCall(mid, rnd, ups[p], amts[p]) {
+                callsPlaced++;
                 ghostTotalDeposited += amts[p];
                 _touch(mid, rnd);
                 ghostPos[mid][rnd][who] = GhostPos(true, ups[p]);
@@ -508,23 +508,23 @@ contract ClaimInvariantHandler is Test {
     /// Runs one whole round that ENDS IN A REFUND, then lets every player claim.
     /// seed % 6 picks the reason:
     ///   0 Timeout           nobody settles; the claim itself finalises the refund
-    ///   1 OneSided          only UP players bet
+    ///   1 OneSided          only UP players call
     ///   2 UnchangedPrice    start price == end price
     ///   3 NoUpdate          the feed is silent for the whole round
     ///   4 InvalidPrice      the start price is zero
     ///   5 EndNotAfterStart  only ONE feed update lands inside the round
-    /// Bet sizes are the same prime-ish numbers as fullCycle.
+    /// Call sizes are the same prime-ish numbers as fullCycle.
     function refundCycle(uint8 marketIdx, uint256 seed) external {
         marketIdx = uint8(bound(marketIdx, 0, 2));
         uint8   mi  = marketIdx;
         uint256 mid = mids[mi];
 
-        uint256 rnd = arena.nextBettableRound(mid);
+        uint256 rnd = arena.nextCallableRound(mid);
         if (rnd == 0 || rnd > MAX_ROUND) return;
         if (block.timestamp >= arena.lockTime(mid, rnd)) return;
 
         uint256 kind = seed % 6;
-        _placeCycleBets(mid, rnd, kind == 1);
+        _placeCycleCalls(mid, rnd, kind == 1);
         _runRefundKind(mi, mid, rnd, kind);
         refundCycles++;
 
@@ -532,8 +532,8 @@ contract ClaimInvariantHandler is Test {
         for (uint256 p = 0; p < 4; p++) _claimOne(mid, rnd, players[p]);
     }
 
-    /// Two UP players and two DOWN players bet (or only the two UP players).
-    function _placeCycleBets(uint256 mid, uint256 rnd, bool oneSided) internal {
+    /// Two UP players and two DOWN players call (or only the two UP players).
+    function _placeCycleCalls(uint256 mid, uint256 rnd, bool oneSided) internal {
         uint256[4] memory amts = [uint256(100_003), 200_011, 130_007, 170_003];
         bool[4]    memory ups  = [true, true, false, false];
         for (uint256 p = 0; p < 4; p++) {
@@ -543,8 +543,8 @@ contract ClaimInvariantHandler is Test {
             if (clmd || pUp != 0 || pDown != 0) continue;
             _fund(who, amts[p]);
             vm.prank(who);
-            try arena.placeBet(mid, rnd, ups[p], amts[p]) {
-                betsPlaced++;
+            try arena.placeCall(mid, rnd, ups[p], amts[p]) {
+                callsPlaced++;
                 ghostTotalDeposited += amts[p];
                 _touch(mid, rnd);
                 ghostPos[mid][rnd][who] = GhostPos(true, ups[p]);
@@ -882,7 +882,7 @@ contract ClaimInvariantTest is Test {
         invariant_conservation();
     }
 
-    /// BTC round 1: UP bettors p0 100_003 and p1 200_011, DOWN bettors p2 130_007
+    /// BTC round 1: UP callers p0 100_003 and p1 200_011, DOWN callers p2 130_007
     /// and p3 170_003.  seed 14 => UP wins (seed%2==0); p1,p2,p3 try to claim (p0 skipped).
     ///
     ///   U=300_014, D=300_010; M=300_010; T=300_014
@@ -920,7 +920,7 @@ contract ClaimInvariantTest is Test {
         assertEq(usdc.balanceOf(address(arena)), 6_002, "only fees remain in the contract");
     }
 
-    /// ETH round 1 (needs t >= 1200 so round 1 is the next one): same bets, DOWN wins.
+    /// ETH round 1 (needs t >= 1200 so round 1 is the next one): same calls, DOWN wins.
     ///   U=300_014, D=300_010; M=300_010; T=300_014
     ///   F=6_000; Dist=294_010
     ///   DOWN smaller side (won, fully matched):

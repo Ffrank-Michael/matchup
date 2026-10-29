@@ -37,7 +37,7 @@ export const ARENA_ABI = [
     stateMutability: "view",
   },
   {
-    type: "function", name: "nextBettableRound",
+    type: "function", name: "nextCallableRound",
     inputs: [{ name: "marketId", type: "uint256" }],
     outputs: [{ type: "uint256" }],
     stateMutability: "view",
@@ -117,7 +117,7 @@ export const ARENA_ABI = [
   },
   // ── write functions (for T3; included so wagmi has the full type) ──
   {
-    type: "function", name: "placeBet",
+    type: "function", name: "placeCall",
     inputs: [
       { name: "marketId",   type: "uint256" },
       { name: "roundIndex", type: "uint256" },
@@ -144,7 +144,7 @@ export const ARENA_ABI = [
   },
   // ── events ─────────────────────────────────────────────────
   {
-    type: "event", name: "BetPlaced",
+    type: "event", name: "CallPlaced",
     inputs: [
       { name: "marketId",   type: "uint256", indexed: true },
       { name: "roundIndex", type: "uint256", indexed: true },
@@ -167,7 +167,8 @@ export const ARENA_ABI = [
     inputs: [
       { name: "marketId",    type: "uint256", indexed: true },
       { name: "name",        type: "string",  indexed: false },
-      { name: "feedA",       type: "address", indexed: false },
+      { name: "feedA",       type: "address", indexed: true },
+      { name: "feedB",       type: "address", indexed: false },
       { name: "roundLength", type: "uint32",  indexed: false },
       { name: "startOffset", type: "uint32",  indexed: false },
       { name: "minStake",    type: "uint128", indexed: false },

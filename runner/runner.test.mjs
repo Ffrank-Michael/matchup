@@ -31,14 +31,14 @@ const agents = (over = {}) => KEYS.map((k) => agent(k, over[k] || {}));
 // 20 closed 1-minute candles that rise, so the chart reader calls UP
 const RISING = Array.from({ length: 20 }, (_, i) => ({ open: 100 + i - 1, close: 100 + i }));
 const snap = (now, m = market(now), a = agents()) => ({ now, markets: [m], agents: a, candles: { 'BTC/USD': RISING } });
-// These tests check the ORDER and rules of betting, with the original 60 s / 30 s delays (the real delays are in the settings test below).
+// These tests check the ORDER and rules of calling, with the original 60 s / 30 s delays (the real delays are in the settings test below).
 const cfg = (over = {}) => ({ ...CFG, earlyDelay: 60, contrarianAfterEarly: 30, random: mulberry32(7), ...over });
-const bets = (r) => r.actions.filter((a) => a.type === 'bet');
+const calls = (r) => r.actions.filter((a) => a.type === 'call');
 const kinds = (r) => r.actions.map((a) => a.type);
 
 // ---------------------------------------------------------------- the settings fit 10-minute rounds
 
-test('settings: early bets 10 s after a round opens, contrarian 20 s after that, two prices a round', () => {
+test('settings: early calls 10 s after a round opens, contrarian 20 s after that, two prices a round', () => {
   assert.equal(CFG.earlyDelay, 10);
   assert.equal(CFG.aiAskAfter, 3);
   assert.equal(CFG.contrarianAfterEarly, 20);
@@ -54,27 +54,27 @@ test('settings: the look-back covers the contract\'s whole 1-hour settle window'
   assert.ok(CFG.lookback * ROUND >= CFG.settleWindow + ROUND, 'a round that can still be settled would be ignored');
 });
 
-// ---------------------------------------------------------------- betting order and timing
-// Round 11 can be bet on from lock(10) = 6000 until lock(11) = 6600.
+// ---------------------------------------------------------------- calling order and timing
+// Round 11 can be call on from lock(10) = 6000 until lock(11) = 6600.
 
-test('early agents wait a minute after the round opens, then bet in order: trend follower, chart reader, coin flipper', () => {
-  assert.deepEqual(bets(planTick(snap(6059), cfg())), []);
+test('early agents wait a minute after the round opens, then call in order: trend follower, chart reader, coin flipper', () => {
+  assert.deepEqual(calls(planTick(snap(6059), cfg())), []);
   const r = planTick(snap(6060), cfg());
-  assert.deepEqual(bets(r).map((b) => b.agent), ['trend-follower', 'chart-reader', 'coin-flipper']);
-  assert.ok(bets(r).every((b) => b.round === 11 && b.market === 0));
+  assert.deepEqual(calls(r).map((b) => b.agent), ['trend-follower', 'chart-reader', 'coin-flipper']);
+  assert.ok(calls(r).every((b) => b.round === 11 && b.market === 0));
 });
 
-test('the early agents use the real price history (last finished round was UP, so the trend follower bets UP)', () => {
-  const b = bets(planTick(snap(6060), cfg())).find((x) => x.agent === 'trend-follower');
+test('the early agents use the real price history (last finished round was UP, so the trend follower calls UP)', () => {
+  const b = calls(planTick(snap(6060), cfg())).find((x) => x.agent === 'trend-follower');
   assert.equal(b.side, 'UP');
   assert.equal(b.stake, 500_000);
   assert.match(b.reason, /101\.00 -> 102\.00/);
 });
 
-test('the history comes from the feed, so rounds nobody bet on still count', () => {
+test('the history comes from the feed, so rounds nobody call on still count', () => {
   const down = [upd(1, 5410, 102), upd(2, 5990, 100)]; // round 9: 102 -> 100
   const r = planTick(snap(6060, market(6060, { feed: { updates: down } })), cfg());
-  assert.equal(bets(r).find((x) => x.agent === 'trend-follower').side, 'DOWN');
+  assert.equal(calls(r).find((x) => x.agent === 'trend-follower').side, 'DOWN');
 });
 
 test('the round that is still running is not part of the history (only finished rounds are)', () => {
@@ -82,32 +82,32 @@ test('the round that is still running is not part of the history (only finished 
   const f = [...FEED, upd(5, 6003, 90), upd(6, 6100, 80)];
   const r = planTick(snap(6200, market(6200, { feed: { updates: f } })), cfg());
   assert.equal(r.actions.length > 0 || r.decisions.length > 0, true);
-  assert.equal(bets(r).find((x) => x.agent === 'trend-follower').side, 'UP');
+  assert.equal(calls(r).find((x) => x.agent === 'trend-follower').side, 'UP');
 });
 
-test('no early bets in the last minute before lock', () => {
-  assert.equal(bets(planTick(snap(6540 - 1), cfg())).length, 3);
-  assert.equal(bets(planTick(snap(6540), cfg())).length, 0);
+test('no early calls in the last minute before lock', () => {
+  assert.equal(calls(planTick(snap(6540 - 1), cfg())).length, 3);
+  assert.equal(calls(planTick(snap(6540), cfg())).length, 0);
 });
 
-test('the contrarian bets 30 s after the early agents are due, in any round, and only after they are done', () => {
+test('the contrarian calls 30 s after the early agents are due, in any round, and only after they are done', () => {
   const done = new Set(['0:11:trend-follower', '0:11:chart-reader', '0:11:coin-flipper']);
   const m = (now) => market(now, { rounds: { 11: { state: 'Unsettled', up: 800_000, down: 200_000, startPrice: 0n, endPrice: 0n } } });
-  assert.deepEqual(bets(planTick(snap(6089, m(6089)), cfg(), done)), []);
+  assert.deepEqual(calls(planTick(snap(6089, m(6089)), cfg(), done)), []);
   const r = planTick(snap(6090, m(6090)), cfg(), done);
-  assert.deepEqual(bets(r).map((b) => [b.agent, b.side]), [['contrarian', 'DOWN']]);
-  assert.match(bets(r)[0].reason, /\$0\.80 is on UP and \$0\.20 on DOWN \(80% on UP\)/);
+  assert.deepEqual(calls(r).map((b) => [b.agent, b.side]), [['contrarian', 'DOWN']]);
+  assert.match(calls(r)[0].reason, /\$0\.80 is on UP and \$0\.20 on DOWN \(80% on UP\)/);
   // not in the last 30 seconds
-  assert.deepEqual(bets(planTick(snap(6570, m(6570)), cfg(), done)), []);
+  assert.deepEqual(calls(planTick(snap(6570, m(6570)), cfg(), done)), []);
   // an early agent that has not finished holds the contrarian back
   const notDone = new Set(['0:11:trend-follower', '0:11:chart-reader']);
-  assert.deepEqual(bets(planTick(snap(6090, m(6090)), cfg(), notDone)).map((b) => b.agent).filter((a) => a === 'contrarian'), []);
+  assert.deepEqual(calls(planTick(snap(6090, m(6090)), cfg(), notDone)).map((b) => b.agent).filter((a) => a === 'contrarian'), []);
 });
 
-test('the contrarian skips when nobody has bet (and says so)', () => {
+test('the contrarian skips when nobody has called (and says so)', () => {
   const done = new Set(['0:11:trend-follower', '0:11:chart-reader', '0:11:coin-flipper']);
   const r = planTick(snap(6090), cfg(), done);
-  assert.deepEqual(bets(r), []);
+  assert.deepEqual(calls(r), []);
   const d = r.decisions.find((x) => x.agent === 'contrarian');
   assert.equal(d.decision.action, 'SKIP');
   assert.equal(d.retry, true, 'an empty crowd is looked at again, not decided for good');
@@ -118,7 +118,7 @@ test('the contrarian takes the empty side: everyone on UP and DOWN at $0 gets a 
   const m = (now) => market(now, { rounds: { 11: { state: 'Unsettled', up: 1_500_000, down: 0, startPrice: 0n, endPrice: 0n } } });
   // 90 s after the round opened, not only in the last 2 minutes
   const r = planTick(snap(6090, m(6090)), cfg(), done);
-  assert.deepEqual(bets(r).map((b) => [b.agent, b.side]), [['contrarian', 'DOWN']]);
+  assert.deepEqual(calls(r).map((b) => [b.agent, b.side]), [['contrarian', 'DOWN']]);
 });
 
 test('the contrarian is looked at again after an empty-crowd skip, and a skip is never recorded as final', () => {
@@ -129,7 +129,7 @@ test('the contrarian is looked at again after an empty-crowd skip, and a skip is
   // the runner does not add a retry decision to the decided set, so the next tick plans it again, and now there is a crowd
   const crowd = (now) => market(now, { rounds: { 11: { state: 'Unsettled', up: 0, down: 600_000, startPrice: 0n, endPrice: 0n } } });
   const r2 = planTick(snap(6110, crowd(6110)), cfg(), done);
-  assert.deepEqual(bets(r2).map((b) => [b.agent, b.side]), [['contrarian', 'UP']]);
+  assert.deepEqual(calls(r2).map((b) => [b.agent, b.side]), [['contrarian', 'UP']]);
   // early agents' skips stay final
   assert.ok(planTick(snap(6060), cfg()).decisions.filter((d) => d.agent !== 'contrarian').every((d) => !d.retry));
 });
@@ -141,39 +141,39 @@ test('an agent decides once per round: decided ids are not decided again', () =>
   assert.deepEqual(planTick(snap(6070), cfg(), decided).decisions, []);
 });
 
-test('one side per round: an agent that already has a position never bets again', () => {
+test('one side per round: an agent that already has a position never calls again', () => {
   const a = agents({ 'trend-follower': { positions: { '0:11': { up: 0, down: 300_000, claimed: false } } } });
   const r = planTick(snap(6060, market(6060), a), cfg());
-  assert.deepEqual(bets(r).map((b) => b.agent), ['chart-reader', 'coin-flipper']);
+  assert.deepEqual(calls(r).map((b) => b.agent), ['chart-reader', 'coin-flipper']);
 });
 
-test('a paused market gets no bets', () => {
-  assert.deepEqual(bets(planTick(snap(6060, market(6060, { paused: true })), cfg())), []);
+test('a paused market gets no calls', () => {
+  assert.deepEqual(calls(planTick(snap(6060, market(6060, { paused: true })), cfg())), []);
 });
 
-test('approval comes right before the bet, and only when the allowance is too small', () => {
+test('approval comes right before the call, and only when the allowance is too small', () => {
   const low = agents({ 'trend-follower': { allowance: 0 } });
   const r = planTick(snap(6060, market(6060), low), cfg());
   const i = r.actions.findIndex((a) => a.type === 'approve');
   assert.equal(r.actions[i].agent, 'trend-follower');
-  assert.equal(r.actions[i + 1].type, 'bet');
+  assert.equal(r.actions[i + 1].type, 'call');
   assert.equal(r.actions.filter((a) => a.type === 'approve').length, 1);
   assert.ok(!kinds(planTick(snap(6060), cfg())).includes('approve'));
 });
 
-test('agents keep 0.05 USDC for fees: a poor agent bets the minimum or sits out', () => {
+test('agents keep 0.05 USDC for fees: a poor agent calls the minimum or sits out', () => {
   const poor = agents({ 'trend-follower': { balance: 150_000 } });
-  assert.equal(bets(planTick(snap(6060, market(6060), poor), cfg())).find((b) => b.agent === 'trend-follower').stake, 100_000);
+  assert.equal(calls(planTick(snap(6060, market(6060), poor), cfg())).find((b) => b.agent === 'trend-follower').stake, 100_000);
   const broke = agents({ 'trend-follower': { balance: 140_000 } });
   const r = planTick(snap(6060, market(6060), broke), cfg());
-  assert.ok(!bets(r).some((b) => b.agent === 'trend-follower'));
+  assert.ok(!calls(r).some((b) => b.agent === 'trend-follower'));
   assert.equal(r.decisions.find((d) => d.agent === 'trend-follower').decision.action, 'SKIP');
 });
 
-test('no bet is ever bigger than the safety cap', () => {
+test('no call is ever bigger than the safety cap', () => {
   const r = planTick(snap(6060), cfg({ maxStake: 200_000 }));
-  assert.ok(bets(r).every((b) => b.stake <= 200_000));
-  assert.equal(bets(r).find((b) => b.agent === 'trend-follower').stake, 200_000);
+  assert.ok(calls(r).every((b) => b.stake <= 200_000));
+  assert.equal(calls(r).find((b) => b.agent === 'trend-follower').stake, 200_000);
 });
 
 // ---------------------------------------------------------------- three markets, staggered 3 minutes apart
@@ -192,7 +192,7 @@ test('each market runs on its own clock: BTC locks at :00, ETH at :03, SOL at :0
   assert.equal(endTime(eth, 10), lockTime(eth, 11));
 });
 
-test('each market gets its early bets 1 minute after ITS round opens', () => {
+test('each market gets its early calls 1 minute after ITS round opens', () => {
   // BTC round 11 opened at 6000, ETH round 11 opens at 6180, SOL round 11 opens at 6360.
   const run = (now, decided) => planTick({ now, markets: three(now), agents: agents() }, cfg(), decided);
   const who = (r) => [...new Set(r.decisions.filter((d) => d.agent !== 'contrarian').map((d) => d.market))]; // the early agents only
@@ -432,7 +432,7 @@ test('simulation: 8 hours, 3 markets, 5 different seeds, no failed action', () =
       assert.match(text, new RegExp(`claims \\$\\S+ from ${m}`), `seed ${seed}: nothing claimed on ${m}`);
       assert.match(text, new RegExp(`Runner ${m} start price`), `seed ${seed}: no start price for ${m}`);
     }
-    for (const n of NAMES) assert.match(text, new RegExp(`${n} bets (UP|DOWN)`), `seed ${seed}: ${n} never bet`);
+    for (const n of NAMES) assert.match(text, new RegExp(`${n} calls (UP|DOWN)`), `seed ${seed}: ${n} never call`);
     // no money appears or vanishes: what the agents hold plus what is still inside the contract is always the 20 USDC they started with
     const total = world.agents.reduce((sum, ag) => sum + ag.balance, 0);
     assert.equal(total + world.staked - world.paidOut, 20_000_000, `seed ${seed}`);
@@ -455,15 +455,15 @@ test('simulation: each market gets two prices a round (start and end)', () => {
   }
 });
 
-test('simulation: in every round of every market the contrarian bets after the three early agents', () => {
+test('simulation: in every round of every market the contrarian calls after the three early agents', () => {
   const { lines } = simulate({ hours: 8, seed: 11 });
   const order = {};
   for (const l of lines) {
-    const m = l.match(/\s(Agent \d · [A-Za-z ]+?) bets (UP|DOWN) \S+ on (\S+) round (\d+):/);
+    const m = l.match(/\s(Agent \d · [A-Za-z ]+?) calls (UP|DOWN) \S+ on (\S+) round (\d+):/);
     if (m) (order[`${m[3]} ${m[4]}`] ||= []).push(m[1]);
   }
   const rounds = Object.values(order);
-  assert.ok(rounds.length >= 60, `only ${rounds.length} rounds had bets`);
+  assert.ok(rounds.length >= 60, `only ${rounds.length} rounds had calls`);
   for (const names of rounds) {
     const c = names.indexOf('Agent 2 · Contrarian');
     if (c >= 0) assert.equal(c, names.length - 1, `contrarian was not last: ${names}`);
@@ -515,15 +515,15 @@ test('markets of different coins each get their own push', () => {
 
 // ---------------------------------------------------------------- order of actions and look-back
 
-test('price pushes and settles come first in the plan, an approval still comes right before its bet', () => {
+test('price pushes and settles come first in the plan, an approval still comes right before its call', () => {
   const ms = three(6065).map((m, i) => ({ ...m, feed: { address: '0xF' + i, updates: [upd(1, 5000, 100)] } }));
   const r = planTick({ now: 6065, markets: ms, agents: agents({ 'coin-flipper': { allowance: 0 } }) }, cfg());
   const order = r.actions.map((x) => x.type);
-  assert.ok(order.includes('pushPrice') && order.includes('bet'), order.join(','));
+  assert.ok(order.includes('pushPrice') && order.includes('call'), order.join(','));
   const lastPush = order.lastIndexOf('pushPrice');
   const firstOther = order.findIndex((x) => x !== 'pushPrice' && x !== 'settle');
   assert.ok(firstOther > lastPush, order.join(','));
-  r.actions.forEach((x, i) => { if (x.type === 'approve') { assert.equal(r.actions[i + 1].type, 'bet'); assert.equal(r.actions[i + 1].agent, x.agent); } });
+  r.actions.forEach((x, i) => { if (x.type === 'approve') { assert.equal(r.actions[i + 1].type, 'call'); assert.equal(r.actions[i + 1].agent, x.agent); } });
 });
 
 test('the look-back covers the whole 1-hour settle window for 5-minute and 10-minute rounds alike', () => {
@@ -537,8 +537,8 @@ test('the look-back covers the whole 1-hour settle window for 5-minute and 10-mi
 test('the house agents, the coin flipper included, only play the markets in aiMarkets', () => {
   const ai = { results: new Map() };
   const off = planTick(snap(6060), cfg({ ai, aiMarkets: ['ETH/USD'] }));
-  assert.deepEqual(bets(off), [], 'a market outside the list gets no house bet');
+  assert.deepEqual(calls(off), [], 'a market outside the list gets no house call');
   assert.deepEqual(off.aiRequests, []);
   const on = planTick(snap(6060), cfg({ ai, aiMarkets: ['BTC/USD'] }));
-  assert.ok(bets(on).some((b) => b.agent === 'coin-flipper'), 'a market in the list is played');
+  assert.ok(calls(on).some((b) => b.agent === 'coin-flipper'), 'a market in the list is played');
 });

@@ -49,12 +49,12 @@ export const SETS = {
 export const marketName = (m) => `${COINS[m.coin].pair} ${m.round % 3600 === 0 ? `${m.round / 3600}h` : `${m.round / 60}m`}`;
 const percent = (bps) => `${(bps / 100).toFixed(1)}%`;
 
-/** Description stored in the relay (the contract insists it starts with "Kairo relay "). The site shows the same words. */
+/** Description stored in the relay (the contract insists it starts with "Matchup relay "). The site shows the same words. */
 export function relayDescription(coin, setName) {
   const c = COINS[coin];
   return setName === 'mainnet'
-    ? `Kairo relay ${c.label}: Bitfinex last trade, checked against Chainlink within ${percent(c.bandBps)}`
-    : `Kairo relay ${c.label} (TESTNET REHEARSAL): Bitfinex last trade, checked against a test stand-in within ${percent(c.bandBps)}`;
+    ? `Matchup relay ${c.label}: Bitfinex last trade, checked against Chainlink within ${percent(c.bandBps)}`
+    : `Matchup relay ${c.label} (TESTNET REHEARSAL): Bitfinex last trade, checked against a test stand-in within ${percent(c.bandBps)}`;
 }
 
 /** Description of the testnet stand-in for Chainlink (a MockPriceFeed, so it must start with the test warning). */
@@ -81,7 +81,7 @@ export function validateSet(setName) {
   for (const c of Object.keys(COINS)) {
     if (!set.markets.some((m) => m.coin === c)) bad.push(`${c}: no market`);
     if (!(COINS[c].bandBps > 0 && COINS[c].bandBps <= 1000)) bad.push(`${c}: band outside 1..1000 bps`);
-    if (!relayDescription(c, setName).startsWith('Kairo relay ')) bad.push(`${c}: relay description prefix`);
+    if (!relayDescription(c, setName).startsWith('Matchup relay ')) bad.push(`${c}: relay description prefix`);
   }
   if (setName === 'mainnet') {
     for (const c of Object.keys(COINS)) if (!/^0x[0-9a-fA-F]{40}$/.test(CHAINLINK_MAINNET[c] || '')) bad.push(`${c}: no Chainlink proxy address`);

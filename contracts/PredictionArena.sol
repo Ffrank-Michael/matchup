@@ -2,15 +2,15 @@
 pragma solidity ^0.8.24;
 
 // =============================================================
-//  Kairo Markets – PredictionArena
+//  PredictionArena
 //
 //  UP/DOWN prediction market for Arc testnet.
-//  Players bet USDC on whether a price feed will go up or down
+//  Players place calls on whether a price feed will go up or down
 //  over a fixed time window (a "round").
 //
 //  Build plan:
 //    Step 3  ✓ – skeleton: markets, storage, time math, fees
-//    Step 4  ✓ – placeBet (betting, USDC pull, position tracking)
+//    Step 4  ✓ – placeCall (placing calls, USDC pull, position tracking)
 //    Step 5  ✓ – mock feed, price checking, settle, markRefunded
 //    Step 6  ✓ – payouts, refunds, claims (claim, claimMany, dust, totalPlayerFunds)
 //    Step 7  – full test suite
@@ -113,26 +113,26 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     ///         head-to-head support is implemented in a later step.
     error FeedBNotSupportedYet();
 
-    /// @notice Thrown when placeBet is called on a paused market.
+    /// @notice Thrown when placeCall is called on a paused market.
     error MarketPaused(uint256 marketId);
 
-    /// @notice Thrown when placeBet is called with a roundIndex that is not
-    ///         the next bettable round.
+    /// @notice Thrown when placeCall is called with a roundIndex that is not
+    ///         the next callable round.
     /// @param  given    The roundIndex the caller passed in.
-    /// @param  expected The index placeBet would have accepted.
+    /// @param  expected The index placeCall would have accepted.
     error NotNextRound(uint256 given, uint256 expected);
 
-    /// @notice Thrown when the bet amount is below the market's minimum stake.
-    ///         Also catches zero-amount bets (0 < minStake always).
+    /// @notice Thrown when the call amount is below the market's minimum stake.
+    ///         Also catches zero-amount calls (0 < minStake always).
     error StakeBelowMinimum(uint256 amount, uint128 minStake);
 
-    /// @notice Thrown when a player tries to bet on the opposite side to an
+    /// @notice Thrown when a player tries to call on the opposite side to an
     ///         existing position they already hold in this round.
     error WrongSide(uint256 marketId, uint256 roundIndex);
 
-    /// @notice Thrown when the bet amount does not fit in uint128.
+    /// @notice Thrown when the call amount does not fit in uint128.
     ///         Round totals are stored as uint128 to pack tightly; a single
-    ///         bet larger than ~3.4 × 10^38 USDC units would overflow them.
+    ///         call larger than ~3.4 × 10^38 USDC units would overflow them.
     error AmountExceedsUint128(uint256 amount);
 
     // -- Settle errors ------------------------------------------------
@@ -207,7 +207,7 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
 
     /// @notice Emitted when the owner pauses or unpauses a market.
     /// @param marketId  Which market changed.
-    /// @param paused    True = new bets blocked; false = open again.
+    /// @param paused    True = new calls blocked; false = open again.
     event MarketPausedChanged(uint256 indexed marketId, bool paused);
 
     /// @notice Emitted when the owner withdraws collected fees.
@@ -215,13 +215,13 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     /// @param amount USDC amount transferred (6-decimal units).
     event FeesWithdrawn(address indexed to, uint256 amount);
 
-    /// @notice Emitted when a player places or tops up a bet.
-    /// @param marketId    Which market the bet is on.
-    /// @param roundIndex  Which round the bet is on.
-    /// @param player      The bettor's address.
-    /// @param up          True = bet UP; false = bet DOWN.
-    /// @param amount      USDC added this call (6-decimal units, not cumulative).
-    event BetPlaced(
+    /// @notice Emitted when a player places or tops up a call.
+    /// @param marketId    Which market the call is on.
+    /// @param roundIndex  Which round the call is on.
+    /// @param player      The caller's address.
+    /// @param up          True = call UP; false = call DOWN.
+    /// @param amount      USDC added this transaction (6-decimal units, not cumulative).
+    event CallPlaced(
         uint256 indexed marketId,
         uint256 indexed roundIndex,
         address indexed player,
@@ -266,7 +266,7 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     ///                         winning round's event log said "OneSided refund".
     ///
     ///         The remaining values only appear with state == Refunded:
-    ///         OneSided        – Rule 14: only one side placed bets
+    ///         OneSided        – Rule 14: only one side placed calls
     ///         NoUpdate        – Rule 17: no feed update at or after lock time
     ///         EndNotAfterStart– Rule 16: endRoundId <= startRoundId
     ///         UnchangedPrice  – Rule 15: start price == end price
@@ -275,7 +275,7 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     ///         Timeout         – Rule 19: settle window expired; markRefunded called
     enum RefundReason {
         None,            // Round was NOT refunded (SettledUp or SettledDown)
-        OneSided,        // Rule 14: only one side placed bets
+        OneSided,        // Rule 14: only one side placed calls
         NoUpdate,        // Rule 17: no feed update at or after lock time
         EndNotAfterStart,// Rule 16: endRoundId <= startRoundId (feed stale)
         UnchangedPrice,  // Rule 15: start price == end price
@@ -325,9 +325,9 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
         /// Seconds from the Unix epoch to the lock of round 0.
         /// The lock of round k = startOffset + k * roundLength.
         uint32 startOffset;
-        /// Minimum USDC bet in 6-decimal units (e.g. 100_000 = $0.10).
+        /// Minimum USDC call amount in 6-decimal units (e.g. 100_000 = $0.10).
         uint128 minStake;
-        /// When true, new bets are blocked but existing bets and
+        /// When true, new calls are blocked but existing calls and
         /// settlement continue normally.
         bool paused;
     }
@@ -335,13 +335,13 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     /// @notice Possible states a round can be in.
     enum RoundState {
         Unsettled,   // Round has ended but settle() not yet called
-        SettledUp,   // Price went UP; UP bettors win
-        SettledDown, // Price went DOWN; DOWN bettors win
+        SettledUp,   // Price went UP; UP callers win
+        SettledDown, // Price went DOWN; DOWN callers win
         Refunded     // Everyone gets their stake back (see RULES §D)
     }
 
     /// @notice Per-round totals and settlement data.
-    ///         Populated by placeBet (step 4) and settle (step 5).
+    ///         Populated by placeCall (step 4) and settle (step 5).
     struct Round {
         /// Total USDC staked on UP in this round (6-decimal).
         uint128 upTotal;
@@ -367,9 +367,9 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     ///         Only one side (up or down) can be non-zero per player
     ///         per round (enforced in step 4).
     struct Position {
-        /// USDC staked on UP (6-decimal). Zero if player bet DOWN.
+        /// USDC staked on UP (6-decimal). Zero if player called DOWN.
         uint128 up;
-        /// USDC staked on DOWN (6-decimal). Zero if player bet UP.
+        /// USDC staked on DOWN (6-decimal). Zero if player called UP.
         uint128 down;
         /// True once the player has claimed their payout or refund.
         /// Prevents double-claims (set in step 6).
@@ -423,7 +423,7 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     ///         (or may still owe – includes unsettled rounds).
     ///
     ///         Updated at four moments:
-    ///           + amount  on every placeBet (money enters)
+    ///           + amount  on every placeCall (money enters)
     ///           - fee     on settle (fee fraction moves to feesAccrued)
     ///           - payout  on every claim (money leaves to a player)
     ///           - dust    when the last winner claims and dust > 0
@@ -498,7 +498,7 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     ///                    Must be strictly less than roundLength.
     ///                    Example: 0 = every hour on the hour (:00);
     ///                             1200 = every hour at :20 past.
-    /// @param minStake    Minimum USDC per bet in 6-decimal units.
+    /// @param minStake    Minimum USDC per call in 6-decimal units.
     ///                    Example: 100_000 = $0.10. Must be > 0.
     function createMarket(
         string calldata name,
@@ -522,7 +522,7 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
         }
         // startOffset must be strictly inside one round window.
         // If startOffset == roundLength, round 0 would have zero
-        // betting time, which makes no sense.
+        // call window, which makes no sense.
         if (startOffset >= roundLength) {
             revert OffsetNotLessThanRoundLength(startOffset, roundLength);
         }
@@ -545,8 +545,8 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     }
 
     /// @notice Pause or unpause a market.
-    ///         Pausing only prevents new bets (step 4 checks this).
-    ///         Existing bets, settlement and claims are unaffected.
+    ///         Pausing only prevents new calls (step 4 checks this).
+    ///         Existing calls, settlement and claims are unaffected.
     ///
     /// @param marketId  Which market to change.
     /// @param paused    True to pause; false to unpause.
@@ -561,7 +561,7 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     // =========================================================
 
     /// @notice Unix timestamp when round `roundIndex` locks for market
-    ///         `marketId`. Bets must arrive strictly before this time.
+    ///         `marketId`. Calls must arrive strictly before this time.
     ///
     ///         lock = startOffset + roundIndex * roundLength
     ///
@@ -591,9 +591,9 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
         return lockTime(marketId, roundIndex) + uint256(m.roundLength);
     }
 
-    /// @notice The index of the next round that is still open for betting.
+    /// @notice The index of the next round that is still open for calls.
     ///
-    ///         A round is "bettable" if its lock time is strictly in the
+    ///         A round is "callable" if its lock time is strictly in the
     ///         future (block.timestamp < lockTime).  We want the NEXT
     ///         round to lock after the current moment.
     ///
@@ -602,14 +602,14 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     ///           If block.timestamp < startOffset   → round 0 hasn't opened yet → return 0
     ///           Else elapsed = block.timestamp - startOffset
     ///                round that just locked = elapsed / roundLength  (integer division)
-    ///                next bettable round    = that + 1
+    ///                next callable round    = that + 1
     ///
     ///         Boundary: at block.timestamp == startOffset + k * roundLength,
     ///         that round k is EXACTLY at its lock – it is already closed.
     ///         elapsed / roundLength = k, so we return k + 1. ✓
     ///
     /// @param marketId  Which market.
-    function nextBettableRound(uint256 marketId) public view returns (uint256) {
+    function nextCallableRound(uint256 marketId) public view returns (uint256) {
         if (marketId >= marketCount) revert MarketNotFound(marketId);
         Market storage m = markets[marketId];
         uint256 offset = uint256(m.startOffset);
@@ -624,7 +624,7 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
         uint256 elapsed         = block.timestamp - offset;  // safe: offset <= block.timestamp
         uint256 roundsCompleted = elapsed / len;             // integer division
 
-        // The next bettable round is one beyond the last completed lock.
+        // The next callable round is one beyond the last completed lock.
         // At the exact boundary (elapsed % len == 0), roundsCompleted
         // already counts the current moment as a completed lock, so
         // adding 1 is correct.
@@ -640,7 +640,7 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     //
     //  The owner can withdraw collected fees up to feesAccrued.
     //  There is NO function that lets the owner withdraw the pot
-    //  (money players have bet) or any arbitrary ERC-20 tokens.
+    //  (money players have placed) or any arbitrary ERC-20 tokens.
     //  The ONLY owner-reachable USDC transfer out is withdrawFees,
     //  and it is capped by feesAccrued.
     // ----------------------------------------------------------
@@ -689,38 +689,38 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
     }
 
     // =========================================================
-    //  Betting (Step 4)
+    //  Placing Calls (Step 4)
     // =========================================================
 
-    /// @notice Bet USDC on whether the price will go UP or DOWN.
+    /// @notice Place a USDC call on whether the price will go UP or DOWN.
     ///
     ///         Rules (from RULES.md §B):
-    ///         - You can only bet on the NEXT round to lock (the one
+    ///         - You can only call on the NEXT round to lock (the one
     ///           whose lock time is still in the future).
-    ///         - USDC only; approve this contract first, then call placeBet.
+    ///         - USDC only; approve this contract first, then call placeCall.
     ///         - You may top up on the same side multiple times in the same
-    ///           round, but you cannot switch sides once you have bet.
-    ///         - Minimum stake applies to every call, including top-ups.
+    ///           round, but you cannot switch sides once you have placed a call.
+    ///         - Minimum stake applies to every transaction, including top-ups.
     ///
     ///         Checks are in this order (each has its own custom error):
     ///           1. Market exists          – MarketNotFound
     ///           2. Market not paused      – MarketPaused
     ///           3. roundIndex is next     – NotNextRound
     ///              (this also ensures block.timestamp < lockTime because
-    ///               nextBettableRound only returns rounds whose lock time
+    ///               nextCallableRound only returns rounds whose lock time
     ///               is strictly in the future; passing any other index fails)
     ///           4. amount >= minStake     – StakeBelowMinimum
     ///           5. amount fits uint128    – AmountExceedsUint128
     ///           6. one side per wallet    – WrongSide
     ///
     ///         Effects (storage writes) happen BEFORE the USDC transfer so
-    ///         a re-entrant call cannot bet twice on a single approval.
+    ///         a re-entrant call cannot place twice on a single approval.
     ///
-    /// @param marketId    Which market to bet on (0-indexed).
-    /// @param roundIndex  Must equal nextBettableRound(marketId).
-    /// @param up          True = bet the price goes UP; false = DOWN.
+    /// @param marketId    Which market to call on (0-indexed).
+    /// @param roundIndex  Must equal nextCallableRound(marketId).
+    /// @param up          True = call the price UP; false = DOWN.
     /// @param amount      USDC to stake, in 6-decimal units (e.g. 1_000_000 = $1).
-    function placeBet(
+    function placeCall(
         uint256 marketId,
         uint256 roundIndex,
         bool up,
@@ -735,12 +735,12 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
         if (m.paused) revert MarketPaused(marketId);
 
         // ── Check 3: correct round ───────────────────────────
-        // nextBettableRound returns the unique round whose lock time
+        // nextCallableRound returns the unique round whose lock time
         // is strictly in the future, so enforcing equality here also
         // guarantees block.timestamp < lockTime(marketId, roundIndex).
         // Any past round, the current round at its exact lock time,
         // or a future round beyond the next all fail this check.
-        uint256 expected = nextBettableRound(marketId);
+        uint256 expected = nextCallableRound(marketId);
         if (roundIndex != expected) revert NotNextRound(roundIndex, expected);
 
         // ── Check 4: amount >= minStake ──────────────────────
@@ -778,7 +778,7 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
         // Added AFTER the transfer so totalPlayerFunds never leads the balance.
         totalPlayerFunds += amount;
 
-        emit BetPlaced(marketId, roundIndex, msg.sender, up, amount);
+        emit CallPlaced(marketId, roundIndex, msg.sender, up, amount);
     }
 
     // =========================================================
@@ -941,7 +941,7 @@ contract PredictionArena is Ownable2Step, ReentrancyGuard {
         }
 
         // ── One-sided round (Rule 14) ─────────────────────────
-        // If only one side bet, refund immediately; skip ID checks.
+        // If only one side has calls, refund immediately; skip ID checks.
         if (r.upTotal == 0 || r.downTotal == 0) {
             _finaliseRound(marketId, roundIndex,
                 RoundState.Refunded, 0, 0, 0, 0, RefundReason.OneSided);

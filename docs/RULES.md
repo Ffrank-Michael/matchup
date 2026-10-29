@@ -11,11 +11,11 @@ Network: Arc testnet only for now. USDC: `0x360000000000000000000000000000000000
 3. Round length is a per-market setting, so 10 minutes or 24 hours can be added later as new markets.
 4. Once a market is created, its feeds, round length, offset and min stake NEVER change. To change anything, create a new market. No setters for these.
 
-## B. Betting
-5. A player bets UP or DOWN on the NEXT round to lock only. Betting for round k opens when round k-1 locks and closes at round k's lock time. A bet at `block.timestamp >= lockTime` is refused.
-6. USDC only (6-decimal ERC-20 token). Players `approve` first, then bet via `transferFrom`.
+## B. Calling
+5. A player calls UP or DOWN on the NEXT round to lock only. Calling for round k opens when round k-1 locks and closes at round k's lock time. A call at `block.timestamp >= lockTime` is refused.
+6. USDC only (6-decimal ERC-20 token). Players `approve` first, then call via `transferFrom`.
 7. Minimum stake per market, set at creation (suggested 0.10 USDC = 100000 units).
-8. A wallet may add to its stake in a round but only on ONE side per round. Any wallet (EOA or contract) may bet.
+8. A wallet may add to its stake in a round but only on ONE side per round. Any wallet (EOA or contract) may call.
 
 ## C. Prices
 9. The contract only talks to a price feed through Chainlink's standard AggregatorV3Interface (`latestRoundData`, `getRoundData`, `decimals`, `description`, `version`). On mainnet it is a real Chainlink feed; on testnet it is a mock feed with the same interface.
@@ -24,11 +24,11 @@ Network: Arc testnet only for now. USDC: `0x360000000000000000000000000000000000
     - start round: `updatedAt >= lockTime` AND the round immediately before it has `updatedAt < lockTime`.
     - end round: `updatedAt <= endTime` AND the round immediately after it has `updatedAt > endTime` (or does not exist yet).
     - So exactly one valid pair exists; a settler cannot cheat; no server is trusted.
-12. Because the start price comes from an update after lock, nobody can know it while betting is open.
+12. Because the start price comes from an update after lock, nobody can know it while calls are open.
 13. The testnet mock feed is clearly labeled "TEST PRICES - NOT REAL DATA" in its code comments and its `description()`. Only the owner can set its prices.
 
 ## D. Full refund, no fee
-14. Only one side has bets.
+14. Only one side has calls.
 15. The price is unchanged (end price == start price).
 16. The end update is the SAME AS or EARLIER than the start update (`endRoundId <= startRoundId`). This is what happens when the feed does not update during the round.
 17. There was no update at or after lock before the round ended.
@@ -71,10 +71,10 @@ Network: Arc testnet only for now. USDC: `0x360000000000000000000000000000000000
 - **No expiry, no sweep (rule 3):** unclaimed winnings and refunds stay claimable forever. No function lets the owner (or anyone else) move unclaimed player money. USDC can leave the contract in exactly two places: a player's own `claim`/`claimMany`, and the owner's `withdrawFees`.
 - **`claimMany(uint256[] marketIds, uint256[] roundIndexes)`:** claims several rounds for `msg.sender` in one transaction. Arrays must have equal length (`ArrayLengthMismatch`). STRICT and all-or-nothing: if any entry would fail (not settled, already claimed, nothing to claim) the whole call reverts. It makes ONE USDC transfer of the summed payouts at the end. Empty arrays revert.
 - **`claimable(marketId, roundIndex, player)`** is a view returning what `claim` would pay right now (0 if settled-loser, already claimed, no position, or round not yet claimable; a timed-out unsettled round counts as a refund).
-- **Money accounting:** `totalPlayerFunds` = all USDC the contract owes players or may still owe them: +amount on every bet, -F at settle (moves to fees), -payout on every claim, -dust when dust moves to fees. INVARIANT at all times: `USDC.balanceOf(contract) >= totalPlayerFunds + feesAccrued`. `withdrawFees` additionally reverts (`FeesWouldTouchPlayerFunds`) unless the balance AFTER the withdrawal is still >= `totalPlayerFunds` (defence in depth: the owner can never dip into players' money even if accounting had a bug).
+- **Money accounting:** `totalPlayerFunds` = all USDC the contract owes players or may still owe them: +amount on every call, -F at settle (moves to fees), -payout on every claim, -dust when dust moves to fees. INVARIANT at all times: `USDC.balanceOf(contract) >= totalPlayerFunds + feesAccrued`. `withdrawFees` additionally reverts (`FeesWouldTouchPlayerFunds`) unless the balance AFTER the withdrawal is still >= `totalPlayerFunds` (defence in depth: the owner can never dip into players' money even if accounting had a bug).
 
 ## F. Owner powers and limits
-25. The owner CAN: create markets, pause a market (no new bets; existing bets and settlement unaffected), withdraw collected fees only.
+25. The owner CAN: create markets, pause a market (no new calls; existing calls and settlement unaffected), withdraw collected fees only.
 26. The owner CANNOT: withdraw the pot, change a market's feed/length/offset/min stake, change a round's result, cancel a round. No function exists for any of these.
 27. The contract holds all money. Only settled results, refunds and fee withdrawals move USDC out. The ONLY owner-reachable USDC transfer out is `withdrawFees`, capped at `feesAccrued`.
 
@@ -86,15 +86,15 @@ Network: Arc testnet only for now. USDC: `0x360000000000000000000000000000000000
 29. Pyth can be added later as a second price-source type (it needs a signed price passed in at settle time). Adding it must not require changing the pot/payout code.
 
 ## Decisions made on the owner's behalf (approved)
-- Bet on the next round only, not rounds further ahead.
+- Call on the next round only, not rounds further ahead.
 - One side per wallet per round.
 - Minimum stake 0.10 USDC.
 - Market settings locked once created.
 
 ## H. Plan after deploy (NOT built yet; do not build until the owner says so)
-- **House agents:** four agents, named **Agent 1 · Trend Follower, Agent 2 · Contrarian, Agent 3 · Chart Reader, Agent 4 · Coin Flipper** that place their own bets so every market has activity. The decision logic is written and tested in `agents/` (pure logic, no wallets or blockchain calls): each agent gets recent prices (the chart reader gets the last 20 closed 1-minute Bitfinex candles, fetched by `runner/candles.mjs`) and the bets already in the round and returns BET (UP or DOWN, a stake, a one-line reason with real numbers) or SKIP. Each agent uses a **Circle developer-controlled wallet**, so we hold no raw agent private keys. The `.env` file holds only the Circle API key and entity secret (see `.env.example`), never in git.
+- **House agents:** four agents, named **Agent 1 · Trend Follower, Agent 2 · Contrarian, Agent 3 · Chart Reader, Agent 4 · Coin Flipper** that place their own calls so every market has activity. The decision logic is written and tested in `agents/` (pure logic, no wallets or blockchain calls): each agent gets recent prices (the chart reader gets the last 20 closed 1-minute Bitfinex candles, fetched by `runner/candles.mjs`) and the calls already in the round and returns CALL (UP or DOWN, a stake, a one-line reason with real numbers) or SKIP. Each agent uses a **Circle developer-controlled wallet**, so we hold no raw agent private keys. The `.env` file holds only the Circle API key and entity secret (see `.env.example`), never in git.
 - **Paid data feed (x402):** a small web service where other agents pay a small amount of USDC per request to read **round history** and **agent track records**. It uses Circle's **x402** tools on Arc (HTTP 402 "payment required", paid with USDC through Circle's Gateway nanopayments). Free to read on-chain; the paid feed is the convenient, already-indexed version.
-- **Round runner (code written, tested on a pretend chain, NOT yet run against the real contract):** in `runner/`. `plan.mjs` decides what to do each tick, `simulate.mjs` replays hours of pretend time, `chain.mjs` reads the chain, `wallets.mjs` sends transactions (agents through Circle, test prices and settles from the deployer wallet), `run.mjs` is the command line (dry run by default; `--live` sends real testnet transactions). A script that pushes test prices to the mock feeds and settles rounds on schedule (testnet only; mainnet will use real Chainlink feeds). It also runs the house agents (approved order within each round): the trend follower, chart reader and coin flipper bet EARLY in the round; the contrarian bets LAST, about 2 minutes before lock, so there is a crowd to bet against. **Testnet timing (10-minute rounds):** early agents bet 1 minute after a round opens, the contrarian about 2 minutes before lock, and about 3 prices are pushed per round (start price about 90 seconds after lock, one in the middle, an end price 30 seconds before the end). **Real prices:** `exchangePrices.mjs` fetches the real BTC/ETH/SOL last-trade prices from Bitfinex (free public API, see H4; at most one call per market every 5 seconds, only when about to push; a failed call means no push, never a made-up number). The random walk in `priceWalk.mjs` is used only by the pretend-chain simulation. An agent that finds nothing to act on skips the round. The runner also enforces one side per wallet per round (an agent that already bet UP in a round never bets DOWN in it).
+- **Round runner (code written, tested on a pretend chain, NOT yet run against the real contract):** in `runner/`. `plan.mjs` decides what to do each tick, `simulate.mjs` replays hours of pretend time, `chain.mjs` reads the chain, `wallets.mjs` sends transactions (agents through Circle, test prices and settles from the deployer wallet), `run.mjs` is the command line (dry run by default; `--live` sends real testnet transactions). A script that pushes test prices to the mock feeds and settles rounds on schedule (testnet only; mainnet will use real Chainlink feeds). It also runs the house agents (approved order within each round): the trend follower, chart reader and coin flipper call EARLY in the round; the contrarian calls LAST, about 2 minutes before lock, so there is a crowd to go against. **Testnet timing (10-minute rounds):** early agents call 1 minute after a round opens, the contrarian about 2 minutes before lock, and about 3 prices are pushed per round (start price about 90 seconds after lock, one in the middle, an end price 30 seconds before the end). **Real prices:** `exchangePrices.mjs` fetches the real BTC/ETH/SOL last-trade prices from Bitfinex (free public API, see H4; at most one call per market every 5 seconds, only when about to push; a failed call means no push, never a made-up number). The random walk in `priceWalk.mjs` is used only by the pretend-chain simulation. An agent that finds nothing to act on skips the round. The runner also enforces one side per wallet per round (an agent that already call UP in a round never calls DOWN in it).
 - **Website:** leaderboard, rounds, and explorer links. Users connect their own wallets; the site never holds keys. Planned pieces (NOT built yet):
   - **Live price chart per market** with a **countdown to lock**. The live price comes straight from Bitfinex (the site does not read it from the chain, so it updates smoothly between the few on-chain pushes), and it is the SAME price source the runner uses for the start, middle and end prices (H4). Every place that shows a market's price shows the same number. Credit Bitfinex in the footer.
   - **Once the start price is recorded (usually within seconds of the lock), a flat line on the chart at the start price**, so people can see whether UP or DOWN is currently winning. Between lock and then, the chart shows the live price with a note "start price being recorded".
@@ -107,8 +107,8 @@ Network: Arc testnet only for now. USDC: `0x360000000000000000000000000000000000
 - **(History: this section was written for CoinGecko, which lagged. The source is now Bitfinex, see H4; the timings below stay as approved.)**
 - **The risk:** CoinGecko's free prices lagged the market. If the START price were pushed seconds after lock from a quote made before the lock, someone watching a live exchange just before lock would already know which way the round is leaning.
 - **Measured (2026-10-25, 36 samples over 20 minutes, calm market):** CoinGecko refreshes its prices about once a minute (41 to 71 seconds between refreshes). When asked, a quote was 13 to 89 seconds old (median 51, 90% within 75, 95% within 83). Its price differed from Bitstamp's at the same moment by 0.03% to 0.05% on average (0.14% at most). A faster market or a different hour may look different, so the rules below do not depend on these numbers staying true.
-- **Rule for the START price (replaced by H5, now built):** the runner asks Bitfinex for the oldest trade at or after lock + 2 s, every few seconds (never more than once per 5 seconds per market), and pushes it as soon as it exists. So a start price is always a trade from after betting closed.
-- **END price:** no extra delay needed. Betting on a round is closed at its lock, so nobody can use a late or slightly stale end price to bet on that round. The end price is pushed 60 seconds before the end (see H5), from a quote no older than 3 minutes (otherwise nothing is pushed and the last earlier price is used).
+- **Rule for the START price (replaced by H5, now built):** the runner asks Bitfinex for the oldest trade at or after lock + 2 s, every few seconds (never more than once per 5 seconds per market), and pushes it as soon as it exists. So a start price is always a trade from after calling closed.
+- **END price:** no extra delay needed. Calling on a round is closed at its lock, so nobody can use a late or slightly stale end price to call on that round. The end price is pushed 60 seconds before the end (see H5), from a quote no older than 3 minutes (otherwise nothing is pushed and the last earlier price is used).
 - **If Bitfinex is down or too slow:** no price is invented. A round with no usable update is refunded (rule 14 and D2).
 
 ## H3. Cost of running the testnet (estimate; measured gas from the CI run, 25 gwei, gas paid in USDC)
@@ -116,14 +116,14 @@ Network: Arc testnet only for now. USDC: `0x360000000000000000000000000000000000
 |---|---|---|---|
 | Price push (deployer wallet) | about 90,000 | about 0.0023 | 54 pushes: about 0.12 |
 | Settle (deployer wallet) | about 158,000 | about 0.0040 | 18 settles: about 0.07 |
-| Bet (agent wallet) | about 127,000 | about 0.0032 | up to 18 per agent: about 0.06 |
+| Call (agent wallet) | about 127,000 | about 0.0032 | up to 18 per agent: about 0.06 |
 | Claim (agent wallet) | about 81,000 | about 0.0020 | |
 Deployer wallet total: about 0.19 USDC an hour (about 4.6 a day), so the roughly 24.8 USDC left after the deploy lasts about 5 days. Each of the other three agents also needs a little gas (about 0.08 USDC an hour per agent, plus the money they stake). Gas figures come from Foundry on Arc's tooling and the gas price from the deploy dry run; the real cost is measured after the deploy.
 
 ## Build plan (one small step at a time)
 3. Contract skeleton (markets, rounds, positions, owner/fees, time math) - done.
 3b. Ownership safety (two-step transfer, renounce disabled) and rename to Kairo Markets - done.
-4. Betting (`placeBet`) - done.
+4. Calling (`placeCall`) - done.
 5. Test feed + settle - done.
 6. Payouts: `claim`, `claimMany`, dust, money-accounting invariant, mutation check (see E2) - done, signed off.
 7. Tests against every rule above - done (see `docs/TEST_MAP.md`).

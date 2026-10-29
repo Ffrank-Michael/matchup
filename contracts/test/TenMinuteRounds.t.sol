@@ -73,11 +73,11 @@ contract TenMinuteRoundsTest is Test {
 
     // ── helpers ──────────────────────────────────────────────
 
-    function _bet(address who, uint256 i, uint256 k, bool up, uint256 amt) internal {
+    function _makeCall(address who, uint256 i, uint256 k, bool up, uint256 amt) internal {
         usdc.mint(who, amt);
         vm.startPrank(who);
         usdc.approve(address(arena), amt);
-        arena.placeBet(ids[i], k, up, amt);
+        arena.placeCall(ids[i], k, up, amt);
         vm.stopPrank();
     }
 
@@ -150,40 +150,40 @@ contract TenMinuteRoundsTest is Test {
         assertEq(arena.lockTime(ids[2], K0), T0 + 360);
     }
 
-    function test_tenMin_nextBettableRound_staggered() public {
+    function test_tenMin_nextCallableRound_staggered() public {
         // T0 + 100: BTC round K0 locked at T0; ETH locks at T0+180; SOL locks at T0+360
         vm.warp(T0 + 100);
-        assertEq(arena.nextBettableRound(ids[0]), K0 + 1);
-        assertEq(arena.nextBettableRound(ids[1]), K0);
-        assertEq(arena.nextBettableRound(ids[2]), K0);
+        assertEq(arena.nextCallableRound(ids[0]), K0 + 1);
+        assertEq(arena.nextCallableRound(ids[1]), K0);
+        assertEq(arena.nextCallableRound(ids[2]), K0);
         // T0 + 200: ETH has just locked
         vm.warp(T0 + 200);
-        assertEq(arena.nextBettableRound(ids[0]), K0 + 1);
-        assertEq(arena.nextBettableRound(ids[1]), K0 + 1);
-        assertEq(arena.nextBettableRound(ids[2]), K0);
+        assertEq(arena.nextCallableRound(ids[0]), K0 + 1);
+        assertEq(arena.nextCallableRound(ids[1]), K0 + 1);
+        assertEq(arena.nextCallableRound(ids[2]), K0);
         // T0 + 400: SOL has just locked
         vm.warp(T0 + 400);
-        assertEq(arena.nextBettableRound(ids[2]), K0 + 1);
+        assertEq(arena.nextCallableRound(ids[2]), K0 + 1);
         // T0 + 600: BTC moves on again
         vm.warp(T0 + 600);
-        assertEq(arena.nextBettableRound(ids[0]), K0 + 2);
-        assertEq(arena.nextBettableRound(ids[1]), K0 + 1);
-        assertEq(arena.nextBettableRound(ids[2]), K0 + 1);
+        assertEq(arena.nextCallableRound(ids[0]), K0 + 2);
+        assertEq(arena.nextCallableRound(ids[1]), K0 + 1);
+        assertEq(arena.nextCallableRound(ids[2]), K0 + 1);
     }
 
-    function test_tenMin_betWindowIsTenMinutes() public {
-        // BTC round K0 + 1 can be bet on from its predecessor's lock (T0 + 0 ... wait: lock(K0) = T0)
+    function test_tenMin_callWindowIsTenMinutes() public {
+        // BTC round K0 + 1 can be call on from its predecessor's lock (T0 + 0 ... wait: lock(K0) = T0)
         // until its own lock at T0 + 600, and not a second later.
         vm.warp(T0);
-        _bet(alice, 0, K0 + 1, true, MIN);                        // first second of the window
+        _makeCall(alice, 0, K0 + 1, true, MIN);                        // first second of the window
         vm.warp(T0 + 599);
-        _bet(dave, 0, K0 + 1, false, MIN);                        // last second of the window
+        _makeCall(dave, 0, K0 + 1, false, MIN);                        // last second of the window
         vm.warp(T0 + 600);
         usdc.mint(alice, MIN);
         vm.startPrank(alice);
         usdc.approve(address(arena), MIN);
         vm.expectRevert(abi.encodeWithSelector(PredictionArena.NotNextRound.selector, K0 + 1, K0 + 2));
-        arena.placeBet(ids[0], K0 + 1, true, MIN);                // too late: round K0 + 1 has locked
+        arena.placeCall(ids[0], K0 + 1, true, MIN);                // too late: round K0 + 1 has locked
         vm.stopPrank();
     }
 
@@ -203,9 +203,9 @@ contract TenMinuteRoundsTest is Test {
     // =========================================================
 
     function _fullRoundUpWins(uint256 i) internal {
-        uint256 k = arena.nextBettableRound(ids[i]);
-        _bet(alice, i, k, true,  300_000);
-        _bet(dave,  i, k, false, 200_000);
+        uint256 k = arena.nextCallableRound(ids[i]);
+        _makeCall(alice, i, k, true,  300_000);
+        _makeCall(dave,  i, k, false, 200_000);
 
         (uint80 s, , uint80 e) = _threePushes(i, k, 100e8, 100.5e8, 101e8);
         _settle(i, k, s, e);
@@ -224,9 +224,9 @@ contract TenMinuteRoundsTest is Test {
     function test_tenMin_fullRound_SOL() public { _fullRoundUpWins(2); }
 
     function test_tenMin_downWins_evenWhenTheMiddlePriceWasHigher() public {
-        uint256 k = arena.nextBettableRound(ids[0]);
-        _bet(alice, 0, k, true,  300_000);
-        _bet(dave,  0, k, false, 200_000);
+        uint256 k = arena.nextCallableRound(ids[0]);
+        _makeCall(alice, 0, k, true,  300_000);
+        _makeCall(dave,  0, k, false, 200_000);
         // up in the middle, but the END price is below the START price: DOWN wins
         (uint80 s, , uint80 e) = _threePushes(0, k, 100e8, 105e8, 99e8);
         _settle(0, k, s, e);
@@ -241,14 +241,14 @@ contract TenMinuteRoundsTest is Test {
         assertEq(_claim(alice, 0, k), 100_000, "bigger-side loser gets unmatched back");
     }
 
-    function test_tenMin_judgedFromTheLockPrice_notFromTheMomentOfTheBet() public {
+    function test_tenMin_judgedFromTheLockPrice_notFromTheMomentOfTheCall() public {
         // A price move BEFORE lock does not matter: only the first update at/after lock is the start price.
-        uint256 k = arena.nextBettableRound(ids[0]);
+        uint256 k = arena.nextCallableRound(ids[0]);
         uint256 lt = arena.lockTime(ids[0], k);
-        _push(0, lt - 300, 90e8);              // very different price in the middle of the betting window
-        _bet(alice, 0, k, true,  300_000);
+        _push(0, lt - 300, 90e8);              // very different price in the middle of the call window
+        _makeCall(alice, 0, k, true,  300_000);
         _push(0, lt - 30, 120e8);              // last price before lock (not the start price)
-        _bet(dave,  0, k, false, 200_000);
+        _makeCall(dave,  0, k, false, 200_000);
         (uint80 s, , uint80 e) = _threePushes(0, k, 100e8, 100.1e8, 100.2e8);
         _settle(0, k, s, e);
         // the start price is 100 (first update after lock), end 100.2: UP wins, whatever happened before lock
@@ -263,9 +263,9 @@ contract TenMinuteRoundsTest is Test {
     // =========================================================
 
     function test_tenMin_onlyTheFirstUpdateAfterLockIsAValidStart() public {
-        uint256 k = arena.nextBettableRound(ids[0]);
-        _bet(alice, 0, k, true,  300_000);
-        _bet(dave,  0, k, false, 200_000);
+        uint256 k = arena.nextCallableRound(ids[0]);
+        _makeCall(alice, 0, k, true,  300_000);
+        _makeCall(dave,  0, k, false, 200_000);
         (uint80 s, uint80 m, uint80 e) = _threePushes(0, k, 100e8, 101e8, 102e8);
 
         vm.prank(settler);
@@ -281,9 +281,9 @@ contract TenMinuteRoundsTest is Test {
     }
 
     function test_tenMin_theNextRoundsFirstPushIsNotThisRoundsEnd() public {
-        uint256 k = arena.nextBettableRound(ids[0]);
-        _bet(alice, 0, k, true,  300_000);
-        _bet(dave,  0, k, false, 200_000);
+        uint256 k = arena.nextCallableRound(ids[0]);
+        _makeCall(alice, 0, k, true,  300_000);
+        _makeCall(dave,  0, k, false, 200_000);
         (uint80 s, , uint80 e) = _threePushes(0, k, 100e8, 101e8, 102e8);
         // the runner pushes the next round's start price 3 s after the lock of k+1 = the end of k
         uint80 nextStart = _push(0, arena.endTime(ids[0], k) + 3, 103e8);
@@ -294,17 +294,17 @@ contract TenMinuteRoundsTest is Test {
     }
 
     function test_tenMin_secondRoundOnSameFeed() public {
-        // Round k: UP.  Round k + 1 (bets placed during round k): DOWN.  Same feed, runner pattern.
-        uint256 k = arena.nextBettableRound(ids[0]);
-        _bet(alice, 0, k, true, 300_000);
-        _bet(dave, 0, k, false, 200_000);
-        // bets for k + 1 are placed once k has locked (T0 + 600): do this after the first lock
+        // Round k: UP.  Round k + 1 (calls placed during round k): DOWN.  Same feed, runner pattern.
+        uint256 k = arena.nextCallableRound(ids[0]);
+        _makeCall(alice, 0, k, true, 300_000);
+        _makeCall(dave, 0, k, false, 200_000);
+        // calls for k + 1 are placed once k has locked (T0 + 600): do this after the first lock
         uint256 lt = arena.lockTime(ids[0], k);
         uint80 s1 = _push(0, lt + 3, 100e8);
         vm.warp(lt + 10);
-        assertEq(arena.nextBettableRound(ids[0]), k + 1);
-        _bet(alice, 0, k + 1, false, 300_000);
-        _bet(dave,  0, k + 1, true,  200_000);
+        assertEq(arena.nextCallableRound(ids[0]), k + 1);
+        _makeCall(alice, 0, k + 1, false, 300_000);
+        _makeCall(dave,  0, k + 1, true,  200_000);
         _push(0, lt + 300, 101e8);
         uint80 e1 = _push(0, arena.endTime(ids[0], k) - 30, 102e8);
         uint80 s2 = _push(0, arena.endTime(ids[0], k) + 3, 102e8);
@@ -325,9 +325,9 @@ contract TenMinuteRoundsTest is Test {
 
     function test_tenMin_onlyTheStartPriceArrived_isRefunded() public {
         // price API failed after the start push: no later update inside the round
-        uint256 k = arena.nextBettableRound(ids[0]);
-        _bet(alice, 0, k, true,  300_000);
-        _bet(dave,  0, k, false, 200_000);
+        uint256 k = arena.nextCallableRound(ids[0]);
+        _makeCall(alice, 0, k, true,  300_000);
+        _makeCall(dave,  0, k, false, 200_000);
         uint80 s = _push(0, arena.lockTime(ids[0], k) + 3, 100e8);
         vm.warp(arena.endTime(ids[0], k) + 1);
         _settle(0, k, s, s);
@@ -338,9 +338,9 @@ contract TenMinuteRoundsTest is Test {
     }
 
     function test_tenMin_noPriceAtAll_isRefunded() public {
-        uint256 k = arena.nextBettableRound(ids[0]);
-        _bet(alice, 0, k, true,  300_000);
-        _bet(dave,  0, k, false, 200_000);
+        uint256 k = arena.nextCallableRound(ids[0]);
+        _makeCall(alice, 0, k, true,  300_000);
+        _makeCall(dave,  0, k, false, 200_000);
         _push(0, arena.lockTime(ids[0], k) - 60, 100e8);            // only a price from before lock
         vm.warp(arena.endTime(ids[0], k) + 1);
         _settle(0, k, 0, 0);
@@ -350,9 +350,9 @@ contract TenMinuteRoundsTest is Test {
     }
 
     function test_tenMin_unchangedPrice_isRefunded() public {
-        uint256 k = arena.nextBettableRound(ids[1]);
-        _bet(alice, 1, k, true,  300_000);
-        _bet(dave,  1, k, false, 200_000);
+        uint256 k = arena.nextCallableRound(ids[1]);
+        _makeCall(alice, 1, k, true,  300_000);
+        _makeCall(dave,  1, k, false, 200_000);
         (uint80 s, , uint80 e) = _threePushes(1, k, 2300e8, 2310e8, 2300e8);
         _settle(1, k, s, e);
         assertEq(uint8(_state(1, k)), uint8(PredictionArena.RoundState.Refunded));
@@ -361,8 +361,8 @@ contract TenMinuteRoundsTest is Test {
     }
 
     function test_tenMin_oneSidedRound_isRefunded() public {
-        uint256 k = arena.nextBettableRound(ids[2]);
-        _bet(alice, 2, k, true, 300_000);
+        uint256 k = arena.nextCallableRound(ids[2]);
+        _makeCall(alice, 2, k, true, 300_000);
         (uint80 s, , uint80 e) = _threePushes(2, k, 100e8, 101e8, 102e8);
         _settle(2, k, s, e);
         assertEq(uint8(_state(2, k)), uint8(PredictionArena.RoundState.Refunded));
@@ -374,9 +374,9 @@ contract TenMinuteRoundsTest is Test {
     // =========================================================
 
     function test_tenMin_settleWindow_oneHourAfterTheEnd() public {
-        uint256 k = arena.nextBettableRound(ids[0]);
-        _bet(alice, 0, k, true,  300_000);
-        _bet(dave,  0, k, false, 200_000);
+        uint256 k = arena.nextCallableRound(ids[0]);
+        _makeCall(alice, 0, k, true,  300_000);
+        _makeCall(dave,  0, k, false, 200_000);
         (uint80 s, , uint80 e) = _threePushes(0, k, 100e8, 100.5e8, 101e8);
         uint256 et = arena.endTime(ids[0], k);
 
@@ -396,9 +396,9 @@ contract TenMinuteRoundsTest is Test {
     }
 
     function test_tenMin_nobodySettled_everyoneGetsARefund() public {
-        uint256 k = arena.nextBettableRound(ids[1]);
-        _bet(alice, 1, k, true,  300_000);
-        _bet(dave,  1, k, false, 200_000);
+        uint256 k = arena.nextCallableRound(ids[1]);
+        _makeCall(alice, 1, k, true,  300_000);
+        _makeCall(dave,  1, k, false, 200_000);
         _threePushes(1, k, 100e8, 100.5e8, 101e8);
         vm.warp(arena.endTime(ids[1], k) + 3601);
         assertEq(_claim(alice, 1, k), 300_000);
@@ -411,14 +411,14 @@ contract TenMinuteRoundsTest is Test {
     // =========================================================
 
     function test_tenMin_threeMarketsSettleIndependently() public {
-        // At T0 the bettable rounds are BTC K0+1 (ends T0+1200), ETH K0 (ends T0+780), SOL K0 (ends T0+960).
+        // At T0 the callable rounds are BTC K0+1 (ends T0+1200), ETH K0 (ends T0+780), SOL K0 (ends T0+960).
         uint256[3] memory ks;
         uint80[3] memory sId;
         uint80[3] memory eId;
         for (uint256 i = 0; i < 3; i++) {
-            ks[i] = arena.nextBettableRound(ids[i]);
-            _bet(alice, i, ks[i], i != 1, 300_000);   // BTC up, ETH down, SOL up
-            _bet(dave,  i, ks[i], i == 1, 200_000);   // BTC down, ETH up, SOL down
+            ks[i] = arena.nextCallableRound(ids[i]);
+            _makeCall(alice, i, ks[i], i != 1, 300_000);   // BTC up, ETH down, SOL up
+            _makeCall(dave,  i, ks[i], i == 1, 200_000);   // BTC down, ETH up, SOL down
         }
         assertEq(arena.endTime(ids[1], ks[1]), T0 + 780);
         assertEq(arena.endTime(ids[2], ks[2]), T0 + 960);
@@ -466,7 +466,7 @@ contract TenMinuteRoundsTest is Test {
     // =========================================================
 
     function test_tenMin_gasReport() public {
-        uint256 k = arena.nextBettableRound(ids[0]);
+        uint256 k = arena.nextCallableRound(ids[0]);
         uint256 g;
         uint256 used;
 
@@ -475,11 +475,11 @@ contract TenMinuteRoundsTest is Test {
         usdc.approve(address(arena), 1_000_000);
         vm.prank(alice);
         g = gasleft();
-        arena.placeBet(ids[0], k, true, 300_000);
+        arena.placeCall(ids[0], k, true, 300_000);
         used = g - gasleft();
-        emit log_named_uint("GASREPORT placeBet (first bet in a round)", used);
+        emit log_named_uint("GASREPORT placeCall (first call in a round)", used);
 
-        _bet(dave, 0, k, false, 200_000);
+        _makeCall(dave, 0, k, false, 200_000);
 
         uint256 lt = arena.lockTime(ids[0], k);
         vm.warp(lt + 3);

@@ -40,8 +40,8 @@ contract MatchedCallsTest is ClaimBase {
         vm.warp(1);
         upP = new address[](ups.length);
         dnP = new address[](downs.length);
-        for (uint256 i = 0; i < ups.length; i++)   { upP[i] = _who("up", i);   _bet(upP[i], mid, 1, true,  ups[i]); }
-        for (uint256 i = 0; i < downs.length; i++) { dnP[i] = _who("dn", i);   _bet(dnP[i], mid, 1, false, downs[i]); }
+        for (uint256 i = 0; i < ups.length; i++)   { upP[i] = _who("up", i);   _makeCall(upP[i], mid, 1, true,  ups[i]); }
+        for (uint256 i = 0; i < downs.length; i++) { dnP[i] = _who("dn", i);   _makeCall(dnP[i], mid, 1, false, downs[i]); }
         uint256 lt = _lock(mid, 1);
         uint256 et = _end(mid, 1);
         vm.warp(lt - 2); vm.prank(owner); feed.setPrice(100e8);

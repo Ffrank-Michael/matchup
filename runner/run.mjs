@@ -2,7 +2,7 @@
 //
 //   node runner/run.mjs --once          Look at the chain once, print what it WOULD do, send nothing.
 //   node runner/run.mjs                 Same, but keeps going every few seconds (still sends nothing).
-//   node runner/run.mjs --live          LIVE: really sends transactions (test prices, bets, settles, claims).
+//   node runner/run.mjs --live          LIVE: really sends transactions (test prices, calls, settles, claims).
 //   node runner/run.mjs --live --once   One live pass, then stop.
 //
 // Each pass: read the chain -> ask planTick() what to do -> do it, one action at a time.
@@ -70,7 +70,7 @@ async function tick() {
   snap.candles = candleData ?? {};
   const planCfg = { ...CFG, random: Math.random, ai, aiMarkets };
   const { actions, decisions, aiRequests } = planTick(snap, planCfg, decided);
-  for (const r of aiRequests) ai.request(r, { prepare: freshCandles }); // answered in the background; the next look turns the answer into bets or skips
+  for (const r of aiRequests) ai.request(r, { prepare: freshCandles }); // answered in the background; the next look turns the answer into calls or skips
   const delay = aiRequests.length ? Math.min(CFG.fastTickSeconds, tickDelay(snap, planCfg)) : tickDelay(snap, planCfg);
 
   for (const d of decisions) {
@@ -82,13 +82,13 @@ async function tick() {
       notes.publish({ m: d.marketId, r: d.round, a: d.agent, s: 'skipped', c: null, t: COULDNT_DECIDE, at: Math.floor(Date.now() / 1000), model: ai.model });
     }
     if (d.retry) continue; // the contrarian's skip is not final: it looks again next tick, until its cutoff
-    if (LIVE || d.decision.action === 'SKIP') decided.add(d.id); // a dry run never marks a bet as decided, so it keeps showing it
+    if (LIVE || d.decision.action === 'SKIP') decided.add(d.id); // a dry run never marks a call as decided, so it keeps showing it
   }
   if (actions.length === 0 && decisions.length === 0) return delay;
 
-  // Two lanes, so a slow agent bet (Circle takes several seconds per transaction) never makes a price push or a settle late:
+  // Two lanes, so a slow agent call (Circle takes several seconds per transaction) never makes a price push or a settle late:
   //   fast lane: price pushes and settles (the deployer wallet), waited for before the next look at the chain
-  //   agent lane: approvals, bets and claims (Circle wallets), one after another in the background
+  //   agent lane: approvals, calls and claims (Circle wallets), one after another in the background
   const fast = actions.filter((a) => a.type === 'pushPrice' || a.type === 'settle');
   const slow = actions.filter((a) => a.type !== 'pushPrice' && a.type !== 'settle');
   if (slow.length) agentLane = agentLane.then(() => runLane(slow));
@@ -105,13 +105,13 @@ async function runLane(list) {
     try {
       const res = await execute(a);
       log(`${LIVE ? 'DONE' : 'WOULD'}: ${text}${res.note ? '\n         ' + res.note : ''}${res.tx ? '\n         tx ' + res.tx : ''}`);
-      if (LIVE && a.type === 'bet' && a.ai) notes.publish({ m: a.market, r: a.round, a: a.agent, s: 'called', c: a.side, t: a.reason, at: Math.floor(Date.now() / 1000), model: ai.model, src: a.rule ? 'rule' : 'ai' });
+      if (LIVE && a.type === 'call' && a.ai) notes.publish({ m: a.market, r: a.round, a: a.agent, s: 'called', c: a.side, t: a.reason, at: Math.floor(Date.now() / 1000), model: ai.model, src: a.rule ? 'rule' : 'ai' });
     } catch (e) {
       // do not hammer a failing action; a failed price push is retried after 5 s (the start price waits for the first trade after the lock)
-      // a failed contrarian approval or bet is tried again soon (its window is short) and its decision is taken back after that
-      const late = a.agent === LATE && (a.type === 'bet' || a.type === 'approve');
+      // a failed contrarian approval or call is tried again soon (its window is short) and its decision is taken back after that
+      const late = a.agent === LATE && (a.type === 'call' || a.type === 'approve');
       failedUntil.set(text, Date.now() + (a.type === 'pushPrice' ? 5_000 : late ? 15_000 : 5 * 60_000));
-      if (late && a.type === 'bet') setTimeout(() => decided.delete(`${a.market}:${a.round}:${a.agent}`), 15_000); // then it is planned again (if its window is still open)
+      if (late && a.type === 'call') setTimeout(() => decided.delete(`${a.market}:${a.round}:${a.agent}`), 15_000); // then it is planned again (if its window is still open)
       const why = String(e.shortMessage || e.message).slice(0, 300);
       // the start price waits for the first trade after the lock: that is waiting, not a failure
       log(`${/will try again/.test(why) ? 'WAITING' : 'FAILED'}: ${text}\n         ${why}`);

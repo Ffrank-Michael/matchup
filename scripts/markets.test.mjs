@@ -29,17 +29,17 @@ test('offsets: a coin has one offset for both time frames, and no two coins lock
 
 test('bands are 1.0% for BTC and 1.5% for ETH and SOL, and the relay description says so', () => {
   assert.deepEqual(Object.fromEntries(Object.entries(COINS).map(([k, c]) => [k, c.bandBps])), { btc: 100, eth: 150, sol: 150 });
-  assert.equal(relayDescription('btc', 'mainnet'), 'Kairo relay BTC / USD: Bitfinex last trade, checked against Chainlink within 1.0%');
+  assert.equal(relayDescription('btc', 'mainnet'), 'Matchup relay BTC / USD: Bitfinex last trade, checked against Chainlink within 1.0%');
   assert.match(relayDescription('eth', 'mainnet'), /within 1\.5%$/);
   assert.match(relayDescription('sol', 'mainnet'), /Chainlink within 1\.5%$/);
 });
 
 test('the testnet rehearsal is labelled as a rehearsal and its stand-ins carry the test warning', () => {
   for (const c of Object.keys(COINS)) {
-    assert.match(relayDescription(c, 'rehearsal'), /^Kairo relay .* \(TESTNET REHEARSAL\)/);
+    assert.match(relayDescription(c, 'rehearsal'), /^Matchup relay .* \(TESTNET REHEARSAL\)/);
     assert.ok(!/Chainlink within/.test(relayDescription(c, 'rehearsal')), 'the rehearsal must not claim to use Chainlink');
     assert.ok(standInDescription(c).startsWith('TEST PRICES - NOT REAL DATA'), 'MockPriceFeed insists on this prefix');
-    assert.ok(relayDescription(c, 'mainnet').startsWith('Kairo relay '), 'GuardedRelayFeed insists on this prefix');
+    assert.ok(relayDescription(c, 'mainnet').startsWith('Matchup relay '), 'GuardedRelayFeed insists on this prefix');
   }
 });
 

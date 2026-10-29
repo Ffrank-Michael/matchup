@@ -1,7 +1,7 @@
 // Chart reader: reads the 1-minute chart. If the average of the last 5 closes is above the average of the last 20 closes
 // and the newest candle closed higher than it opened, it calls UP. The opposite, DOWN. When the two signals disagree it follows
 // the last candle (the 5-candle trend if that candle is exactly flat). It never skips a round because the chart is unclear.
-import { UNITS, fmtPrice, legalStake, bet, skip } from './lib.mjs';
+import { UNITS, fmtPrice, legalStake, makeCall, skip } from './lib.mjs';
 
 export const name = 'Agent 3 · Chart Reader';
 export const BASE_STAKE = 0.5 * UNITS;
@@ -47,5 +47,5 @@ export function decide(ctx) {
   }
   const s = legalStake(BASE_STAKE, ctx);
   if (s.skip) return skip(s.skip);
-  return bet(side, s.stake, `${ctx.market} ${numbers}: ${why}. I call ${side}.`);
+  return makeCall(side, s.stake, `${ctx.market} ${numbers}: ${why}. I call ${side}.`);
 }

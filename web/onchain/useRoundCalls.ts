@@ -1,6 +1,6 @@
 /**
  * onchain/useRoundCalls.ts
- * Everyone who called one round of one market, from the contract's BetPlaced events (written for the site).
+ * Everyone who called one round of one market, from the contract's CallPlaced events (written for the site).
  * Calls are made during the round before, so the look-back reaches from one round length before the round's lock.
  * The public RPC refuses ranges above about 5,000 blocks, so the search goes back in chunks of 4,000.
  */
@@ -25,8 +25,8 @@ export interface RoundCall {
   amount: bigint;
 }
 
-const BET_PLACED_TOPIC = toEventSelector("BetPlaced(uint256,uint256,address,bool,uint256)");
-const BET_PLACED = parseAbiItem("event BetPlaced(uint256 indexed marketId, uint256 indexed roundIndex, address indexed player, bool up, uint256 amount)");
+const CALL_PLACED_TOPIC = toEventSelector("CallPlaced(uint256,uint256,address,bool,uint256)");
+const CALL_PLACED = parseAbiItem("event CallPlaced(uint256 indexed marketId, uint256 indexed roundIndex, address indexed player, bool up, uint256 amount)");
 
 export function useRoundCalls(marketId: number | null, roundIndex: number | null, lockTimeSec: number | null, roundLength: number | null) {
   const client = usePublicClient();
@@ -44,7 +44,7 @@ export function useRoundCalls(marketId: number | null, roundIndex: number | null
       const out: RoundCall[] = [];
       if (Number((blocksBack + CHUNK - 1n) / CHUNK) > MAX_CHUNKS) {
         // an older round (round history): the public RPC cannot search that far back, the block explorer's API can
-        const logs = await explorerLogs({ address: arenaAddress, topics: [BET_PLACED_TOPIC, numberTopic(marketId), numberTopic(roundIndex)], fromBlock: 0 });
+        const logs = await explorerLogs({ address: arenaAddress, topics: [CALL_PLACED_TOPIC, numberTopic(marketId), numberTopic(roundIndex)], fromBlock: 0 });
         for (const l of logs) {
           const [up, amount] = decodeAbiParameters(parseAbiParameters("bool,uint256"), l.data);
           out.push({ txHash: l.txHash, logIndex: l.logIndex, player: `0x${(l.topics[3] ?? "").slice(-40)}` as `0x${string}`, side: up ? "UP" : "DOWN", amount });
@@ -55,7 +55,7 @@ export function useRoundCalls(marketId: number | null, roundIndex: number | null
         const to = latest - BigInt(i) * CHUNK;
         if (to < 0n) break;
         const from = to >= CHUNK ? to - CHUNK + 1n : 0n;
-        const logs = await client.getLogs({ address: arenaAddress, event: BET_PLACED, args: { marketId: BigInt(marketId), roundIndex: BigInt(roundIndex) }, fromBlock: from, toBlock: to });
+        const logs = await client.getLogs({ address: arenaAddress, event: CALL_PLACED, args: { marketId: BigInt(marketId), roundIndex: BigInt(roundIndex) }, fromBlock: from, toBlock: to });
         for (const l of logs) {
           out.push({ txHash: l.transactionHash as `0x${string}`, logIndex: Number(l.logIndex), player: l.args.player as `0x${string}`, side: l.args.up ? "UP" : "DOWN", amount: l.args.amount ?? 0n });
         }

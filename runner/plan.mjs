@@ -6,7 +6,7 @@
 // snapshot = {
 //   now,                                   // unix seconds (latest block time)
 //   markets: [{ id, name, roundLength, startOffset, minStake, paused,
-//               nextRound,                 // the round that can be bet on right now
+//               nextRound,                 // the round that can be call on right now
 //               feed: { updates: [{ id: BigInt, updatedAt, price: BigInt }] },   // oldest first
 //               rounds: { [k]: { state, up, down, startPrice, endPrice } } }],  // state: 'Unsettled' | 'SettledUp' | 'SettledDown' | 'Refunded'
 //   agents:  [{ key, balance, allowance, positions: { 'marketId:k': { up, down, claimed } } }],
@@ -15,7 +15,7 @@
 // decided = Set of decision ids ("market:round:agent") that were already taken this round, so an
 //           agent never decides twice (a skip counts as a decision).
 //
-// Actions:  pushPrice | approve | bet | settle | claim   (the executor turns them into transactions)
+// Actions:  pushPrice | approve | call | settle | claim   (the executor turns them into transactions)
 //           pushPrice carries { round } = the running round the price belongs to; every live push is written to the public price log (priceLog.mjs)
 //
 // Two opt-in settings for the mainnet runner (both off on the testnet):
@@ -23,7 +23,7 @@
 //                    is not a house agent's). A one-sided round is settled right after it ends so its callers can claim the refund at once: the
 //                    contract refunds it without looking at a price, so it gets no price push (zero ids, the cheapest settle). A round with
 //                    no calls at all is never settled and costs no gas.
-//   cfg.runnerOnly   no house agents: no bets, no claims (the mainnet house agents are not built yet).
+//   cfg.runnerOnly   no house agents: no calls, no claims (the mainnet house agents are not built yet).
 import * as trendFollower from '../agents/trendFollower.mjs';
 import * as chartReader from '../agents/chartReader.mjs';
 import * as coinFlipper from '../agents/coinFlipper.mjs';
@@ -38,8 +38,8 @@ const LOGIC = {
   'coin-flipper': coinFlipper,
   contrarian,
 };
-export const EARLY = ['trend-follower', 'chart-reader', 'coin-flipper']; // bet early, in this order
-export const LATE = 'contrarian'; // bets last, after the three early agents, once there is money on one side
+export const EARLY = ['trend-follower', 'chart-reader', 'coin-flipper']; // call early, in this order
+export const LATE = 'contrarian'; // calls last, after the three early agents, once there is money on one side
 
 /** How many past rounds to look at: enough to cover the contract's whole settle window (cfg.lookback is the minimum). */
 export const lookbackFor = (m, cfg) => Math.max(cfg.lookback, Math.ceil(cfg.settleWindow / m.roundLength) + 2);
@@ -64,7 +64,7 @@ function realMoney(m, k, agents) {
 
 /**
  * How the last few finished rounds went, worked out from the PRICE FEED (not from what the
- * contract settled), so rounds nobody bet on still count. A round's start price is the first
+ * contract settled), so rounds nobody call on still count. A round's start price is the first
  * update at or after its lock and its end price is the last update at or before its end, the
  * same rule the contract uses. Round k-1 is still running, so the newest finished round is k-2.
  * Oldest first, in the form the agents expect (USD numbers).
@@ -91,7 +91,7 @@ const aiHere = (m, cfg) => !cfg.aiMarkets || cfg.aiMarkets === 'all' || cfg.aiMa
  * The AI agents (trend follower, contrarian, chart reader) are decided by a small Gemini model. The planner stays a plain function:
  * when a coin's next rounds open it puts ONE REQUEST per coin in `aiRequests` (listing every time frame that opens then); the runner
  * asks the model in the background and hands the answer back through `cfg.ai.results` (batch id -> { ok, decisions }); the next tick
- * turns it into bets or skips. Without `cfg.ai` (the tests and the simulation) every agent uses its plain rule from agents/*.mjs.
+ * turns it into calls or skips. Without `cfg.ai` (the tests and the simulation) every agent uses its plain rule from agents/*.mjs.
  */
 function planAiRequests(snap, cfg, decided, aiRequests, agentByKey) {
   const groups = new Map();
@@ -129,8 +129,8 @@ function decideWithAi(m, k, agent, cfg, ctx) {
   // things that need no model: no money to call with, or (contrarian) nobody on the round yet
   const s = legalStake(LOGIC[key].BASE_STAKE, ctx);
   if (s.skip) return { action: 'SKIP', reason: s.skip };
-  const { up, down } = ctx.bets;
-  if (key === LATE && up + down === 0) return LOGIC[key].decide(ctx); // "nobody has bet yet": looked at again next tick
+  const { up, down } = ctx.calls;
+  if (key === LATE && up + down === 0) return LOGIC[key].decide(ctx); // "nobody has called yet": looked at again next tick
   if (ctx.candles.length < MIN_CANDLES) return { action: 'SKIP', reason: COULDNT_DECIDE, aiFailed: true, detail: 'no chart data' };
   const res = cfg.ai.results.get(batchId(m, k));
   if (!res) return null;
@@ -141,19 +141,19 @@ function decideWithAi(m, k, agent, cfg, ctx) {
     const forced = up === 0 ? 'UP' : down === 0 ? 'DOWN' : null;
     if (forced && view.call !== forced) {
       const crowd = opposite(forced);
-      return { action: 'BET', side: forced, stake: s.stake, ai: true, rule: true, reason: `All the money is on ${crowd} (${fmtUsdc(crowd === 'UP' ? up : down)}), so I take ${forced}.` };
+      return { action: 'CALL', side: forced, stake: s.stake, ai: true, rule: true, reason: `All the money is on ${crowd} (${fmtUsdc(crowd === 'UP' ? up : down)}), so I take ${forced}.` };
     }
   }
-  return { action: 'BET', side: view.call, stake: s.stake, reason: view.reason, ai: true };
+  return { action: 'CALL', side: view.call, stake: s.stake, reason: view.reason, ai: true };
 }
 
-function planBet(m, k, agent, cfg, actions, decisions, candles) {
+function planCall(m, k, agent, cfg, actions, decisions, candles) {
   const round = m.rounds[k];
   const ctx = {
     market: m.name,
     history: historyFor(m, cfg),
     candles: candles?.[m.name.split(' ')[0]] ?? [],
-    bets: { up: round ? round.up : 0, down: round ? round.down : 0 },
+    calls: { up: round ? round.up : 0, down: round ? round.down : 0 },
     minStake: m.minStake,
     balance: Math.max(0, agent.balance - cfg.gasReserve),
     random: cfg.random,
@@ -163,11 +163,11 @@ function planBet(m, k, agent, cfg, actions, decisions, candles) {
   if (d === null) return; // the model's answer is not here yet
   // The contrarian's skip is not final when nobody (or an even crowd) is on the round: it is looked at again.
   decisions.push({ id: decisionId(m, k, agent.key), agent: agent.key, market: m.name, marketId: m.id, round: k, decision: d, retry: agent.key === LATE && d.action === 'SKIP' && !d.aiFailed });
-  if (d.action !== 'BET') return;
+  if (d.action !== 'CALL') return;
   const stake = Math.min(d.stake, cfg.maxStake);
   if (stake < m.minStake) return;
   if (agent.allowance < stake) actions.push({ type: 'approve', agent: agent.key, amount: cfg.approveAmount });
-  actions.push({ type: 'bet', agent: agent.key, market: m.id, marketName: m.name, round: k, side: d.side, stake, reason: d.reason, ai: !!d.ai, rule: !!d.rule });
+  actions.push({ type: 'call', agent: agent.key, market: m.id, marketName: m.name, round: k, side: d.side, stake, reason: d.reason, ai: !!d.ai, rule: !!d.rule });
 }
 
 /**
@@ -262,9 +262,9 @@ export function planTick(snap, cfg, decided = new Set()) {
       }
     }
 
-    if (cfg.runnerOnly) continue; // no house agents: nothing below (bets and claims) applies
+    if (cfg.runnerOnly) continue; // no house agents: nothing below (calls and claims) applies
 
-    // ---- 3. bets on round k ----
+    // ---- 3. calls on round k ----
     if (!m.paused) {
       const lockK = lockTime(m, k);
       const hasPosition = (a) => {
@@ -280,14 +280,14 @@ export function planTick(snap, cfg, decided = new Set()) {
 
       if (now >= opensAt(m, k) + cfg.earlyDelay && now < lockK - cfg.earlyCutoff) {
         for (const key of early) {
-          if (!finished(key)) planBet(m, k, agentByKey[key], cfg, actions, decisions, snap.candles);
+          if (!finished(key)) planCall(m, k, agentByKey[key], cfg, actions, decisions, snap.candles);
         }
       }
-      // The contrarian goes last: only once every early agent has bet or skipped (in an earlier tick), so it sees their
+      // The contrarian goes last: only once every early agent has called or skipped (in an earlier tick), so it sees their
       // real money, and from shortly after they are due, whatever the round length. It always takes the side with less money.
       if (now >= opensAt(m, k) + cfg.earlyDelay + cfg.contrarianAfterEarly && now < lockK - cfg.contrarianCutoff
           && lateHere && early.every(finished) && !finished(LATE)) {
-        planBet(m, k, agentByKey[LATE], cfg, actions, decisions, snap.candles);
+        planCall(m, k, agentByKey[LATE], cfg, actions, decisions, snap.candles);
       }
     }
 
@@ -304,7 +304,7 @@ export function planTick(snap, cfg, decided = new Set()) {
     }
   }
   // Time-critical work first: price pushes (the start price must be the first trade after the lock), then settles; the sort is stable,
-  // so an agent's approval still comes right before its bet.
+  // so an agent's approval still comes right before its call.
   const rank = (a) => (a.type === 'pushPrice' ? 0 : a.type === 'settle' ? 1 : 2);
   actions.sort((x, y) => rank(x) - rank(y));
   return { actions, decisions, aiRequests };

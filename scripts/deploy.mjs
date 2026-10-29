@@ -24,6 +24,7 @@ import path from 'node:path';
 import { formatUnits, getAddress, isAddress, zeroAddress, encodeDeployData, createPublicClient, http } from 'viem';
 import { setup, ROOT, usdcBalance, NETWORKS, arcChain } from './lib.mjs';
 import { deployMode, UNDERSTAND_FLAG } from './deployFlags.mjs';
+import { loadOrArchiveState, wouldArchive, CONTRACT_VERSION } from './deployState.mjs';
 import { compile, normalise } from './compile.mjs';
 import { SETS, COINS, CHAINLINK_MAINNET, MIN_STAKE, FEED_DECIMALS, MAX_GUARD_AGE_SECONDS, marketName, relayDescription, standInDescription, validateSet, judgeGuard } from './markets.mjs';
 import { createExchangePrices } from '../runner/exchangePrices.mjs';
@@ -50,6 +51,7 @@ if (MAINNET && opt('--pusher')) fail('--pusher is not allowed on mainnet. The pu
 
 const COIN_KEYS = Object.keys(COINS);
 const STATE_FILE = path.join(ROOT, 'deployments', MAINNET ? 'arc-mainnet.json' : 'arc-testnet.json');
+const ARCHIVE_FILE = path.join(ROOT, 'deployments', 'arc-mainnet-v1.json'); // the first (v1) mainnet contract set, kept when the renamed contracts are deployed
 const loadState = () => (fs.existsSync(STATE_FILE) ? JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) : null);
 const saveState = (s) => {
   fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
@@ -225,6 +227,7 @@ async function main() {
     else console.log('Balance covers the estimate with room to spare.');
     if (MAINNET) runnerCosts(e.gasPrice, pusherAddr, e.cost);
     console.log('\nPlan on sending:');
+    if (MAINNET && wouldArchive(STATE_FILE)) console.log(`  first: copy the existing ${path.basename(STATE_FILE)} (the old contracts) to ${path.basename(ARCHIVE_FILE)}, then start a new deployment file`);
     for (const coin of COIN_KEYS) {
       console.log(MAINNET
         ? `  guard ${COINS[coin].pair}: Chainlink proxy ${CHAINLINK_MAINNET[coin]} (nothing deployed)`
@@ -244,7 +247,14 @@ async function main() {
     console.log(`Runner wallet     : ${pusher} (pusher, holds ${runnerBal.text} USDC for its gas)`);
     if (runnerBal.raw < 500_000n) console.log('NOTE: the runner wallet holds under 0.50 USDC. Fund it before the runner starts; pushes and settles cost gas.');
   }
-  let st = loadState() || { network: MAINNET ? 'arc-mainnet' : 'arc-testnet', set: SET_NAME, chainId: chain.id, usdc, owner, pusher, guards: {}, feeds: {}, arena: null, markets: [] };
+  // Mainnet: an older deployment file (the v1 contracts) is copied to arc-mainnet-v1.json before anything can overwrite it, and a fresh state starts.
+  let loaded;
+  if (MAINNET) {
+    const r = loadOrArchiveState(STATE_FILE, ARCHIVE_FILE);
+    loaded = r.state;
+    if (r.archived) console.log(`Kept the old mainnet deployment as ${path.relative(ROOT, r.archived)}; this run starts a new one in ${path.basename(STATE_FILE)}.`);
+  } else loaded = loadState();
+  let st = loaded || { network: MAINNET ? 'arc-mainnet' : 'arc-testnet', contractVersion: CONTRACT_VERSION, set: SET_NAME, chainId: chain.id, usdc, owner, pusher, guards: {}, feeds: {}, arena: null, markets: [] };
   if (getAddress(st.owner) !== getAddress(owner)) fail(`${path.basename(STATE_FILE)} belongs to a different owner wallet.`);
   if (getAddress(st.pusher || owner) !== pusher) fail('This deployment already uses a different pusher address.');
   if (MAINNET) {

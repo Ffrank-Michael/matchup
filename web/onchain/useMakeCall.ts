@@ -1,6 +1,6 @@
 /**
  * onchain/useMakeCall.ts
- * Makes a call (the contract's placeBet) on a market's next round. From Arc Studio's turn T3: the constants, the status
+ * Makes a call (the contract's placeCall) on a market's next round. From Arc Studio's turn T3: the constants, the status
  * texts and the two check functions are theirs. Their hook stopped after the checks and left the sending to the demo
  * page; this version runs the whole flow in makeCall(), so the call panel only calls it and shows `status`.
  *
@@ -8,10 +8,10 @@
  *   1. checks, nothing sent, plain-words error if one fails
  *   2. if the allowance is below the amount: a one-time approval (50 USDC by default, the visitor can change it), so later
  *      calls need one confirmation only; it can be removed at any time (useRevokeApproval)
- *   3. simulate placeBet (a revert reason shows before the wallet opens), then send it
+ *   3. simulate placeCall (a revert reason shows before the wallet opens), then send it
  *   4. wait for the receipt, refresh the screens
  *
- * Words on screen: "call", "position". Function names such as placeBet stay in code only.
+ * Words on screen: "call", "position". Function names such as placeCall stay in code only.
  */
 
 import { useCallback, useState } from "react";
@@ -157,7 +157,7 @@ export function useMakeCall(): UseMakeCallReturn {
         const [market, nextRound, position, balance, allowance] = await client.multicall({
           contracts: [
             { ...arena, functionName: "markets", args: [BigInt(params.marketId)] },
-            { ...arena, functionName: "nextBettableRound", args: [BigInt(params.marketId)] },
+            { ...arena, functionName: "nextCallableRound", args: [BigInt(params.marketId)] },
             { ...arena, functionName: "positions", args: [BigInt(params.marketId), BigInt(params.round), address] },
             { address: USDC_ADDRESS, abi: ERC20_ABI, functionName: "balanceOf", args: [address] },
             { address: USDC_ADDRESS, abi: ERC20_ABI, functionName: "allowance", args: [address, arenaAddress] },
@@ -199,10 +199,10 @@ export function useMakeCall(): UseMakeCallReturn {
 
         // Catch a revert reason before the wallet opens.
         const callArgs = [BigInt(params.marketId), BigInt(params.round), params.side === "UP", amountRaw] as const;
-        await client.simulateContract({ ...arena, functionName: "placeBet", args: callArgs, account: address });
+        await client.simulateContract({ ...arena, functionName: "placeCall", args: callArgs, account: address });
 
         setStatus("call-wallet");
-        const hash = await writeContractAsync({ ...arena, functionName: "placeBet", args: callArgs });
+        const hash = await writeContractAsync({ ...arena, functionName: "placeCall", args: callArgs });
         setTxHash(hash);
         setStatus("call-confirming");
         const receipt = await client.waitForTransactionReceipt({ hash });

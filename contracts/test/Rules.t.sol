@@ -9,7 +9,7 @@ pragma solidity ^0.8.24;
 //
 //   rule 3 / E2  unclaimed money stays claimable for years
 //   rule 4       market settings never change, whatever else happens
-//   rule 8       a contract wallet may bet and claim
+//   rule 8       a contract wallet may call and claim
 //   rule 24      one blocked (blocklisted) wallet freezes nobody else
 //   rule 25      a paused market still settles and pays out
 //   E2           unknown market ids revert on settle / markRefunded / claim / claimMany
@@ -19,7 +19,7 @@ pragma solidity ^0.8.24;
 //  Worked numbers (all by hand):
 //   300_000 UP vs 200_000 DOWN, UP wins:
 //     F = floor(200_000 * 200 / 10_000) = 4_000, D = 196_000, W = 300_000
-//     UP bettor payout = 300_000 + floor(300_000 * 196_000 / 300_000) = 496_000
+//     UP caller payout = 300_000 + floor(300_000 * 196_000 / 300_000) = 496_000
 //   300_000 + 100_000 UP vs 200_000 DOWN, UP wins:
 //     W = 400_000, D = 196_000
 //     300_000 UP -> 300_000 + 147_000 = 447_000
@@ -33,13 +33,13 @@ import {AggregatorV3Interface}  from "../interfaces/AggregatorV3Interface.sol";
 import {MockUSDC}               from "./MockUSDC.sol";
 import {ClaimBase}              from "./Claim.t.sol";
 
-/// A smart-contract wallet (not an EOA) that can bet and claim.
+/// A smart-contract wallet (not an EOA) that can call and claim.
 contract ContractWallet {
-    function bet(
+    function makeCall(
         PredictionArena a, MockUSDC u, uint256 mid, uint256 rnd, bool up, uint256 amt
     ) external {
         u.approve(address(a), amt);
-        a.placeBet(mid, rnd, up, amt);
+        a.placeCall(mid, rnd, up, amt);
     }
 
     function claim(PredictionArena a, uint256 mid, uint256 rnd) external returns (uint256) {
@@ -87,8 +87,8 @@ contract RulesTest is ClaimBase {
     /// alice 300_000 UP vs dave 200_000 DOWN on BTC round 1, UP wins, settled.
     function _settledUpWin() internal {
         vm.warp(1);
-        _bet(alice, btcId, 1, true,  300_000);
-        _bet(dave,  btcId, 1, false, 200_000);
+        _makeCall(alice, btcId, 1, true,  300_000);
+        _makeCall(dave,  btcId, 1, false, 200_000);
         (uint80 s, uint80 e) = _resolveBtc1(100e8, 101e8);
         vm.prank(settler);
         arena.settle(btcId, 1, s, e);
@@ -102,12 +102,12 @@ contract RulesTest is ClaimBase {
 
     // ---------------- rule 8: contract wallets ----------------
 
-    function test_rule8_contractWalletCanBetAndClaim() public {
+    function test_rule8_contractWalletCanCallAndClaim() public {
         ContractWallet cw = new ContractWallet();
         vm.warp(1);
         usdc.mint(address(cw), 300_000);
-        cw.bet(arena, usdc, btcId, 1, true, 300_000);
-        _bet(dave, btcId, 1, false, 200_000);
+        cw.makeCall(arena, usdc, btcId, 1, true, 300_000);
+        _makeCall(dave, btcId, 1, false, 200_000);
         (uint80 s, uint80 e) = _resolveBtc1(100e8, 101e8);
         vm.prank(settler);
         arena.settle(btcId, 1, s, e);
@@ -120,8 +120,8 @@ contract RulesTest is ClaimBase {
 
     function test_rule25_pausedMarketStillSettlesAndPays() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true,  300_000);
-        _bet(dave,  btcId, 1, false, 200_000);
+        _makeCall(alice, btcId, 1, true,  300_000);
+        _makeCall(dave,  btcId, 1, false, 200_000);
         vm.prank(owner);
         arena.setMarketPaused(btcId, true);
 
@@ -196,8 +196,8 @@ contract RulesTest is ClaimBase {
 
     function test_rule19_claimFirstThenMarkRefundedReverts() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true,  MIN);
-        _bet(bob,   btcId, 1, false, MIN);
+        _makeCall(alice, btcId, 1, true,  MIN);
+        _makeCall(bob,   btcId, 1, false, MIN);
         vm.warp(_end(btcId, 1) + 1 hours + 1);
 
         assertEq(_claim(alice, btcId, 1), MIN, "claim auto-finalises and refunds");
@@ -214,8 +214,8 @@ contract RulesTest is ClaimBase {
 
     function test_rule19_markRefundedFirstThenBothClaim() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true,  MIN);
-        _bet(bob,   btcId, 1, false, MIN);
+        _makeCall(alice, btcId, 1, true,  MIN);
+        _makeCall(bob,   btcId, 1, false, MIN);
         vm.warp(_end(btcId, 1) + 1 hours + 1);
 
         arena.markRefunded(btcId, 1);
@@ -232,12 +232,12 @@ contract RulesTest is ClaimBase {
     ///   BTC: start id 2, end id 3.   SOL: start id 3 (first update >= 6000), end id 4.
     function test_claimMany_acrossTwoMarkets() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true,  300_000);
-        _bet(dave,  btcId, 1, false, 200_000);
-        // SOL round 0 locked at 2400, so from then on round 1 is the next one to bet on.
+        _makeCall(alice, btcId, 1, true,  300_000);
+        _makeCall(dave,  btcId, 1, false, 200_000);
+        // SOL round 0 locked at 2400, so from then on round 1 is the next one to call on.
         vm.warp(2500);
-        _bet(alice, solId, 1, true,  300_000);
-        _bet(dave,  solId, 1, false, 200_000);
+        _makeCall(alice, solId, 1, true,  300_000);
+        _makeCall(dave,  solId, 1, false, 200_000);
 
         vm.warp(3595); vm.prank(owner); feed.setPrice(100e8);
         vm.warp(3601); vm.prank(owner); feed.setPrice(100e8);
@@ -282,11 +282,11 @@ contract BlocklistTest is Test {
     address bob   = makeAddr("bob");
     address dave  = makeAddr("dave");
 
-    function _bet(address who, bool up, uint256 amt) internal {
+    function _makeCall(address who, bool up, uint256 amt) internal {
         usdc.mint(who, amt);
         vm.startPrank(who);
         usdc.approve(address(arena), amt);
-        arena.placeBet(0, 1, up, amt);
+        arena.placeCall(0, 1, up, amt);
         vm.stopPrank();
     }
 
@@ -299,9 +299,9 @@ contract BlocklistTest is Test {
 
         // BTC round 1: lock 3600, end 7200.  alice 300_000 + bob 100_000 UP vs dave 200_000 DOWN.
         vm.warp(1);
-        _bet(alice, true,  300_000);
-        _bet(bob,   true,  100_000);
-        _bet(dave,  false, 200_000);
+        _makeCall(alice, true,  300_000);
+        _makeCall(bob,   true,  100_000);
+        _makeCall(dave,  false, 200_000);
 
         vm.warp(3595); vm.prank(owner); feed.setPrice(100e8);
         vm.warp(3601); vm.prank(owner); feed.setPrice(100e8);

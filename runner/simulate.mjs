@@ -35,7 +35,7 @@ export function createWorld({ now, seed = 1 }) {
   return {
     now,
     random,
-    staked: 0, paidOut: 0, // all money bets put in, and all money claims paid out (to check no money appears or vanishes)
+    staked: 0, paidOut: 0, // all money calls put in, and all money claims paid out (to check no money appears or vanishes)
     markets: MARKETS.map((m, id) => ({
       id, name: m.name, roundLength: 600, startOffset: m.startOffset, minStake: 100_000, paused: false, nextRound: 0,
       walk: createWalk(m.startUsd, random), feed: { updates: [] }, rounds: {},
@@ -60,7 +60,7 @@ function apply(world, a) {
     case 'approve':
       agent.allowance += a.amount;
       return `approves ${usdc(a.amount)}`;
-    case 'bet': {
+    case 'call': {
       if (a.round !== nextRoundAt(m, world.now)) throw new Error('not the next round');
       const pos = (agent.positions[`${m.id}:${a.round}`] ||= { up: 0, down: 0, claimed: false });
       if ((a.side === 'UP' ? pos.down : pos.up) > 0) throw new Error('wrong side');
@@ -68,7 +68,7 @@ function apply(world, a) {
       agent.balance -= a.stake; agent.allowance -= a.stake; world.staked += a.stake;
       pos[a.side === 'UP' ? 'up' : 'down'] += a.stake;
       round(m, a.round)[a.side === 'UP' ? 'up' : 'down'] += a.stake;
-      return `bets ${a.side} ${usdc(a.stake)} on ${m.name} round ${a.round}: ${a.reason}`;
+      return `calls ${a.side} ${usdc(a.stake)} on ${m.name} round ${a.round}: ${a.reason}`;
     }
     case 'settle': {
       const r = round(m, a.round);

@@ -96,7 +96,7 @@ export function KairoHome() {
   const { positions } = useMyPositions(chainMarkets, myRounds ?? {});
   const chainOf = (id: number) =>
     chainMarkets?.find((c) => c.id === id) ?? null;
-  // The start price of the round running now (the one before the next bettable round), once the contract has recorded it.
+  // The start price of the round running now (the one before the next callable round), once the contract has recorded it.
   const selectedChain = chainOf(market.id);
   // each agent's record and its call for the selected market's open round, read from the chain
   const chainAgentLive = useAgentStats(

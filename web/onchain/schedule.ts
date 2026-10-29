@@ -6,7 +6,7 @@
  *
  *   lockTime(m, k)  = m.startOffset + k * m.roundLength          (rule 2)
  *   endTime(m, k)   = lockTime(m, k) + m.roundLength
- *   nextBettableRound(m, nowSec)
+ *   nextCallableRound(m, nowSec)
  *     = the smallest k whose lockTime is strictly > nowSec
  *       AND whose predecessor (k-1) has already locked
  *     = 0 if nowSec < m.startOffset
@@ -41,7 +41,7 @@ export function endTime(m: MarketSchedule, k: number): number {
 
 /**
  * The round index a user can call on RIGHT NOW.
- * Mirrors `PredictionArena.nextBettableRound(marketId)`.
+ * Mirrors `PredictionArena.nextCallableRound(marketId)`.
  *
  * Contract logic (checked against Solidity source):
  *   if (block.timestamp < startOffset) return 0;
@@ -51,7 +51,7 @@ export function endTime(m: MarketSchedule, k: number): number {
  * Note: at exactly a lock second, (elapsed / roundLength) + 1 advances
  * to the next round — matching the contract's "closed at the lock" rule.
  */
-export function nextBettableRound(m: MarketSchedule, nowSec: number): number {
+export function nextCallableRound(m: MarketSchedule, nowSec: number): number {
   if (nowSec < m.startOffset) return 0;
   const elapsed = nowSec - m.startOffset;
   return Math.floor(elapsed / m.roundLength) + 1;

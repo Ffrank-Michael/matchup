@@ -1,5 +1,5 @@
-// Trend follower: bets the same direction as the last round.
-import { UNITS, directionOf, fmtPrice, fmtPct, legalStake, bet, skip } from './lib.mjs';
+// Trend follower: calls the same direction as the last round.
+import { UNITS, directionOf, fmtPrice, fmtPct, legalStake, makeCall, skip } from './lib.mjs';
 
 export const name = 'Agent 1 · Trend Follower';
 export const BASE_STAKE = 0.5 * UNITS;
@@ -12,6 +12,6 @@ export function decide(ctx) {
 
   const s = legalStake(BASE_STAKE, ctx);
   if (s.skip) return skip(s.skip);
-  return bet(side, s.stake,
-    `${ctx.market} last round went ${side} (${fmtPrice(last.startPrice)} -> ${fmtPrice(last.endPrice)}, ${fmtPct(last.startPrice, last.endPrice)}), so I follow the trend and bet ${side}.`);
+  return makeCall(side, s.stake,
+    `${ctx.market} last round went ${side} (${fmtPrice(last.startPrice)} -> ${fmtPrice(last.endPrice)}, ${fmtPct(last.startPrice, last.endPrice)}), so I follow the trend and call ${side}.`);
 }

@@ -1,6 +1,6 @@
 // Agent notes: the one-sentence reason each AI agent gave for its call (or "Couldn't decide this round"), for the website.
 // Written to data/agent-notes.jsonl (local, for development) and, when UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are set,
-// to Upstash Redis (free) where the website reads them. Nothing here ever throws: a missing note must never stop a bet.
+// to Upstash Redis (free) where the website reads them. Nothing here ever throws: a missing note must never stop a call.
 //
 // A note: { m: marketId, r: round, a: agent key, s: 'called' | 'skipped', c: 'UP' | 'DOWN' | null, t: text, at: unix seconds, model }
 import fs from 'node:fs';

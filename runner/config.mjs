@@ -4,11 +4,11 @@
 export const FEED_DECIMALS = 8;
 
 export const CFG = {
-  // --- when the house agents bet (round k can be bet on from lock(k-1) until lock(k)) ---
-  earlyDelay: 10,        // trend follower, chart reader and coin flipper bet 10 seconds after the round opens
+  // --- when the house agents call (round k can be call on from lock(k-1) until lock(k)) ---
+  earlyDelay: 10,        // trend follower, chart reader and coin flipper call 10 seconds after the round opens
   aiAskAfter: 3,         // the AI is asked this long after a round opens (once the last minute's candle is in)
   earlyCutoff: 60,       // ... and not in the last minute before lock
-  contrarianAfterEarly: 20, // the contrarian starts looking 20 s after the early agents are due, in a round of any length, so there is a crowd to bet against
+  contrarianAfterEarly: 20, // the contrarian starts looking 20 s after the early agents are due, in a round of any length, so there is a crowd to go against
   contrarianCutoff: 30,  // ... keeps looking until 30 s before lock (an empty or even crowd is looked at again each tick), and never later
 
   // --- when test prices are pushed (the feed owner is the deployer wallet); rule H5 in docs/RULES.md ---
@@ -29,7 +29,7 @@ export const CFG = {
   // --- money safety ---
   gasReserve: 50_000,    // 0.05 USDC an agent always keeps for fees (on Arc the gas is USDC too)
   approveAmount: 10_000_000, // each approval lets the contract take up to 10 USDC from that agent
-  maxStake: 10_000_000,  // beta limit: no bet above 10 USDC per call, whatever an agent decides (the site enforces the same limit)
+  maxStake: 10_000_000,  // beta limit: no call above 10 USDC per call, whatever an agent decides (the site enforces the same limit)
 
   tickSeconds: 10,       // how often the runner looks at the chain
   fastTickSeconds: 3,    // ... and this often while a start or end price is due (Bitfinex allows one request per 5 s per market; the price module enforces it)

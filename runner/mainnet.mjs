@@ -159,7 +159,7 @@ export async function preflight({ pub, arena, arenaAbi, relayAbi, runner, feeds 
     try {
       const pusher = await pub.readContract({ address: feed, abi: relayAbi, functionName: 'pusher' });
       if (getAddress(pusher) !== getAddress(runner)) problems.push(`the runner (${runner}) is not the pusher of feed ${feed} (it is ${pusher}); its prices would be refused`);
-    } catch { problems.push(`feed ${feed} does not answer pusher(): it is not a Kairo relay`); }
+    } catch { problems.push(`feed ${feed} does not answer pusher(): it is not a Matchup relay`); }
   }
   return problems;
 }

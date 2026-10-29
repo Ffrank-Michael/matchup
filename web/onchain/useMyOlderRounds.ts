@@ -4,7 +4,7 @@
  * a refund of a round nobody settled, winnings, or the unmatched part of a call. Without this a refund that opens one hour
  * after a round ended would drop off "Your calls" a few minutes later and the money could not be claimed from the site.
  *
- * Where the wallet called comes from the contract's BetPlaced events (block explorer API, which reaches back over the whole
+ * Where the wallet called comes from the contract's CallPlaced events (block explorer API, which reaches back over the whole
  * chain); what is still waiting comes from the contract (positions and claimable). Claiming needs no extra step: claim()
  * turns a round that nobody settled in time into a refund by itself, in the same transaction.
  */
@@ -21,7 +21,7 @@ import type { Market } from "./useMarkets";
 import type { Round } from "./useRounds";
 
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
-const BET_PLACED_TOPIC = toEventSelector("BetPlaced(uint256,uint256,address,bool,uint256)");
+const CALL_PLACED_TOPIC = toEventSelector("CallPlaced(uint256,uint256,address,bool,uint256)");
 
 /** Rounds with money waiting for the connected wallet that are older than `recent`, per market, newest first. null until read. */
 export function useMyOlderRounds(markets: Market[] | null, recent: Record<number, Round[]> | null): Record<number, Round[]> | null {
@@ -30,11 +30,11 @@ export function useMyOlderRounds(markets: Market[] | null, recent: Record<number
   const arenaAddress = ARENA_ADDRESSES[NETWORK];
 
   // 1. every (market, round) the wallet has called, from the events
-  const bets = useQuery({
-    queryKey: ["myBets", NETWORK, address],
+  const calls = useQuery({
+    queryKey: ["myCalls", NETWORK, address],
     queryFn: async (): Promise<{ marketId: number; roundIndex: number }[]> => {
       if (!arenaAddress || !address) throw new Error("not ready");
-      const logs = await explorerLogs({ address: arenaAddress, topics: [BET_PLACED_TOPIC, null, null, addressTopic(address)], fromBlock: 0 });
+      const logs = await explorerLogs({ address: arenaAddress, topics: [CALL_PLACED_TOPIC, null, null, addressTopic(address)], fromBlock: 0 });
       const seen = new Map<string, { marketId: number; roundIndex: number }>();
       for (const l of logs) {
         const marketId = Number(BigInt(l.topics[1] ?? "0x0"));
@@ -55,7 +55,7 @@ export function useMyOlderRounds(markets: Market[] | null, recent: Record<number
     const list = recent?.[marketId];
     return list && list.length > 0 ? list[list.length - 1].roundIndex : null;
   };
-  const older = (bets.data ?? []).filter((b) => {
+  const older = (calls.data ?? []).filter((b) => {
     const oldest = oldestShown(b.marketId);
     return oldest !== null && b.roundIndex < oldest;
   });

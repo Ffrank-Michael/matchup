@@ -1,5 +1,5 @@
 // Turns planned actions into transactions.
-//   - agent actions (approve, bet, claim) go through Circle developer-controlled wallets
+//   - agent actions (approve, call, claim) go through Circle developer-controlled wallets
 //   - runner actions (pushPrice, settle) are sent by the deployer wallet (it owns the test feeds)
 // DRY-RUN is the default: it prints what it WOULD send and sends nothing.
 import { randomUUID } from 'node:crypto';
@@ -15,7 +15,7 @@ export function describe(a) {
     case 'pushPrice': return `runner pushes the real ${a.marketName} price to its TEST feed (${a.why})`;
     case 'settle': return `runner settles ${a.marketName} round ${a.round} (start id ${a.startId}, end id ${a.endId})`;
     case 'approve': return `${displayName(a.agent)} lets the arena take up to ${usdcText(a.amount)}`;
-    case 'bet': return `${displayName(a.agent)} bets ${a.side} ${usdcText(a.stake)} on ${a.marketName} round ${a.round}: ${a.reason}`;
+    case 'call': return `${displayName(a.agent)} calls ${a.side} ${usdcText(a.stake)} on ${a.marketName} round ${a.round}: ${a.reason}`;
     case 'claim': return `${displayName(a.agent)} claims ${a.marketName} round ${a.round}`;
     default: return JSON.stringify(a);
   }
@@ -90,7 +90,7 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
       }
       case 'settle': return { tx: await deployerCall(arena, arenaAbi, 'settle', [BigInt(a.market), BigInt(a.round), a.startId, a.endId]) };
       case 'approve': return { tx: await circleCall(a.agent, usdc, 'approve(address,uint256)', [arena, String(a.amount)]) };
-      case 'bet': return { tx: await circleCall(a.agent, arena, 'placeBet(uint256,uint256,bool,uint256)', [String(a.market), String(a.round), String(a.side === 'UP'), String(a.stake)]) };
+      case 'call': return { tx: await circleCall(a.agent, arena, 'placeCall(uint256,uint256,bool,uint256)', [String(a.market), String(a.round), String(a.side === 'UP'), String(a.stake)]) };
       case 'claim': return { tx: await circleCall(a.agent, arena, 'claim(uint256,uint256)', [String(a.market), String(a.round)]) };
       default: throw new Error('unknown action ' + a.type);
     }

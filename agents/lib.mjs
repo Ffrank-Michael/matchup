@@ -5,15 +5,15 @@
 //   history   settled rounds, OLDEST FIRST, newest last: [{ startPrice, endPrice }, ...]
 //             prices are plain USD numbers. A round with endPrice > startPrice went UP,
 //             endPrice < startPrice went DOWN, equal prices are "flat" (that round is refunded).
-//   bets      what is already on the coming round, in USDC micro-units (6 decimals):
+//   calls      what is already on the coming round, in USDC micro-units (6 decimals):
 //             { up: 1500000, down: 500000 }  means 1.50 USDC on UP and 0.50 USDC on DOWN
-//   minStake  the market minimum bet in micro-units (100000 = 0.10 USDC)
+//   minStake  the market minimum call in micro-units (100000 = 0.10 USDC)
 //   balance   (optional) the USDC the agent has, in micro-units; it never stakes more than this
 //   candles   (optional) closed 1-minute candles of the coin, OLDEST FIRST: [{ open, close }, ...]; only the chart reader uses them
 //   random    (optional) a function returning a number in [0, 1); only the coin flipper uses it
 //
 // What every agent returns:
-//   { action: 'BET',  side: 'UP' | 'DOWN', stake: <micro-units>, reason: '<one line with real numbers>' }
+//   { action: 'CALL',  side: 'UP' | 'DOWN', stake: <micro-units>, reason: '<one line with real numbers>' }
 //   { action: 'SKIP', reason: '<one line saying why not>' }
 
 export const UNITS = 1_000_000; // micro-units per USDC
@@ -50,12 +50,12 @@ export function legalStake(wanted, ctx) {
   let stake = Math.max(Math.round(wanted), ctx.minStake);
   if (ctx.balance !== undefined) {
     if (ctx.balance < ctx.minStake) {
-      return { skip: `only ${fmtUsdc(ctx.balance)} left, below the ${fmtUsdc(ctx.minStake)} minimum bet` };
+      return { skip: `only ${fmtUsdc(ctx.balance)} left, below the ${fmtUsdc(ctx.minStake)} minimum call` };
     }
     stake = Math.min(stake, ctx.balance);
   }
   return { stake };
 }
 
-export const bet = (side, stake, reason) => ({ action: 'BET', side, stake, reason });
+export const makeCall = (side, stake, reason) => ({ action: 'CALL', side, stake, reason });
 export const skip = (reason) => ({ action: 'SKIP', reason });

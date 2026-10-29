@@ -6,7 +6,7 @@
  * Reads per market:
  *   1. markets(id)          → feedA, roundLength, startOffset, minStake, paused
  *   2. marketName(id)       → name string (e.g. "BTC/USD 5m")
- *   3. nextBettableRound(id)→ next bettable round index
+ *   3. nextCallableRound(id)→ next callable round index
  *
  * The coin is parsed from the name: "BTC/USD 5m" → "btc".
  * Returns null for each market when the arena is not deployed (mainnet, null address).
@@ -79,7 +79,7 @@ export function useMarkets(): { markets: Market[] | null; isLoading: boolean; er
       const calls = ids.flatMap((id) => [
         { address: arenaAddress, abi: ARENA_ABI, functionName: "markets" as const, args: [BigInt(id)] },
         { address: arenaAddress, abi: ARENA_ABI, functionName: "marketName" as const, args: [BigInt(id)] },
-        { address: arenaAddress, abi: ARENA_ABI, functionName: "nextBettableRound" as const, args: [BigInt(id)] },
+        { address: arenaAddress, abi: ARENA_ABI, functionName: "nextCallableRound" as const, args: [BigInt(id)] },
       ]);
 
       const results = await client.multicall({

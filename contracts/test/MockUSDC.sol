@@ -6,7 +6,7 @@ pragma solidity ^0.8.24;
 //
 //  A minimal ERC-20 with 6 decimals, used ONLY in tests.
 //  It is NOT deployed to any live network.
-//  It mimics Arc USDC (6 decimals) so betting tests can run
+//  It mimics Arc USDC (6 decimals) so calling tests can run
 //  without a real token.
 // =============================================================
 

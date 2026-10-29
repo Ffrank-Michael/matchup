@@ -9,21 +9,21 @@ pragma solidity ^0.8.24;
 //   - onlyOwner guards on createMarket, setMarketPaused, withdrawFees
 //   - The three production markets (BTC/USD, ETH/USD, SOL/USD)
 //     with 1-hour rounds and a 10-minute variant
-//   - lockTime / endTime / nextBettableRound at exact boundaries
+//   - lockTime / endTime / nextCallableRound at exact boundaries
 //   - withdrawFees reverts when feesAccrued == 0 or amount too large
 //   - pause toggling
 //
-//  Covers (step 4 – placeBet):
-//   - UP/DOWN bets on each of the three production markets
-//   - position and round totals correct; BetPlaced event emitted
+//  Covers (step 4 – placeCall):
+//   - UP/DOWN calls on each of the three production markets
+//   - position and round totals correct; CallPlaced event emitted
 //   - top-up same side adds; opposite side reverts WrongSide
 //   - timing boundaries (lock-1, at lock, past rounds, future rounds)
 //   - paused market reverts; unpause re-enables; existing positions untouched
 //   - below minimum, zero, exactly minimum, uint128 overflow, no allowance,
 //     insufficient balance, unknown market
 //   - markets are independent
-//   - fuzz: USDC balance == sum of all round totals after random bets
-//   - owner cannot steal bet money via withdrawFees when feesAccrued == 0
+//   - fuzz: USDC balance == sum of all round totals after random calls
+//   - owner cannot steal players' money via withdrawFees when feesAccrued == 0
 //
 //  We use a plain address (DUMMY_FEED) as the price feed – no mock
 //  feed yet; that comes in step 5.
@@ -79,7 +79,7 @@ contract PredictionArenaTest is Test {
     }
 
     // =========================================================
-    //  Betting helpers
+    //  Calling helpers
     // =========================================================
 
     /// @dev Give `player` `amount` MockUSDC and approve the arena.
@@ -90,14 +90,14 @@ contract PredictionArenaTest is Test {
     }
 
     /// @dev Create the three production markets and warp into round 1
-    ///      (t = 1 so BTC offset=0 is already past, BTC next bettable = 1).
+    ///      (t = 1 so BTC offset=0 is already past, BTC next callable = 1).
     function _setupProductionMarkets() internal returns (uint256 btc, uint256 eth, uint256 sol) {
         btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         eth = _createMarket("ETH/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_ETH, MIN_STAKE);
         sol = _createMarket("SOL/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_SOL, MIN_STAKE);
         // t=1: BTC next=1, ETH next=0 (before offset 1200), SOL next=0 (before 2400)
         // Use t=3599 to be just before BTC round-1 lock; all three markets have a
-        // bettable round: BTC=1, ETH=1 (offset 1200 not reached → next=0 still before
+        // callable round: BTC=1, ETH=1 (offset 1200 not reached → next=0 still before
         // offset). Use a dedicated warp per test instead for precision.
     }
 
@@ -477,89 +477,89 @@ contract PredictionArenaTest is Test {
     }
 
     // =========================================================
-    //  nextBettableRound – boundary cases
+    //  nextCallableRound – boundary cases
     // =========================================================
 
     //  BTC market: offset = 0, roundLength = 3600
     //  lock of round k = 0 + k * 3600 = k * 3600
 
-    function test_nextBettableRound_beforeFirstOffset() public {
+    function test_nextCallableRound_beforeFirstOffset() public {
         // For a market with offset = 2400 (SOL), if the clock is at t=1000
         // (before 2400), round 0 hasn't opened yet → expect 0.
         (, , uint256 sol) = _createProductionMarkets();
         vm.warp(1000); // before OFFSET_SOL=2400
-        assertEq(arena.nextBettableRound(sol), 0);
+        assertEq(arena.nextCallableRound(sol), 0);
     }
 
-    function test_nextBettableRound_justBeforeLock0_btc() public {
+    function test_nextCallableRound_justBeforeLock0_btc() public {
         // BTC offset=0, so lock(0)=0. We're at t=3599, just before lock(1)=3600.
         // Elapsed = 3599, elapsed/3600 = 0 → next = 1.
         (uint256 btc, , ) = _createProductionMarkets();
         vm.warp(3599);
-        assertEq(arena.nextBettableRound(btc), 1);
+        assertEq(arena.nextCallableRound(btc), 1);
     }
 
-    function test_nextBettableRound_exactlyAtLock1_btc() public {
-        // At t=3600 (== lock(1)), round 1 is closed. Next bettable = 2.
+    function test_nextCallableRound_exactlyAtLock1_btc() public {
+        // At t=3600 (== lock(1)), round 1 is closed. Next callable = 2.
         // Elapsed = 3600, elapsed/3600 = 1 → next = 2.
         (uint256 btc, , ) = _createProductionMarkets();
         vm.warp(3600);
-        assertEq(arena.nextBettableRound(btc), 2);
+        assertEq(arena.nextCallableRound(btc), 2);
     }
 
-    function test_nextBettableRound_justAfterLock1_btc() public {
-        // At t=3601, round 1 already locked. Next bettable = 2.
+    function test_nextCallableRound_justAfterLock1_btc() public {
+        // At t=3601, round 1 already locked. Next callable = 2.
         // Elapsed = 3601, elapsed/3600 = 1 → next = 2.
         (uint256 btc, , ) = _createProductionMarkets();
         vm.warp(3601);
-        assertEq(arena.nextBettableRound(btc), 2);
+        assertEq(arena.nextCallableRound(btc), 2);
     }
 
-    function test_nextBettableRound_atExactOffset_eth() public {
+    function test_nextCallableRound_atExactOffset_eth() public {
         // ETH offset=1200. At t=1200 (exactly at offset):
         // elapsed = 0, 0/3600 = 0 → next = 1.
         (, uint256 eth, ) = _createProductionMarkets();
         vm.warp(1200);
-        assertEq(arena.nextBettableRound(eth), 1);
+        assertEq(arena.nextCallableRound(eth), 1);
     }
 
-    function test_nextBettableRound_manyRoundsAhead() public {
+    function test_nextCallableRound_manyRoundsAhead() public {
         // 100 rounds into a 1-hour market (BTC, offset=0):
         // t = 100 * 3600 = 360000, elapsed/3600 = 100, next = 101.
         (uint256 btc, , ) = _createProductionMarkets();
         vm.warp(100 * 3600);
-        assertEq(arena.nextBettableRound(btc), 101);
+        assertEq(arena.nextCallableRound(btc), 101);
     }
 
-    function test_nextBettableRound_midRound() public {
+    function test_nextCallableRound_midRound() public {
         // BTC at t=5000 (between lock(1)=3600 and lock(2)=7200):
         // elapsed=5000, 5000/3600=1, next=2.
         (uint256 btc, , ) = _createProductionMarkets();
         vm.warp(5000);
-        assertEq(arena.nextBettableRound(btc), 2);
+        assertEq(arena.nextCallableRound(btc), 2);
     }
 
-    function test_nextBettableRound_justBeforeLock_eth() public {
+    function test_nextCallableRound_justBeforeLock_eth() public {
         // ETH offset=1200. lock(3) = 1200 + 3*3600 = 12000.
         // At t=11999: elapsed=11999-1200=10799, 10799/3600=2, next=3. ✓
         (, uint256 eth, ) = _createProductionMarkets();
         vm.warp(11999);
-        assertEq(arena.nextBettableRound(eth), 3);
+        assertEq(arena.nextCallableRound(eth), 3);
     }
 
-    function test_nextBettableRound_exactlyAtLock_eth() public {
+    function test_nextCallableRound_exactlyAtLock_eth() public {
         // lock(3) = 1200 + 3*3600 = 12000.
         // At t=12000: elapsed=10800, 10800/3600=3, next=4.
         (, uint256 eth, ) = _createProductionMarkets();
         vm.warp(12000);
-        assertEq(arena.nextBettableRound(eth), 4);
+        assertEq(arena.nextCallableRound(eth), 4);
     }
 
-    function test_nextBettableRound_revertBadMarket() public {
+    function test_nextCallableRound_revertBadMarket() public {
         vm.expectRevert(
             abi.encodeWithSelector(PredictionArena.MarketNotFound.selector, 42)
         );
-        arena.nextBettableRound(42);
+        arena.nextCallableRound(42);
     }
 
     // =========================================================
@@ -716,20 +716,20 @@ contract PredictionArenaTest is Test {
     }
 
     // =========================================================
-    //  STEP 4 – placeBet: basic UP and DOWN bets
+    //  STEP 4 – placeCall: basic UP and DOWN calls
     // =========================================================
 
     // BTC market: offset=0, roundLength=3600.
-    // At t=1 (just after epoch): nextBettableRound = 1.
+    // At t=1 (just after epoch): nextCallableRound = 1.
     // lock(1) = 0 + 1*3600 = 3600, so t=1 < 3600. ✓
 
-    function test_placeBet_upOnBtc() public {
+    function test_placeCall_upOnBtc() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
-        vm.warp(1); // t=1, nextBettableRound(btc)=1
+        vm.warp(1); // t=1, nextCallableRound(btc)=1
 
         _fund(alice, ONE_USDC);
         vm.prank(alice);
-        arena.placeBet(btc, 1, true, ONE_USDC);
+        arena.placeCall(btc, 1, true, ONE_USDC);
 
         // Position recorded
         (uint128 up, uint128 down, bool claimed) = arena.positions(btc, 1, alice);
@@ -746,13 +746,13 @@ contract PredictionArenaTest is Test {
         assertEq(usdc.balanceOf(address(arena)), ONE_USDC);
     }
 
-    function test_placeBet_downOnBtc() public {
+    function test_placeCall_downOnBtc() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1);
 
         _fund(alice, ONE_USDC);
         vm.prank(alice);
-        arena.placeBet(btc, 1, false, ONE_USDC);
+        arena.placeCall(btc, 1, false, ONE_USDC);
 
         (uint128 up, uint128 down, ) = arena.positions(btc, 1, alice);
         assertEq(up,   0);
@@ -763,13 +763,13 @@ contract PredictionArenaTest is Test {
     }
 
     // ETH market: offset=1200. At t=1201: elapsed=1, next=1. lock(1)=4800.
-    function test_placeBet_upOnEth() public {
+    function test_placeCall_upOnEth() public {
         uint256 eth = _createMarket("ETH/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_ETH, MIN_STAKE);
         vm.warp(1201); // just past offset, next=1
 
         _fund(alice, ONE_USDC);
         vm.prank(alice);
-        arena.placeBet(eth, 1, true, ONE_USDC);
+        arena.placeCall(eth, 1, true, ONE_USDC);
 
         (uint128 up, , ) = arena.positions(eth, 1, alice);
         assertEq(up, ONE_USDC);
@@ -777,46 +777,46 @@ contract PredictionArenaTest is Test {
     }
 
     // SOL market: offset=2400. At t=2401: elapsed=1, next=1. lock(1)=6000.
-    function test_placeBet_downOnSol() public {
+    function test_placeCall_downOnSol() public {
         uint256 sol = _createMarket("SOL/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_SOL, MIN_STAKE);
         vm.warp(2401);
 
         _fund(alice, ONE_USDC);
         vm.prank(alice);
-        arena.placeBet(sol, 1, false, ONE_USDC);
+        arena.placeCall(sol, 1, false, ONE_USDC);
 
         (, uint128 down, ) = arena.positions(sol, 1, alice);
         assertEq(down, ONE_USDC);
     }
 
     // =========================================================
-    //  BetPlaced event
+    //  CallPlaced event
     // =========================================================
 
-    function test_placeBet_emitsBetPlaced() public {
+    function test_placeCall_emitsCallPlaced() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1);
         _fund(alice, ONE_USDC);
 
         vm.prank(alice);
         vm.expectEmit(true, true, true, true);
-        emit PredictionArena.BetPlaced(btc, 1, alice, true, ONE_USDC);
-        arena.placeBet(btc, 1, true, ONE_USDC);
+        emit PredictionArena.CallPlaced(btc, 1, alice, true, ONE_USDC);
+        arena.placeCall(btc, 1, true, ONE_USDC);
     }
 
     // =========================================================
     //  Top-up and WrongSide
     // =========================================================
 
-    function test_placeBet_topUpSameSideAdds() public {
+    function test_placeCall_topUpSameSideAdds() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1);
 
         _fund(alice, ONE_USDC * 3);
         vm.prank(alice);
-        arena.placeBet(btc, 1, true, ONE_USDC);
+        arena.placeCall(btc, 1, true, ONE_USDC);
         vm.prank(alice);
-        arena.placeBet(btc, 1, true, ONE_USDC * 2);
+        arena.placeCall(btc, 1, true, ONE_USDC * 2);
 
         (uint128 up, , ) = arena.positions(btc, 1, alice);
         assertEq(up, ONE_USDC * 3);
@@ -825,22 +825,22 @@ contract PredictionArenaTest is Test {
         assertEq(usdc.balanceOf(address(arena)), ONE_USDC * 3);
     }
 
-    function test_placeBet_oppositeSideRevertsWrongSide() public {
+    function test_placeCall_oppositeSideRevertsWrongSide() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1);
 
         _fund(alice, ONE_USDC * 2);
         vm.prank(alice);
-        arena.placeBet(btc, 1, true, ONE_USDC); // bet UP
+        arena.placeCall(btc, 1, true, ONE_USDC); // call UP
 
         vm.prank(alice);
         vm.expectRevert(
             abi.encodeWithSelector(PredictionArena.WrongSide.selector, btc, 1)
         );
-        arena.placeBet(btc, 1, false, ONE_USDC); // try DOWN → revert
+        arena.placeCall(btc, 1, false, ONE_USDC); // try DOWN → revert
     }
 
-    function test_placeBet_twoPlayersOppositesSidesOk() public {
+    function test_placeCall_twoPlayersOppositesSidesOk() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1);
 
@@ -848,9 +848,9 @@ contract PredictionArenaTest is Test {
         _fund(bob,   ONE_USDC);
 
         vm.prank(alice);
-        arena.placeBet(btc, 1, true,  ONE_USDC);
+        arena.placeCall(btc, 1, true,  ONE_USDC);
         vm.prank(bob);
-        arena.placeBet(btc, 1, false, ONE_USDC);
+        arena.placeCall(btc, 1, false, ONE_USDC);
 
         (uint128 aUp, , )  = arena.positions(btc, 1, alice);
         (, uint128 bDown, ) = arena.positions(btc, 1, bob);
@@ -867,19 +867,19 @@ contract PredictionArenaTest is Test {
     //  Timing boundary tests
     // =========================================================
 
-    function test_placeBet_allowedAtLockMinus1() public {
+    function test_placeCall_allowedAtLockMinus1() public {
         // At t = lock(1) - 1 = 3599, round 1 is still open.
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(3599);
 
         _fund(alice, ONE_USDC);
         vm.prank(alice);
-        arena.placeBet(btc, 1, true, ONE_USDC); // should succeed
+        arena.placeCall(btc, 1, true, ONE_USDC); // should succeed
         assertEq(usdc.balanceOf(address(arena)), ONE_USDC);
     }
 
-    function test_placeBet_atLockTimeRevertsNotNextRound() public {
-        // At t = lock(1) = 3600, nextBettableRound = 2, so roundIndex=1 reverts.
+    function test_placeCall_atLockTimeRevertsNotNextRound() public {
+        // At t = lock(1) = 3600, nextCallableRound = 2, so roundIndex=1 reverts.
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(3600);
         _fund(alice, ONE_USDC);
@@ -888,10 +888,10 @@ contract PredictionArenaTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(PredictionArena.NotNextRound.selector, 1, 2)
         );
-        arena.placeBet(btc, 1, true, ONE_USDC);
+        arena.placeCall(btc, 1, true, ONE_USDC);
     }
 
-    function test_placeBet_pastRoundRevertsNotNextRound() public {
+    function test_placeCall_pastRoundRevertsNotNextRound() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(5000); // nextBettable = 2
         _fund(alice, ONE_USDC);
@@ -900,10 +900,10 @@ contract PredictionArenaTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(PredictionArena.NotNextRound.selector, 1, 2)
         );
-        arena.placeBet(btc, 1, true, ONE_USDC); // round 1 already locked
+        arena.placeCall(btc, 1, true, ONE_USDC); // round 1 already locked
     }
 
-    function test_placeBet_nextPlusOneRevertsNotNextRound() public {
+    function test_placeCall_nextPlusOneRevertsNotNextRound() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1); // nextBettable = 1
         _fund(alice, ONE_USDC);
@@ -912,10 +912,10 @@ contract PredictionArenaTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(PredictionArena.NotNextRound.selector, 2, 1)
         );
-        arena.placeBet(btc, 2, true, ONE_USDC); // one too far ahead
+        arena.placeCall(btc, 2, true, ONE_USDC); // one too far ahead
     }
 
-    function test_placeBet_farFutureRoundRevertsNotNextRound() public {
+    function test_placeCall_farFutureRoundRevertsNotNextRound() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1); // nextBettable = 1
         _fund(alice, ONE_USDC);
@@ -924,18 +924,18 @@ contract PredictionArenaTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(PredictionArena.NotNextRound.selector, 999, 1)
         );
-        arena.placeBet(btc, 999, true, ONE_USDC);
+        arena.placeCall(btc, 999, true, ONE_USDC);
     }
 
-    function test_placeBet_beforeOffsetRound0Bettable() public {
-        // SOL offset=2400. At t=100 (before offset), nextBettableRound=0.
+    function test_placeCall_beforeOffsetRound0Bettable() public {
+        // SOL offset=2400. At t=100 (before offset), nextCallableRound=0.
         uint256 sol = _createMarket("SOL/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_SOL, MIN_STAKE);
         vm.warp(100);
         _fund(alice, ONE_USDC);
 
-        // round 0 is bettable (lock(0)=2400 > 100)
+        // round 0 is callable (lock(0)=2400 > 100)
         vm.prank(alice);
-        arena.placeBet(sol, 0, true, ONE_USDC);
+        arena.placeCall(sol, 0, true, ONE_USDC);
         assertEq(usdc.balanceOf(address(arena)), ONE_USDC);
     }
 
@@ -943,7 +943,7 @@ contract PredictionArenaTest is Test {
     //  Paused market
     // =========================================================
 
-    function test_placeBet_pausedMarketReverts() public {
+    function test_placeCall_pausedMarketReverts() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1);
         vm.prank(owner);
@@ -954,10 +954,10 @@ contract PredictionArenaTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(PredictionArena.MarketPaused.selector, btc)
         );
-        arena.placeBet(btc, 1, true, ONE_USDC);
+        arena.placeCall(btc, 1, true, ONE_USDC);
     }
 
-    function test_placeBet_unpauseAllowsBets() public {
+    function test_placeCall_unpauseAllowsCalls() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1);
         vm.prank(owner);
@@ -967,18 +967,18 @@ contract PredictionArenaTest is Test {
 
         _fund(alice, ONE_USDC);
         vm.prank(alice);
-        arena.placeBet(btc, 1, true, ONE_USDC); // should succeed
+        arena.placeCall(btc, 1, true, ONE_USDC); // should succeed
         assertEq(usdc.balanceOf(address(arena)), ONE_USDC);
     }
 
-    function test_placeBet_pauseDoesNotAffectExistingPosition() public {
-        // A bet placed before pause is still recorded correctly.
+    function test_placeCall_pauseDoesNotAffectExistingPosition() public {
+        // A call placed before pause is still recorded correctly.
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1);
 
         _fund(alice, ONE_USDC);
         vm.prank(alice);
-        arena.placeBet(btc, 1, true, ONE_USDC); // bet before pause
+        arena.placeCall(btc, 1, true, ONE_USDC); // call before pause
 
         vm.prank(owner);
         arena.setMarketPaused(btc, true); // pause after
@@ -992,7 +992,7 @@ contract PredictionArenaTest is Test {
     //  Amount validation
     // =========================================================
 
-    function test_placeBet_belowMinimumReverts() public {
+    function test_placeCall_belowMinimumReverts() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1);
         _fund(alice, MIN_STAKE - 1);
@@ -1005,10 +1005,10 @@ contract PredictionArenaTest is Test {
                 MIN_STAKE
             )
         );
-        arena.placeBet(btc, 1, true, MIN_STAKE - 1);
+        arena.placeCall(btc, 1, true, MIN_STAKE - 1);
     }
 
-    function test_placeBet_zeroAmountReverts() public {
+    function test_placeCall_zeroAmountReverts() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1);
 
@@ -1020,21 +1020,21 @@ contract PredictionArenaTest is Test {
                 MIN_STAKE
             )
         );
-        arena.placeBet(btc, 1, true, 0);
+        arena.placeCall(btc, 1, true, 0);
     }
 
-    function test_placeBet_exactlyMinimumSucceeds() public {
+    function test_placeCall_exactlyMinimumSucceeds() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1);
         _fund(alice, MIN_STAKE);
 
         vm.prank(alice);
-        arena.placeBet(btc, 1, true, uint256(MIN_STAKE));
+        arena.placeCall(btc, 1, true, uint256(MIN_STAKE));
         (uint128 up, , ) = arena.positions(btc, 1, alice);
         assertEq(up, MIN_STAKE);
     }
 
-    function test_placeBet_uint128OverflowReverts() public {
+    function test_placeCall_uint128OverflowReverts() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1);
 
@@ -1047,24 +1047,24 @@ contract PredictionArenaTest is Test {
         vm.prank(alice);
         // SafeCast reverts with its own Overflow error; we just check any revert.
         vm.expectRevert();
-        arena.placeBet(btc, 1, true, tooBig);
+        arena.placeCall(btc, 1, true, tooBig);
     }
 
     // =========================================================
     //  ERC-20 errors (no allowance, insufficient balance)
     // =========================================================
 
-    function test_placeBet_noAllowanceReverts() public {
+    function test_placeCall_noAllowanceReverts() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1);
         usdc.mint(alice, ONE_USDC); // has balance but NO approval
 
         vm.prank(alice);
         vm.expectRevert(); // ERC20InsufficientAllowance
-        arena.placeBet(btc, 1, true, ONE_USDC);
+        arena.placeCall(btc, 1, true, ONE_USDC);
     }
 
-    function test_placeBet_insufficientBalanceReverts() public {
+    function test_placeCall_insufficientBalanceReverts() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1);
         // alice has 0 balance but approves a big allowance
@@ -1073,14 +1073,14 @@ contract PredictionArenaTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(); // ERC20InsufficientBalance
-        arena.placeBet(btc, 1, true, ONE_USDC);
+        arena.placeCall(btc, 1, true, ONE_USDC);
     }
 
     // =========================================================
     //  Unknown market
     // =========================================================
 
-    function test_placeBet_unknownMarketReverts() public {
+    function test_placeCall_unknownMarketReverts() public {
         vm.warp(1);
         _fund(alice, ONE_USDC);
 
@@ -1088,14 +1088,14 @@ contract PredictionArenaTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(PredictionArena.MarketNotFound.selector, 99)
         );
-        arena.placeBet(99, 1, true, ONE_USDC);
+        arena.placeCall(99, 1, true, ONE_USDC);
     }
 
     // =========================================================
     //  Markets are independent
     // =========================================================
 
-    function test_placeBet_marketsAreIndependent() public {
+    function test_placeCall_marketsAreIndependent() public {
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         uint256 eth = _createMarket("ETH/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_ETH, MIN_STAKE);
 
@@ -1103,7 +1103,7 @@ contract PredictionArenaTest is Test {
 
         _fund(alice, ONE_USDC);
         vm.prank(alice);
-        arena.placeBet(btc, 1, true, ONE_USDC);
+        arena.placeCall(btc, 1, true, ONE_USDC);
 
         // ETH round 1 totals must still be zero
         (uint128 upTotal, uint128 downTotal, , , , , ) = arena.rounds(eth, 1);
@@ -1116,16 +1116,16 @@ contract PredictionArenaTest is Test {
     }
 
     // =========================================================
-    //  Owner cannot steal bet money via withdrawFees
+    //  Owner cannot steal players' money via withdrawFees
     // =========================================================
 
-    function test_withdrawFees_cannotDrainBetMoney() public {
-        // Place a bet so the contract holds USDC.
+    function test_withdrawFees_cannotDrainPlayerMoney() public {
+        // Place a call so the contract holds USDC.
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
         vm.warp(1);
         _fund(alice, ONE_USDC);
         vm.prank(alice);
-        arena.placeBet(btc, 1, true, ONE_USDC);
+        arena.placeCall(btc, 1, true, ONE_USDC);
 
         // Contract holds ONE_USDC but feesAccrued == 0.
         assertEq(usdc.balanceOf(address(arena)), ONE_USDC);
@@ -1150,7 +1150,7 @@ contract PredictionArenaTest is Test {
     //  Fuzz: USDC balance == sum of round totals
     // =========================================================
 
-    /// @dev Fuzz test with a few players making random valid bets.
+    /// @dev Fuzz test with a few players making random valid calls.
     ///      Invariant: contract's USDC balance == sum of (upTotal + downTotal)
     ///      for all rounds touched.
     function testFuzz_balanceEqualsRoundTotals(
@@ -1158,9 +1158,9 @@ contract PredictionArenaTest is Test {
     ) public {
         // Use a BTC market only (offset=0, simplest timing).
         uint256 btc = _createMarket("BTC/USD", DUMMY_FEED, ROUND_HOUR, OFFSET_BTC, MIN_STAKE);
-        vm.warp(1); // round 1 is bettable
+        vm.warp(1); // round 1 is callable
 
-        // Derive bet amounts from fuzz seeds; clamp to [minStake, 10 USDC].
+        // Derive call amounts from fuzz seeds; clamp to [minStake, 10 USDC].
         uint256 minS = uint256(MIN_STAKE);
         uint256 maxS = 10 * ONE_USDC;
         uint256 a1 = minS + (uint256(seed1) % (maxS - minS + 1));
@@ -1168,14 +1168,14 @@ contract PredictionArenaTest is Test {
         uint256 a3 = minS + (uint256(seed3) % (maxS - minS + 1));
         uint256 a4 = minS + (uint256(seed4) % (maxS - minS + 1));
 
-        // alice bets UP, bob bets DOWN; both can top up on the same side.
+        // alice calls UP, bob calls DOWN; both can top up on the same side.
         _fund(alice, a1 + a3);
         _fund(bob,   a2 + a4);
 
-        vm.prank(alice); arena.placeBet(btc, 1, true,  a1);
-        vm.prank(bob);   arena.placeBet(btc, 1, false, a2);
-        vm.prank(alice); arena.placeBet(btc, 1, true,  a3); // top-up same side
-        vm.prank(bob);   arena.placeBet(btc, 1, false, a4); // top-up same side
+        vm.prank(alice); arena.placeCall(btc, 1, true,  a1);
+        vm.prank(bob);   arena.placeCall(btc, 1, false, a2);
+        vm.prank(alice); arena.placeCall(btc, 1, true,  a3); // top-up same side
+        vm.prank(bob);   arena.placeCall(btc, 1, false, a4); // top-up same side
 
         (uint128 upTotal, uint128 downTotal, , , , , ) = arena.rounds(btc, 1);
         uint256 expectedBalance = uint256(upTotal) + uint256(downTotal);

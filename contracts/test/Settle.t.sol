@@ -77,12 +77,12 @@ contract SettleTest is Test {
         usdc.approve(address(arena), amount);
     }
 
-    /// Place bets so a round has both sides (needed for non-one-sided settle).
-    function _placeBothBets(uint256 mid, uint256 roundIdx, uint256 amt) internal {
+    /// Place calls so a round has both sides (needed for non-one-sided settle).
+    function _placeBothCalls(uint256 mid, uint256 roundIdx, uint256 amt) internal {
         _fund(alice, amt);
         _fund(bob,   amt);
-        vm.prank(alice); arena.placeBet(mid, roundIdx, true,  amt);
-        vm.prank(bob);   arena.placeBet(mid, roundIdx, false, amt);
+        vm.prank(alice); arena.placeCall(mid, roundIdx, true,  amt);
+        vm.prank(bob);   arena.placeCall(mid, roundIdx, false, amt);
     }
 
     /// Convenience: lock time of round k on the BTC market.
@@ -238,10 +238,10 @@ contract SettleTest is Test {
     //  Settle window boundaries
     // =========================================================
 
-    function _setupBtcRound1WithBets() internal returns (uint256 lockTs, uint256 endTs) {
+    function _setupBtcRound1WithCalls() internal returns (uint256 lockTs, uint256 endTs) {
         // BTC round 1: lock=3600, end=7200
         vm.warp(1); // before lock
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         lockTs = _lock(1); // 3600
         endTs  = _end(1);  // 7200
 
@@ -252,7 +252,7 @@ contract SettleTest is Test {
     }
 
     function test_settle_tooEarlyAtExactlyEnd() public {
-        (, uint256 endTs) = _setupBtcRound1WithBets();
+        (, uint256 endTs) = _setupBtcRound1WithCalls();
         vm.warp(endTs); // exactly at end – NOT strictly after
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -265,7 +265,7 @@ contract SettleTest is Test {
     }
 
     function test_settle_worksAtEndPlusOne() public {
-        (, uint256 endTs) = _setupBtcRound1WithBets();
+        (, uint256 endTs) = _setupBtcRound1WithCalls();
         vm.warp(endTs + 1);
         // start = id 2 (lockTs+1), end = id 3 (endTs-1)
         vm.prank(settler);
@@ -277,7 +277,7 @@ contract SettleTest is Test {
     }
 
     function test_settle_worksAtExactDeadline() public {
-        (, uint256 endTs) = _setupBtcRound1WithBets();
+        (, uint256 endTs) = _setupBtcRound1WithCalls();
         vm.warp(endTs + 1 hours); // exactly at deadline
         vm.prank(settler);
         arena.settle(btcId, 1, (uint80(1)<<64)|2, (uint80(1)<<64)|3);
@@ -286,7 +286,7 @@ contract SettleTest is Test {
     }
 
     function test_settle_windowClosedAfterDeadline() public {
-        (, uint256 endTs) = _setupBtcRound1WithBets();
+        (, uint256 endTs) = _setupBtcRound1WithCalls();
         uint256 deadline = endTs + 1 hours;
         vm.warp(deadline + 1);
         vm.expectRevert(
@@ -300,7 +300,7 @@ contract SettleTest is Test {
     }
 
     function test_settle_twice_reverts() public {
-        (, uint256 endTs) = _setupBtcRound1WithBets();
+        (, uint256 endTs) = _setupBtcRound1WithCalls();
         vm.warp(endTs + 1);
         vm.prank(settler); arena.settle(btcId, 1, (uint80(1)<<64)|2, (uint80(1)<<64)|3);
         vm.expectRevert(
@@ -313,8 +313,8 @@ contract SettleTest is Test {
 
     function test_settle_beforeRoundEnds_reverts() public {
         uint256 lockTs = _lock(1);
-        vm.warp(lockTs - 1); // still betting open
-        _placeBothBets(btcId, 1, MIN);
+        vm.warp(lockTs - 1); // still open for calls
+        _placeBothCalls(btcId, 1, MIN);
         uint256 endTs = _end(1);
         vm.warp(endTs - 1); // round not ended yet
         vm.expectRevert(
@@ -334,7 +334,7 @@ contract SettleTest is Test {
     function test_settle_upWins_btc() public {
         // Round 1: lock=3600, end=7200
         vm.warp(1);
-        _placeBothBets(btcId, 1, 1_000_000); // $1 each side
+        _placeBothCalls(btcId, 1, 1_000_000); // $1 each side
 
         uint256 lt = _lock(1);
         uint256 et = _end(1);
@@ -374,7 +374,7 @@ contract SettleTest is Test {
 
     function test_settle_downWins_btc() public {
         vm.warp(1);
-        _placeBothBets(btcId, 1, 2_000_000);
+        _placeBothCalls(btcId, 1, 2_000_000);
 
         uint256 lt = _lock(1);
         uint256 et = _end(1);
@@ -407,10 +407,10 @@ contract SettleTest is Test {
         uint256 lt = arena.lockTime(ethId, 1);
         uint256 et = arena.endTime(ethId, 1);
 
-        // Must bet before lock
+        // Must call before lock
         vm.warp(lt - 100);
-        _fund(alice, MIN); vm.prank(alice); arena.placeBet(ethId, 1, true,  MIN);
-        _fund(bob,   MIN); vm.prank(bob);   arena.placeBet(ethId, 1, false, MIN);
+        _fund(alice, MIN); vm.prank(alice); arena.placeCall(ethId, 1, true,  MIN);
+        _fund(bob,   MIN); vm.prank(bob);   arena.placeCall(ethId, 1, false, MIN);
 
         vm.warp(lt - 5);  vm.prank(owner); feed.setPrice(2000e8);
         vm.warp(lt + 1);  vm.prank(owner); feed.setPrice(2000e8);
@@ -432,8 +432,8 @@ contract SettleTest is Test {
         uint256 et = arena.endTime(solId, 1);
 
         vm.warp(lt - 100);
-        _fund(alice, MIN); vm.prank(alice); arena.placeBet(solId, 1, true,  MIN);
-        _fund(bob,   MIN); vm.prank(bob);   arena.placeBet(solId, 1, false, MIN);
+        _fund(alice, MIN); vm.prank(alice); arena.placeCall(solId, 1, true,  MIN);
+        _fund(bob,   MIN); vm.prank(bob);   arena.placeCall(solId, 1, false, MIN);
 
         vm.warp(lt - 5);  vm.prank(owner); feed.setPrice(150e8);
         vm.warp(lt + 1);  vm.prank(owner); feed.setPrice(150e8);
@@ -452,7 +452,7 @@ contract SettleTest is Test {
 
     function test_settle_storesRoundData() public {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 lt = _lock(1); uint256 et = _end(1);
 
         vm.warp(lt - 5);  vm.prank(owner); feed.setPrice(50_000e8);
@@ -483,7 +483,7 @@ contract SettleTest is Test {
         returns (uint256 lt, uint256 et)
     {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         lt = _lock(1); et = _end(1);
 
         // id1 = pre-lock (lt-10)
@@ -644,7 +644,7 @@ contract SettleTest is Test {
 
     function test_singleUpdateInRound_refundEndNotAfterStart() public {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 lt = _lock(1); uint256 et = _end(1);
 
         vm.warp(lt - 5);  vm.prank(owner); feed.setPrice(100e8); // pre-lock (id1)
@@ -668,10 +668,10 @@ contract SettleTest is Test {
     // =========================================================
 
     function test_refund_oneSided_noFee() public {
-        // Only alice bets UP; bob does not bet.
+        // Only alice calls UP; bob does not call.
         vm.warp(1);
         _fund(alice, MIN);
-        vm.prank(alice); arena.placeBet(btcId, 1, true, MIN);
+        vm.prank(alice); arena.placeCall(btcId, 1, true, MIN);
 
         uint256 et = _end(1);
         vm.warp(et + 1);
@@ -687,7 +687,7 @@ contract SettleTest is Test {
     function test_refund_noUpdate_startId0() public {
         // Feed has NO update at or after lockTime; caller passes startRoundId=0.
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 lt = _lock(1); uint256 et = _end(1);
 
         // Only update is BEFORE lock
@@ -710,8 +710,8 @@ contract SettleTest is Test {
         uint256 emptyId = arena.marketCount() - 1;
 
         vm.warp(1);
-        _fund(alice, MIN); vm.prank(alice); arena.placeBet(emptyId, 1, true,  MIN);
-        _fund(bob,   MIN); vm.prank(bob);   arena.placeBet(emptyId, 1, false, MIN);
+        _fund(alice, MIN); vm.prank(alice); arena.placeCall(emptyId, 1, true,  MIN);
+        _fund(bob,   MIN); vm.prank(bob);   arena.placeCall(emptyId, 1, false, MIN);
 
         uint256 et = arena.endTime(emptyId, 1);
         vm.warp(et + 1);
@@ -724,7 +724,7 @@ contract SettleTest is Test {
 
     function test_refund_zeroPriceAtStart() public {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 lt = _lock(1); uint256 et = _end(1);
 
         vm.warp(lt - 5); vm.prank(owner); feed.setPrice(100e8);    // id1 pre-lock
@@ -742,7 +742,7 @@ contract SettleTest is Test {
 
     function test_refund_zeroPriceAtEnd() public {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 lt = _lock(1); uint256 et = _end(1);
 
         vm.warp(lt - 5); vm.prank(owner); feed.setPrice(100e8);
@@ -760,7 +760,7 @@ contract SettleTest is Test {
 
     function test_refund_negativePriceAtStart() public {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 lt = _lock(1); uint256 et = _end(1);
 
         vm.warp(lt - 5); vm.prank(owner); feed.setPrice(100e8);
@@ -778,7 +778,7 @@ contract SettleTest is Test {
 
     function test_refund_negativePriceAtEnd() public {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 lt = _lock(1); uint256 et = _end(1);
 
         vm.warp(lt - 5); vm.prank(owner); feed.setPrice(100e8);
@@ -796,7 +796,7 @@ contract SettleTest is Test {
 
     function test_refund_equalPrices() public {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 lt = _lock(1); uint256 et = _end(1);
 
         vm.warp(lt - 5); vm.prank(owner); feed.setPrice(100e8);
@@ -818,7 +818,7 @@ contract SettleTest is Test {
 
     function test_markRefunded_worksAfterWindow() public {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 et = _end(1);
         // Warp past deadline without settling
         vm.warp(et + 1 hours + 1);
@@ -833,7 +833,7 @@ contract SettleTest is Test {
 
     function test_markRefunded_tooEarlyAtDeadline() public {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 et = _end(1);
         uint256 earliest = et + 1 hours;
         vm.warp(earliest); // exactly at deadline, NOT strictly after
@@ -850,7 +850,7 @@ contract SettleTest is Test {
     function test_markRefunded_alreadySettled_reverts() public {
         // Mark round 1 as refunded via timeout, then try again → RoundAlreadySettled.
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 et1 = _end(1);
         vm.warp(et1 + 1 hours + 1);
         vm.prank(settler); arena.markRefunded(btcId, 1);
@@ -863,7 +863,7 @@ contract SettleTest is Test {
 
     function test_markRefunded_anyCallerCanCall() public {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 et = _end(1);
         vm.warp(et + 1 hours + 1);
 
@@ -876,7 +876,7 @@ contract SettleTest is Test {
     }
 
     function test_settleClosedAfterDeadline_markRefundedWorks() public {
-        (, uint256 et) = _setupBtcRound1WithBets();
+        (, uint256 et) = _setupBtcRound1WithCalls();
         uint256 deadline = et + 1 hours;
         // Try settle after deadline → SettleWindowClosed
         vm.warp(deadline + 1);
@@ -901,7 +901,7 @@ contract SettleTest is Test {
     function test_phase_firstUpdateOfPhase1_validStart() public {
         // Phase 1, round 1 has no predecessor – it is special-cased as valid.
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 lt = _lock(1); uint256 et = _end(1);
 
         // ONLY update ever is at lt+1 (phase 1, round 1)
@@ -921,7 +921,7 @@ contract SettleTest is Test {
     function test_phase_startIsFirstOfPhase2_phaseEdgeRefund() public {
         // startRoundId = (2<<64)|1 (first of phase 2): cannot verify predecessor
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 lt = _lock(1); uint256 et = _end(1);
 
         // Phase 1 update before lock
@@ -946,7 +946,7 @@ contract SettleTest is Test {
         // endRoundId + 1 does not exist but endRoundId is NOT the latest →
         // phase edge (phase change happened after endRoundId).
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 lt = _lock(1); uint256 et = _end(1);
 
         vm.warp(lt - 5); vm.prank(owner); feed.setPrice(100e8); // (1<<64)|1
@@ -975,7 +975,7 @@ contract SettleTest is Test {
 
     function test_settle_balanceUnchanged() public {
         vm.warp(1);
-        _placeBothBets(btcId, 1, 5_000_000);
+        _placeBothCalls(btcId, 1, 5_000_000);
         uint256 balanceBefore = usdc.balanceOf(address(arena));
 
         uint256 lt = _lock(1); uint256 et = _end(1);
@@ -996,7 +996,7 @@ contract SettleTest is Test {
 
     function test_settle_emitsRoundSettledEvent() public {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 lt = _lock(1); uint256 et = _end(1);
 
         vm.warp(lt - 5); vm.prank(owner); feed.setPrice(100e8);
@@ -1049,10 +1049,10 @@ contract SettleTest is Test {
     function testFuzz_settle_correctPairOnly(
         uint8  nUpdates,
         uint64[8] calldata gaps,
-        uint128 betSize,
+        uint128 callSize,
         bool   equalPrices
     ) public {
-        _fuzzSettle(nUpdates, gaps, betSize, equalPrices);
+        _fuzzSettle(nUpdates, gaps, callSize, equalPrices);
     }
 
     // Packed to avoid stack-too-deep in _fuzzSettle.
@@ -1072,18 +1072,18 @@ contract SettleTest is Test {
     function _fuzzSettle(
         uint8  nUpdates,
         uint64[8] calldata gaps,
-        uint128 betSize,
+        uint128 callSize,
         bool   equalPrices
     ) internal {
         FuzzCtx memory c;
         c.n          = bound(uint256(nUpdates), 1, 8);
-        c.amt        = bound(uint256(betSize),  MIN, 1_000_000);
+        c.amt        = bound(uint256(callSize),  MIN, 1_000_000);
         c.equalPrices = equalPrices;
 
         vm.warp(1);
         _fund(alice, c.amt); _fund(bob, c.amt);
-        vm.prank(alice); arena.placeBet(btcId, 1, true,  c.amt);
-        vm.prank(bob);   arena.placeBet(btcId, 1, false, c.amt);
+        vm.prank(alice); arena.placeCall(btcId, 1, true,  c.amt);
+        vm.prank(bob);   arena.placeCall(btcId, 1, false, c.amt);
 
         c.lt = _lock(1);
         c.et = _end(1);
@@ -1326,7 +1326,7 @@ contract SettleTest is Test {
         // Because endId.roundInPhase (1) < startId.roundInPhase (2) the
         // outcome is EndNotAfterStart (Rule 16).
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 lt = _lock(1);
         uint256 et = _end(1);
 
@@ -1387,7 +1387,7 @@ contract SettleTest is Test {
         )
     {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         lt = _lock(1); et = _end(1);
 
         // id1 = pre-lock (valid start predecessor)
@@ -1479,7 +1479,7 @@ contract SettleTest is Test {
         )
     {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         lt = _lock(1); et = _end(1);
 
         vm.warp(lt - 50);  vm.prank(owner); feed.setPrice(100e8); idP = (uint80(1)<<64)|1;
@@ -1538,7 +1538,7 @@ contract SettleTest is Test {
     }
 
     // =========================================================
-    //  C. Fee base with unequal bets (guards against M9 / M9b / M13)
+    //  C. Fee base with unequal calls (guards against M9 / M9b / M13)
     //
     //  Uses a market with minStake = 1 so we can test rounding to 0.
     // =========================================================
@@ -1553,30 +1553,30 @@ contract SettleTest is Test {
     }
 
     /// Helper: set up a round on the given market with separate UP/DOWN amounts.
-    function _placeSplitBets(
+    function _placeSplitCalls(
         uint256 mid, uint256 roundIdx,
         uint256 upAmt, uint256 downAmt
     ) internal {
         _fund(alice, upAmt);
         _fund(bob,   downAmt);
-        vm.prank(alice); arena.placeBet(mid, roundIdx, true,  upAmt);
-        vm.prank(bob);   arena.placeBet(mid, roundIdx, false, downAmt);
+        vm.prank(alice); arena.placeCall(mid, roundIdx, true,  upAmt);
+        vm.prank(bob);   arena.placeCall(mid, roundIdx, false, downAmt);
     }
 
-    /// UP wins with unequal bets: fee = downTotal * 2% (NOT upTotal).
+    /// UP wins with unequal calls: fee = downTotal * 2% (NOT upTotal).
     /// Bug caught: M9 swaps fee base to upTotal for SettledUp.
-    function test_fee_upWins_unequalBets() public {
+    function test_fee_upWins_unequalCalls() public {
         // UP = 1_000_000 (alice: 600k + 400k top-up not possible since WrongSide
-        // – use two different UP bettors instead).
+        // – use two different UP callers instead).
         address alice2 = makeAddr("alice2");
-        uint256 upAmt   = 1_000_000; // alice bets all at once
+        uint256 upAmt   = 1_000_000; // alice calls all at once
         uint256 downAmt =   250_000; // bob
 
         vm.warp(1);
         _fund(alice,  upAmt);
         _fund(bob,    downAmt);
-        vm.prank(alice); arena.placeBet(btcId, 1, true,  upAmt);
-        vm.prank(bob);   arena.placeBet(btcId, 1, false, downAmt);
+        vm.prank(alice); arena.placeCall(btcId, 1, true,  upAmt);
+        vm.prank(bob);   arena.placeCall(btcId, 1, false, downAmt);
 
         uint256 lt = _lock(1); uint256 et = _end(1);
         vm.warp(lt - 5);  vm.prank(owner); feed.setPrice(100e8); // pre-lock
@@ -1596,9 +1596,9 @@ contract SettleTest is Test {
         alice2; // suppress unused warning
     }
 
-    /// DOWN wins with unequal bets: fee = upTotal * 2%.
+    /// DOWN wins with unequal calls: fee = upTotal * 2%.
     /// Bug caught: M9b swaps fee base to downTotal for SettledDown.
-    function test_fee_downWins_unequalBets() public {
+    function test_fee_downWins_unequalCalls() public {
         uint256 upAmt   = 1_000_000;
         uint256 downAmt =   250_000;
 
@@ -1613,8 +1613,8 @@ contract SettleTest is Test {
         vm.warp(lt2 - 100);
         _fund(alice, upAmt);
         _fund(bob,   downAmt);
-        vm.prank(alice); arena.placeBet(ethId, 1, true,  upAmt);
-        vm.prank(bob);   arena.placeBet(ethId, 1, false, downAmt);
+        vm.prank(alice); arena.placeCall(ethId, 1, true,  upAmt);
+        vm.prank(bob);   arena.placeCall(ethId, 1, false, downAmt);
 
         // These feed updates add to the shared feed. Use fresh ids.
         // (The BTC tests above may have already set prices; ethId uses the same
@@ -1654,8 +1654,8 @@ contract SettleTest is Test {
 
         _fund(alice, winAmt);
         _fund(bob,   loseAmt);
-        vm.prank(alice); arena.placeBet(microId, 1, true,  winAmt);
-        vm.prank(bob);   arena.placeBet(microId, 1, false, loseAmt);
+        vm.prank(alice); arena.placeCall(microId, 1, true,  winAmt);
+        vm.prank(bob);   arena.placeCall(microId, 1, false, loseAmt);
 
         // Fresh feed (microId uses the same shared feed).
         // This test runs in isolation so the feed is clean.
@@ -1699,8 +1699,8 @@ contract SettleTest is Test {
         uint256 et4 = arena.endTime(p1Id, 1);
 
         vm.warp(1);
-        _fund(alice, MIN); vm.prank(alice); arena.placeBet(p1Id, 1, true,  MIN);
-        _fund(bob,   MIN); vm.prank(bob);   arena.placeBet(p1Id, 1, false, MIN);
+        _fund(alice, MIN); vm.prank(alice); arena.placeCall(p1Id, 1, true,  MIN);
+        _fund(bob,   MIN); vm.prank(bob);   arena.placeCall(p1Id, 1, false, MIN);
 
         // ONLY updates are inside the round – no pre-lock update.
         vm.warp(lt4 + 1);   vm.prank(owner); freshFeed.setPrice(100e8); // id=(1<<64)|1 start
@@ -1743,8 +1743,8 @@ contract SettleTest is Test {
         uint256 et5 = arena.endTime(p1dId, 1);
 
         vm.warp(1);
-        _fund(alice, MIN); vm.prank(alice); arena.placeBet(p1dId, 1, true,  MIN);
-        _fund(bob,   MIN); vm.prank(bob);   arena.placeBet(p1dId, 1, false, MIN);
+        _fund(alice, MIN); vm.prank(alice); arena.placeCall(p1dId, 1, true,  MIN);
+        _fund(bob,   MIN); vm.prank(bob);   arena.placeCall(p1dId, 1, false, MIN);
 
         vm.warp(lt5 + 1);   vm.prank(owner); freshFeed2.setPrice(100e8); // id1 start
         vm.warp(lt5 + 100); vm.prank(owner); freshFeed2.setPrice(90e8);  // id2 end (lower)
@@ -1774,7 +1774,7 @@ contract SettleTest is Test {
     ///  original tests remain intact as a baseline.)
     function test_phase_startIsFirstOfPhase2_reason_phaseEdge() public {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 lt = _lock(1); uint256 et = _end(1);
 
         vm.warp(lt - 5); vm.prank(owner); feed.setPrice(100e8);
@@ -1802,7 +1802,7 @@ contract SettleTest is Test {
 
     function test_phase_endSuccessorMissingNotLatest_reason_phaseEdge() public {
         vm.warp(1);
-        _placeBothBets(btcId, 1, MIN);
+        _placeBothCalls(btcId, 1, MIN);
         uint256 lt = _lock(1); uint256 et = _end(1);
 
         vm.warp(lt - 5); vm.prank(owner); feed.setPrice(100e8); // (1<<64)|1

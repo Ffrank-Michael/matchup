@@ -47,7 +47,7 @@ per round) goes to `feesAccrued` as today (`RoundDustToFees`).
 
 `_winnerBonus`, `_computePayout`, `_claimOne` (including `PayoutProgress` dust tracking), `claimable`, `_finaliseRound` (fee is 2% of
 **M**, not of the losing side's whole total). New view `matchedStake(marketId, roundIndex, player) returns (matched, unmatched)` for
-the site. `placeBet`, `settle`, `markRefunded`, the settle window, events, errors, ownership and pausing stay as they are.
+the site. `placeCall`, `settle`, `markRefunded`, the settle window, events, errors, ownership and pausing stay as they are.
 `claim` must now succeed for a loser on the bigger side (pays the unmatched part) and still revert `NothingToClaim` when the payout is 0.
 No new owner powers. No on-chain maximum stake.
 

@@ -100,7 +100,7 @@ contract GuardedRelayFeedTest is Test {
             owner, pusher,
             AggregatorV3Interface(address(guardFeed)),
             100,
-            "Kairo relay BTC/USD"
+            "Matchup relay BTC/USD"
         );
     }
 
@@ -111,31 +111,31 @@ contract GuardedRelayFeedTest is Test {
     function test_constructor_revertZeroPusher() public {
         vm.expectRevert(abi.encodeWithSelector(GuardedRelayFeed.ZeroPusher.selector));
         new GuardedRelayFeed(owner, address(0),
-            AggregatorV3Interface(address(guardFeed)), 100, "Kairo relay BTC/USD");
+            AggregatorV3Interface(address(guardFeed)), 100, "Matchup relay BTC/USD");
     }
 
     function test_constructor_revertZeroGuard() public {
         vm.expectRevert(abi.encodeWithSelector(GuardedRelayFeed.GuardUnavailable.selector));
         new GuardedRelayFeed(owner, pusher,
-            AggregatorV3Interface(address(0)), 100, "Kairo relay BTC/USD");
+            AggregatorV3Interface(address(0)), 100, "Matchup relay BTC/USD");
     }
 
     function test_constructor_revertBandZero() public {
         vm.expectRevert("bandBps must be 1..1000");
         new GuardedRelayFeed(owner, pusher,
-            AggregatorV3Interface(address(guardFeed)), 0, "Kairo relay BTC/USD");
+            AggregatorV3Interface(address(guardFeed)), 0, "Matchup relay BTC/USD");
     }
 
     function test_constructor_revertBandAbove1000() public {
         vm.expectRevert("bandBps must be 1..1000");
         new GuardedRelayFeed(owner, pusher,
-            AggregatorV3Interface(address(guardFeed)), 1001, "Kairo relay BTC/USD");
+            AggregatorV3Interface(address(guardFeed)), 1001, "Matchup relay BTC/USD");
     }
 
     function test_constructor_band1000_accepted() public {
         // 1000 bps (10%) is at the edge; must succeed
         new GuardedRelayFeed(owner, pusher,
-            AggregatorV3Interface(address(guardFeed)), 1000, "Kairo relay BTC/USD");
+            AggregatorV3Interface(address(guardFeed)), 1000, "Matchup relay BTC/USD");
     }
 
     function test_constructor_revertEmptyDescription() public {
@@ -145,7 +145,7 @@ contract GuardedRelayFeedTest is Test {
     }
 
     function test_constructor_revertWrongDescriptionPrefix() public {
-        vm.expectRevert("description must start with 'Kairo relay '");
+        vm.expectRevert("description must start with 'Matchup relay '");
         new GuardedRelayFeed(owner, pusher,
             AggregatorV3Interface(address(guardFeed)), 100, "TEST PRICES - NOT REAL DATA");
     }
@@ -154,7 +154,7 @@ contract GuardedRelayFeedTest is Test {
         ZeroDecimalFeed zd = new ZeroDecimalFeed();
         vm.expectRevert("guard decimals must be nonzero");
         new GuardedRelayFeed(owner, pusher,
-            AggregatorV3Interface(address(zd)), 100, "Kairo relay BTC/USD");
+            AggregatorV3Interface(address(zd)), 100, "Matchup relay BTC/USD");
     }
 
     // ================================================================
@@ -166,7 +166,7 @@ contract GuardedRelayFeedTest is Test {
     }
 
     function test_description() public view {
-        assertEq(relay.description(), "Kairo relay BTC/USD");
+        assertEq(relay.description(), "Matchup relay BTC/USD");
     }
 
     function test_version() public view {
@@ -462,7 +462,7 @@ contract GuardedRelayFeedTest is Test {
         GuardedRelayFeed r = new GuardedRelayFeed(
             owner, pusher,
             AggregatorV3Interface(address(bigGuard)),
-            100, "Kairo relay BTC/USD"
+            100, "Matchup relay BTC/USD"
         );
 
         vm.expectRevert(abi.encodeWithSelector(
@@ -480,7 +480,7 @@ contract GuardedRelayFeedTest is Test {
         GuardedRelayFeed r = new GuardedRelayFeed(
             owner, pusher,
             AggregatorV3Interface(address(bigGuard2)),
-            100, "Kairo relay BTC/USD"
+            100, "Matchup relay BTC/USD"
         );
 
         vm.expectRevert(abi.encodeWithSelector(
@@ -503,7 +503,7 @@ contract GuardedRelayFeedTest is Test {
             owner, pusher,
             AggregatorV3Interface(address(edgeGuard)),
             100, // 100 bps band
-            "Kairo relay BTC/USD"
+            "Matchup relay BTC/USD"
         );
 
         // Push equal to guard — inside band, must succeed.
@@ -564,7 +564,7 @@ contract GuardedRelayFeedTest is Test {
         // Deploy relay at t+1000
         GuardedRelayFeed r = new GuardedRelayFeed(
             owner, pusher, AggregatorV3Interface(address(freshGuard)),
-            100, "Kairo relay BTC/USD");
+            100, "Matchup relay BTC/USD");
 
         // Warp BACK to before the push (simulate a clock skew)
         // block.timestamp is now t+1000; warp back 500 → t+500
@@ -594,7 +594,7 @@ contract GuardedRelayFeedTest is Test {
         GuardedRelayFeed r = new GuardedRelayFeed(
             owner, pusher,
             AggregatorV3Interface(address(bad)),
-            100, "Kairo relay BTC/USD"
+            100, "Matchup relay BTC/USD"
         );
 
         vm.prank(pusher);
@@ -609,7 +609,7 @@ contract GuardedRelayFeedTest is Test {
         GuardedRelayFeed r = new GuardedRelayFeed(
             owner, pusher,
             AggregatorV3Interface(address(emptyGuard)),
-            100, "Kairo relay BTC/USD"
+            100, "Matchup relay BTC/USD"
         );
 
         vm.prank(pusher);
@@ -665,7 +665,7 @@ contract GuardedRelayFeedTest is Test {
         GuardedRelayFeed r = new GuardedRelayFeed(
             owner, pusher,
             AggregatorV3Interface(address(guardFeed)),
-            100, "Kairo relay BTC/USD"
+            100, "Matchup relay BTC/USD"
         );
         vm.expectRevert("No data present");
         r.latestRoundData();
@@ -745,7 +745,7 @@ contract GuardedRelayFeedTest is Test {
         vm.prank(owner); gf.setPrice(guardAns);
         GuardedRelayFeed r = new GuardedRelayFeed(
             owner, pusher, AggregatorV3Interface(address(gf)),
-            band, "Kairo relay BTC/USD"
+            band, "Matchup relay BTC/USD"
         );
 
         // Compute expected result in plain Solidity (independent of contract).
@@ -796,7 +796,7 @@ contract GuardedRelayFeedTest is Test {
         intRelay = new GuardedRelayFeed(
             owner, pusher,
             AggregatorV3Interface(address(intGuard)),
-            100, "Kairo relay BTC/USD"
+            100, "Matchup relay BTC/USD"
         );
 
         vm.startPrank(owner);
@@ -813,12 +813,12 @@ contract GuardedRelayFeedTest is Test {
         vm.stopPrank();
     }
 
-    function _fundAndBet(address who, uint256 mid, uint256 rnd, bool up, uint256 amt) internal {
+    function _fundAndCall(address who, uint256 mid, uint256 rnd, bool up, uint256 amt) internal {
         arenaUsdc.mint(who, amt);
         vm.prank(who);
         arenaUsdc.approve(address(arena), amt);
         vm.prank(who);
-        arena.placeBet(mid, rnd, up, amt);
+        arena.placeCall(mid, rnd, up, amt);
     }
 
     /// Build the correct (startId, endId) for a round by scanning the relay.
@@ -860,12 +860,12 @@ contract GuardedRelayFeedTest is Test {
     function test_integration_upWins() public {
         _integrationSetup();
         uint256 mid = 0;
-        uint256 rnd = 1; // next bettable at t=1000 (before offset 0+3600)
+        uint256 rnd = 1; // next callable at t=1000 (before offset 0+3600)
 
-        // Bet before lock (round 1 lock = 3600)
+        // Call before lock (round 1 lock = 3600)
         vm.warp(2000);
-        _fundAndBet(alice, mid, rnd, true,  200_000); // alice UP
-        _fundAndBet(bob,   mid, rnd, false, 150_000); // bob DOWN
+        _fundAndCall(alice, mid, rnd, true,  200_000); // alice UP
+        _fundAndCall(bob,   mid, rnd, false, 150_000); // bob DOWN
 
         uint256 lt = arena.lockTime(mid, rnd);   // 3600
         uint256 et = arena.endTime(mid, rnd);    // 7200
@@ -893,7 +893,7 @@ contract GuardedRelayFeedTest is Test {
         // Alice wins
         vm.prank(alice);
         uint256 payout = arena.claim(mid, rnd);
-        assertTrue(payout > 200_000, "alice should get back more than she bet");
+        assertTrue(payout > 200_000, "alice should get back more than she staked");
 
         // Bob loses
         vm.prank(bob);
@@ -908,8 +908,8 @@ contract GuardedRelayFeedTest is Test {
         uint256 rnd = 1;
 
         vm.warp(2000);
-        _fundAndBet(alice, mid, rnd, true,  200_000);
-        _fundAndBet(bob,   mid, rnd, false, 150_000);
+        _fundAndCall(alice, mid, rnd, true,  200_000);
+        _fundAndCall(bob,   mid, rnd, false, 150_000);
 
         uint256 lt = arena.lockTime(mid, rnd);
         uint256 et = arena.endTime(mid, rnd);
@@ -945,8 +945,8 @@ contract GuardedRelayFeedTest is Test {
         uint256 rnd = 1;
 
         vm.warp(2000);
-        _fundAndBet(alice, mid, rnd, true,  200_000);
-        _fundAndBet(bob,   mid, rnd, false, 150_000);
+        _fundAndCall(alice, mid, rnd, true,  200_000);
+        _fundAndCall(bob,   mid, rnd, false, 150_000);
 
         uint256 lt = arena.lockTime(mid, rnd);
         uint256 et = arena.endTime(mid, rnd);
@@ -986,7 +986,7 @@ contract GuardedRelayFeedTest is Test {
         return new GuardedRelayFeed(
             owner, pusher,
             AggregatorV3Interface(address(gf)),
-            band, "Kairo relay BTC/USD"
+            band, "Matchup relay BTC/USD"
         );
     }
 }

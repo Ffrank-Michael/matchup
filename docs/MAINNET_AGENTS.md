@@ -19,7 +19,7 @@ The runner pushes prices, settles rounds and plays the house agents. It must run
 
 **Status, said plainly.** Today this runs the **testnet** runner (`runner/supervise.mjs` starts `runner/run.mjs --live`, which refuses any network but Arc testnet). The mainnet runner is built but not deployed or started (see "Mainnet" at the end); the mainnet house agents are not built yet.
 
-**Only one runner at a time.** Two runners would push prices and place bets twice. Stop the one on your PC before you start the server's.
+**Only one runner at a time.** Two runners would push prices and place calls twice. Stop the one on your PC before you start the server's.
 
 ## One-time setup, in order
 
@@ -144,7 +144,7 @@ sudo systemctl restart kairo-runner
 
 ### The mainnet runner (`runner/run-mainnet.mjs`): built, never run against mainnet yet
 
-It pushes prices and settles rounds on Arc mainnet (chain 5042) and nothing else. It does **not** place bets: the mainnet house agents are not built yet.
+It pushes prices and settles rounds on Arc mainnet (chain 5042) and nothing else. It does **not** place calls: the mainnet house agents are not built yet.
 
 **What it reads from `.env`** (these names only; every other line is ignored, so it never holds another key):
 

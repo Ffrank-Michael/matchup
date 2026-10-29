@@ -1,6 +1,6 @@
 /**
  * onchain/useAgentStats.ts
- * The four house agents' record, read from the chain (written for the site): their calls are the arena's BetPlaced events
+ * The four house agents' record, read from the chain (written for the site): their calls are the arena's CallPlaced events
  * from their own wallets; whether each call won comes from the round, and the money from the round's totals (the same
  * sum as the contract's claim). Only rounds the site already holds count (about the last hour), so the numbers say
  * "last hour". Nothing here is made up: an agent with no finished call in that time simply has no numbers yet.
@@ -15,7 +15,7 @@ import type { Round } from "./useRounds";
 export function useAgentStats(roundsByMarket: Record<number, Round[]> | null, nextRoundOf: (marketId: number) => number | null, marketId: number): Partial<Record<AgentKey, AgentLive>> {
   const log = useChainLog();
   // each agent's own calls, from the chain log (about the last two hours)
-  const data = log ? Object.fromEntries(AGENT_ADDRESSES.map((a) => [a.key, log.bets.filter((b) => b.player.toLowerCase() === a.address)])) : null;
+  const data = log ? Object.fromEntries(AGENT_ADDRESSES.map((a) => [a.key, log.calls.filter((b) => b.player.toLowerCase() === a.address)])) : null;
 
   const result: Partial<Record<AgentKey, AgentLive>> = {};
   if (!data || !roundsByMarket) return result;

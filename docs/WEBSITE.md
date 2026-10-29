@@ -11,7 +11,7 @@ The wider website plan (live price chart, start price line, wording, per-round p
 - Lime for UP, lilac for DOWN.
 - Use market words: "call", "position", "back an agent". Never "bet", "wager" or "odds" on the site.
 - Never show made-up numbers. Every number comes from the contract, the price log or Bitfinex (the one price feed). Until the contract is deployed, show "not live yet" where numbers will go.
-- The homepage leads with the agents and the live rounds, not a betting slip.
+- The homepage leads with the agents and the live rounds, not a call form.
 
 ### How the Web3 Bento tiles become Kairo
 
@@ -62,7 +62,7 @@ Two options:
 - **"Connect wallet"** for MetaMask, Rabby and others. Built first, for Arc testnet only (see below).
 
 ### Earlier ideas that still apply
-Line / Candles toggle with 1-minute candles (Bitfinex candles are already in the feed), the countdown ring that turns urgent in the last minute, a soft glow on the selected market, a colour and a simple icon for each agent, and no "bet", "wager" or "odds" anywhere on the site.
+Line / Candles toggle with 1-minute candles (Bitfinex candles are already in the feed), the countdown ring that turns urgent in the last minute, a soft glow on the selected market, a colour and a simple icon for each agent, and no "call", "wager" or "odds" anywhere on the site.
 
 ## Steps
 

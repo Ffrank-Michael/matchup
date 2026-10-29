@@ -15,7 +15,7 @@ import { usePublicClient } from "wagmi";
 import { ARENA_ADDRESSES } from "./addresses";
 import { NETWORK } from "./env";
 import { addressTopic, explorerLogs, numberTopic } from "./explorerLogs";
-import { BET_PLACED, CLAIMED, PRICE_RELAYED, ROUND_SETTLED, settlementKey, useChainLog, type ChainLog, type PricePush, type Settlement } from "./useChainLog";
+import { CALL_PLACED, CLAIMED, PRICE_RELAYED, ROUND_SETTLED, settlementKey, useChainLog, type ChainLog, type PricePush, type Settlement } from "./useChainLog";
 
 export type { PricePush, Settlement } from "./useChainLog";
 export { pushKey, settlementKey } from "./useChainLog";
@@ -84,9 +84,9 @@ export interface CallHistory {
 
 const inLogHistory = (log: ChainLog, marketId: number, roundIndex: number, player: string) => {
   const p = player.toLowerCase();
-  const bet = log.bets.find((b) => b.marketId === marketId && b.roundIndex === roundIndex && b.player.toLowerCase() === p);
+  const call = log.calls.find((b) => b.marketId === marketId && b.roundIndex === roundIndex && b.player.toLowerCase() === p);
   const claim = [...log.claims].reverse().find((c) => c.marketId === marketId && c.roundIndex === roundIndex && c.player.toLowerCase() === p);
-  return { bet, claim };
+  return { call, claim };
 };
 
 /** A player's call and claim transactions for one round (for the receipt): the recent log first, the explorer for an older round. */
@@ -99,9 +99,9 @@ export function useCallHistory(marketId: number | null, roundIndex: number | nul
 
   // the time of the call: the timestamp of its block
   const time = useQuery({
-    queryKey: ["blockTime", NETWORK, recent?.bet?.block],
-    queryFn: async () => Number((await client!.getBlock({ blockNumber: BigInt(recent!.bet!.block) })).timestamp),
-    enabled: !!client && !!recent?.bet,
+    queryKey: ["blockTime", NETWORK, recent?.call?.block],
+    queryFn: async () => Number((await client!.getBlock({ blockNumber: BigInt(recent!.call!.block) })).timestamp),
+    enabled: !!client && !!recent?.call,
     staleTime: Infinity,
   });
 
@@ -109,22 +109,22 @@ export function useCallHistory(marketId: number | null, roundIndex: number | nul
     queryKey: ["callHistoryOlder", NETWORK, marketId, roundIndex, player?.toLowerCase()],
     queryFn: async (): Promise<CallHistory> => {
       const topics = (t0: string) => [t0, numberTopic(marketId as number), numberTopic(roundIndex as number), addressTopic(player as string)];
-      const bets = await explorerLogs({ address: arena as string, topics: topics(BET_PLACED), fromBlock: 0 });
+      const calls = await explorerLogs({ address: arena as string, topics: topics(CALL_PLACED), fromBlock: 0 });
       const claims = await explorerLogs({ address: arena as string, topics: topics(CLAIMED), fromBlock: 0 });
       const claim = claims[claims.length - 1];
       return {
-        callTx: bets[0]?.txHash ?? null,
-        callTime: bets[0]?.time ?? null,
+        callTx: calls[0]?.txHash ?? null,
+        callTime: calls[0]?.time ?? null,
         claimTx: claim?.txHash ?? null,
         paidOut: claim ? (decodeAbiParameters(parseAbiParameters("uint256"), claim.data)[0] as bigint) : null,
       };
     },
-    enabled: !!arena && ready && !recent?.bet,
+    enabled: !!arena && ready && !recent?.call,
     staleTime: 60_000,
     retry: false,
   });
 
   if (!ready) return null;
-  if (recent?.bet) return { callTx: recent.bet.tx, callTime: time.data ?? null, claimTx: recent.claim?.tx ?? null, paidOut: recent.claim?.amount ?? null };
+  if (recent?.call) return { callTx: recent.call.tx, callTime: time.data ?? null, claimTx: recent.claim?.tx ?? null, paidOut: recent.claim?.amount ?? null };
   return older.data ?? null;
 }

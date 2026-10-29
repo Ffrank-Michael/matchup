@@ -1,7 +1,7 @@
 /**
  * src/onchain/useRounds.ts
  * ─────────────────────────────────────────────────────────────
- * Reads the last `count` rounds (default 8) plus the next bettable one
+ * Reads the last `count` rounds (default 8) plus the next callable one
  * for a given market, in ONE multicall.
  *
  * Round state mapping (from PredictionArena.sol RoundState enum):

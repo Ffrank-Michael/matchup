@@ -5,7 +5,7 @@ pragma solidity ^0.8.24;
 //  Kairo Markets – Claim / Payout tests (Step 6, v1.1 Matched Calls)
 //
 //  Covers:
-//   - Happy paths (UP wins, DOWN wins, 3+ players, unequal bets)
+//   - Happy paths (UP wins, DOWN wins, 3+ players, unequal calls)
 //   - Bigger-side loser receives unmatched stake back
 //   - All refund reasons pay exact stake, no fee
 //   - Once-only, stranger, wrong-time guards
@@ -70,10 +70,10 @@ contract ClaimBase is Test {
         usdc.approve(address(arena), amt);
     }
 
-    function _bet(address who, uint256 mid, uint256 rnd, bool up, uint256 amt) internal {
+    function _makeCall(address who, uint256 mid, uint256 rnd, bool up, uint256 amt) internal {
         _fund(who, amt);
         vm.prank(who);
-        arena.placeBet(mid, rnd, up, amt);
+        arena.placeCall(mid, rnd, up, amt);
     }
 
     function _lock(uint256 mid, uint256 k) internal view returns (uint256) {
@@ -84,7 +84,7 @@ contract ClaimBase is Test {
     }
 
     /// Set up feed and settle BTC round 1 with start price P1 and end price P2.
-    /// Call AFTER bets have been placed and time warped to before lock.
+    /// Call AFTER calls have been placed and time warped to before lock.
     function _settleWith(uint256 mid, uint256 rnd, int256 p1, int256 p2)
         internal
     {
@@ -125,8 +125,8 @@ contract ClaimTest is ClaimBase {
     // =========================================================
     //  Happy path – UP wins, 3 players UP, 2 DOWN
     //
-    //  UP bettors:   alice 600_000, bob 400_000, carol 200_000  → U = 1_200_000
-    //  DOWN bettors: dave  750_000, settler 250_000             → D = 1_000_000
+    //  UP callers:   alice 600_000, bob 400_000, carol 200_000  → U = 1_200_000
+    //  DOWN callers: dave  750_000, settler 250_000             → D = 1_000_000
     //  M = min(U, D) = 1_000_000   T = max(U, D) = 1_200_000
     //  F = floor(M * 200 / 10_000) = 20_000
     //  Dist = M - F = 980_000
@@ -158,17 +158,17 @@ contract ClaimTest is ClaimBase {
     uint128 constant DN_DAVE   = 750_000;
     uint128 constant DN_SETTLER= 250_000;
 
-    // Returns (lt, et, startId, endId) after setting up bets and the feed.
+    // Returns (lt, et, startId, endId) after setting up calls and the feed.
     function _setupUpWins()
         internal
         returns (uint256 lt, uint256 et, uint80 startId, uint80 endId)
     {
         vm.warp(1);
-        _bet(alice,   btcId, 1, true,  UP_ALICE);
-        _bet(bob,     btcId, 1, true,  UP_BOB);
-        _bet(carol,   btcId, 1, true,  UP_CAROL);
-        _bet(dave,    btcId, 1, false, DN_DAVE);
-        _bet(settler, btcId, 1, false, DN_SETTLER);
+        _makeCall(alice,   btcId, 1, true,  UP_ALICE);
+        _makeCall(bob,     btcId, 1, true,  UP_BOB);
+        _makeCall(carol,   btcId, 1, true,  UP_CAROL);
+        _makeCall(dave,    btcId, 1, false, DN_DAVE);
+        _makeCall(settler, btcId, 1, false, DN_SETTLER);
 
         lt = _lock(btcId, 1);
         et = _end(btcId, 1);
@@ -269,12 +269,12 @@ contract ClaimTest is ClaimBase {
         internal
         returns (uint80 startId, uint80 endId)
     {
-        // ETH startOffset = 1200; at t=1201 nextBettableRound(ethId) == 1.
+        // ETH startOffset = 1200; at t=1201 nextCallableRound(ethId) == 1.
         vm.warp(1201);
-        _bet(alice, ethId, 1, true,  1_000_000);
-        _bet(bob,   ethId, 1, false, 300_000);
-        _bet(carol, ethId, 1, false, 200_000);
-        _bet(dave,  ethId, 1, false, 100_000);
+        _makeCall(alice, ethId, 1, true,  1_000_000);
+        _makeCall(bob,   ethId, 1, false, 300_000);
+        _makeCall(carol, ethId, 1, false, 200_000);
+        _makeCall(dave,  ethId, 1, false, 100_000);
 
         uint256 lt = _lock(ethId, 1);
         uint256 et = _end(ethId, 1);
@@ -342,14 +342,14 @@ contract ClaimTest is ClaimBase {
     //  Refund paths – exact stake returned, no fee
     // =========================================================
 
-    /// Helper: bet both sides, warp and settle with a refund outcome.
+    /// Helper: call both sides, warp and settle with a refund outcome.
     function _setupAndSettleRefund(
         uint256 mid, uint256 rnd,
         uint80 startId, uint80 endId,
         int256 startPr, int256 endPr,
         PredictionArena.RefundReason reason
     ) internal {
-        // Bets already placed by caller before calling this.
+        // Calls already placed by caller before calling this.
         uint256 lt = _lock(mid, rnd);
         uint256 et = _end(mid, rnd);
 
@@ -381,9 +381,9 @@ contract ClaimTest is ClaimBase {
     function SETTLE_WINDOW() internal pure returns (uint256) { return 1 hours; }
 
     function test_refund_oneSided_aliceGetsStakeBack() public {
-        // Only alice bets UP; no DOWN bettors.
+        // Only alice calls UP; no DOWN callers.
         vm.warp(1);
-        _bet(alice, btcId, 1, true, MIN);
+        _makeCall(alice, btcId, 1, true, MIN);
         (, uint256 et, , ) = _times(btcId, 1);
         vm.warp(et + 1);
         vm.prank(settler); arena.settle(btcId, 1, 0, 0);
@@ -406,8 +406,8 @@ contract ClaimTest is ClaimBase {
 
     function test_refund_noUpdate_bothGetStakeBack() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true,  MIN);
-        _bet(bob,   btcId, 1, false, MIN);
+        _makeCall(alice, btcId, 1, true,  MIN);
+        _makeCall(bob,   btcId, 1, false, MIN);
         uint256 lt = _lock(btcId, 1);
         uint256 et = _end(btcId, 1);
         vm.warp(lt - 5); vm.prank(owner); feed.setPrice(100e8);
@@ -421,8 +421,8 @@ contract ClaimTest is ClaimBase {
 
     function test_refund_unchangedPrice_bothGetStakeBack() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true,  2*MIN);
-        _bet(bob,   btcId, 1, false, 3*MIN);
+        _makeCall(alice, btcId, 1, true,  2*MIN);
+        _makeCall(bob,   btcId, 1, false, 3*MIN);
         uint256 lt = _lock(btcId, 1);
         uint256 et = _end(btcId, 1);
         vm.warp(lt - 5); vm.prank(owner); feed.setPrice(100e8);
@@ -437,8 +437,8 @@ contract ClaimTest is ClaimBase {
 
     function test_refund_invalidPrice_bothGetStakeBack() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true,  MIN);
-        _bet(bob,   btcId, 1, false, MIN);
+        _makeCall(alice, btcId, 1, true,  MIN);
+        _makeCall(bob,   btcId, 1, false, MIN);
         uint256 lt = _lock(btcId, 1);
         uint256 et = _end(btcId, 1);
         vm.warp(lt - 5); vm.prank(owner); feed.setPrice(100e8);
@@ -455,8 +455,8 @@ contract ClaimTest is ClaimBase {
         // Two updates inside round; same ID used as start and end (single update).
         // Single update => endId == startId => EndNotAfterStart.
         vm.warp(1);
-        _bet(alice, btcId, 1, true,  MIN);
-        _bet(bob,   btcId, 1, false, MIN);
+        _makeCall(alice, btcId, 1, true,  MIN);
+        _makeCall(bob,   btcId, 1, false, MIN);
         uint256 lt = _lock(btcId, 1);
         uint256 et = _end(btcId, 1);
         vm.warp(lt - 5); vm.prank(owner); feed.setPrice(100e8);
@@ -472,8 +472,8 @@ contract ClaimTest is ClaimBase {
     function test_refund_timeout_viaAutoFinalise() public {
         // Nobody calls settle; claim() itself auto-finalises as Timeout.
         vm.warp(1);
-        _bet(alice, btcId, 1, true,  MIN);
-        _bet(bob,   btcId, 1, false, MIN);
+        _makeCall(alice, btcId, 1, true,  MIN);
+        _makeCall(bob,   btcId, 1, false, MIN);
         uint256 et = _end(btcId, 1);
         vm.warp(et + SETTLE_WINDOW() + 1); // past window
 
@@ -488,7 +488,7 @@ contract ClaimTest is ClaimBase {
     /// After the settle window the caller's own claim() finalises it as a Timeout refund: full stake back, no fee.
     function test_refund_oneSided_neverSettled_claimedAfterWindow_fullRefund() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true, MIN); // only UP; nobody takes DOWN
+        _makeCall(alice, btcId, 1, true, MIN); // only UP; nobody takes DOWN
         uint256 et = _end(btcId, 1);
 
         // Still inside the window (exactly at the deadline): not claimable yet, and the preview says 0.
@@ -537,7 +537,7 @@ contract ClaimTest is ClaimBase {
 
     function test_alreadyClaimed_refund_reverts() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true, MIN);
+        _makeCall(alice, btcId, 1, true, MIN);
         uint256 et = _end(btcId, 1);
         vm.warp(et + 1);
         vm.prank(settler); arena.settle(btcId, 1, 0, 0); // OneSided refund
@@ -561,8 +561,8 @@ contract ClaimTest is ClaimBase {
 
     function test_claimInsideWindow_reverts() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true, MIN);
-        _bet(bob,   btcId, 1, false, MIN);
+        _makeCall(alice, btcId, 1, true, MIN);
+        _makeCall(bob,   btcId, 1, false, MIN);
         uint256 et = _end(btcId, 1);
         vm.warp(et + 1); // inside window but not settled
 
@@ -576,8 +576,8 @@ contract ClaimTest is ClaimBase {
     function test_claimExactlyAtDeadline_reverts() public {
         // Exactly at endTime + SETTLE_WINDOW: auto-finalise requires STRICTLY after.
         vm.warp(1);
-        _bet(alice, btcId, 1, true, MIN);
-        _bet(bob,   btcId, 1, false, MIN);
+        _makeCall(alice, btcId, 1, true, MIN);
+        _makeCall(bob,   btcId, 1, false, MIN);
         uint256 et = _end(btcId, 1);
         uint256 deadline = et + SETTLE_WINDOW();
         vm.warp(deadline); // exactly at deadline, NOT strictly after
@@ -591,8 +591,8 @@ contract ClaimTest is ClaimBase {
 
     function test_claimOneSecondAfterDeadline_pays() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true, MIN);
-        _bet(bob,   btcId, 1, false, MIN);
+        _makeCall(alice, btcId, 1, true, MIN);
+        _makeCall(bob,   btcId, 1, false, MIN);
         uint256 et = _end(btcId, 1);
         vm.warp(et + SETTLE_WINDOW() + 1); // one second after deadline
 
@@ -630,10 +630,10 @@ contract ClaimTest is ClaimBase {
         mid = arena.marketCount() - 1;
 
         vm.warp(1);
-        _bet(w1,    mid, 1, true,  1);
-        _bet(w2,    mid, 1, true,  1);
-        _bet(w3,    mid, 1, true,  1);
-        _bet(loser, mid, 1, false, 1);
+        _makeCall(w1,    mid, 1, true,  1);
+        _makeCall(w2,    mid, 1, true,  1);
+        _makeCall(w3,    mid, 1, true,  1);
+        _makeCall(loser, mid, 1, false, 1);
 
         uint256 lt = _lock(mid, 1);
         uint256 et = _end(mid, 1);
@@ -755,7 +755,7 @@ contract ClaimTest is ClaimBase {
     // =========================================================
 
     /// Set up three separate rounds on three markets, each settled UP,
-    /// all with a single UP bettor (alice) and a single DOWN bettor (bob).
+    /// all with a single UP caller (alice) and a single DOWN caller (bob).
     /// Returns the round indexes.
     function _setupThreeRounds()
         internal
@@ -764,15 +764,15 @@ contract ClaimTest is ClaimBase {
         // BTC round 1: lt=3600, et=7200
         // ETH round 1: lt=4800, et=8400   (startOffset=1200)
         // SOL round 1: lt=6000, et=9600   (startOffset=2400)
-        // At t=2401 all three markets have nextBettableRound==1.
+        // At t=2401 all three markets have nextCallableRound==1.
 
         vm.warp(2401);
-        _bet(alice, btcId, 1, true,  1_000_000);
-        _bet(bob,   btcId, 1, false, 500_000);
-        _bet(alice, ethId, 1, true,  2_000_000);
-        _bet(bob,   ethId, 1, false, 600_000);
-        _bet(alice, solId, 1, true,  3_000_000);
-        _bet(bob,   solId, 1, false, 700_000);
+        _makeCall(alice, btcId, 1, true,  1_000_000);
+        _makeCall(bob,   btcId, 1, false, 500_000);
+        _makeCall(alice, ethId, 1, true,  2_000_000);
+        _makeCall(bob,   ethId, 1, false, 600_000);
+        _makeCall(alice, solId, 1, true,  3_000_000);
+        _makeCall(bob,   solId, 1, false, 700_000);
 
         // Feed for BTC
         uint256 lt1 = _lock(btcId, 1); uint256 et1 = _end(btcId, 1);
@@ -839,12 +839,12 @@ contract ClaimTest is ClaimBase {
 
     function test_claimMany_mixedWinRefund() public {
         // BTC: alice wins (UP); ETH: both sides, refund (unchanged price).
-        // ETH startOffset=1200; warp to 1201 so nextBettableRound(ethId)==1.
+        // ETH startOffset=1200; warp to 1201 so nextCallableRound(ethId)==1.
         vm.warp(1201);
-        _bet(alice, btcId, 1, true,  MIN);
-        _bet(bob,   btcId, 1, false, MIN);
-        _bet(alice, ethId, 1, true,  MIN);
-        _bet(bob,   ethId, 1, false, MIN);
+        _makeCall(alice, btcId, 1, true,  MIN);
+        _makeCall(bob,   btcId, 1, false, MIN);
+        _makeCall(alice, ethId, 1, true,  MIN);
+        _makeCall(bob,   ethId, 1, false, MIN);
 
         // Settle BTC UP wins
         uint256 lt1 = _lock(btcId, 1); uint256 et1 = _end(btcId, 1);
@@ -916,12 +916,12 @@ contract ClaimTest is ClaimBase {
 
     function test_claimMany_unsettled_reverts_whole() public {
         _setupThreeRounds();
-        // Set up a 4th round (BTC round 2) with bets but no settle
+        // Set up a 4th round (BTC round 2) with calls but no settle
         vm.warp(1);
         uint256 lt2 = _lock(btcId, 2);
         vm.warp(lt2 - 100);
-        _bet(alice, btcId, 2, true, MIN);
-        _bet(bob,   btcId, 2, false, MIN);
+        _makeCall(alice, btcId, 2, true, MIN);
+        _makeCall(bob,   btcId, 2, false, MIN);
         // Don't settle round 2; claim inside the window
 
         uint256 et2 = _end(btcId, 2);
@@ -941,7 +941,7 @@ contract ClaimTest is ClaimBase {
 
     function test_claimMany_loser_reverts_whole() public {
         _setupThreeRounds();
-        // bob bet DOWN on all markets; UP won on all → bob is a loser everywhere.
+        // bob called DOWN on all markets; UP won on all → bob is a loser everywhere.
         // Put btcId first so the revert happens at the first entry.
         uint256[] memory mids = new uint256[](2);
         uint256[] memory rnds = new uint256[](2);
@@ -984,10 +984,10 @@ contract ClaimTest is ClaimBase {
 
     function test_withdrawFees_guard_triggersWhenFeesWouldTouchPlayerFunds() public {
         // Force inconsistent state: set feesAccrued > (balance - totalPlayerFunds).
-        // Place bets first so there are real player funds.
+        // Place calls first so there are real player funds.
         vm.warp(1);
-        _bet(alice, btcId, 1, true,  1_000_000);
-        _bet(bob,   btcId, 1, false, 1_000_000);
+        _makeCall(alice, btcId, 1, true,  1_000_000);
+        _makeCall(bob,   btcId, 1, false, 1_000_000);
         // Do NOT settle; no feesAccrued, but totalPlayerFunds = 2_000_000.
 
         // Use vm.store to inflate feesAccrued beyond what the balance minus
@@ -1040,8 +1040,8 @@ contract ClaimTest is ClaimBase {
 
     function test_claimable_zero_insideWindow() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true, MIN);
-        _bet(bob,   btcId, 1, false, MIN);
+        _makeCall(alice, btcId, 1, true, MIN);
+        _makeCall(bob,   btcId, 1, false, MIN);
         uint256 et = _end(btcId, 1);
         vm.warp(et + 1); // inside window, not settled
         assertEq(arena.claimable(btcId, 1, alice), 0);
@@ -1049,8 +1049,8 @@ contract ClaimTest is ClaimBase {
 
     function test_claimable_nonzero_timedOut() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true, MIN);
-        _bet(bob,   btcId, 1, false, MIN);
+        _makeCall(alice, btcId, 1, true, MIN);
+        _makeCall(bob,   btcId, 1, false, MIN);
         uint256 et = _end(btcId, 1);
         vm.warp(et + SETTLE_WINDOW() + 1);
         // Timed-out: claimable should return their stake as a timeout refund.
@@ -1063,8 +1063,8 @@ contract ClaimTest is ClaimBase {
     /// One second later the round has timed out and the preview shows the full refund.
     function test_claimable_timeoutBoundary_exactlyAtDeadline() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true, MIN);
-        _bet(bob,   btcId, 1, false, MIN);
+        _makeCall(alice, btcId, 1, true, MIN);
+        _makeCall(bob,   btcId, 1, false, MIN);
         uint256 deadline = _end(btcId, 1) + SETTLE_WINDOW();
 
         vm.warp(deadline);
@@ -1094,8 +1094,8 @@ contract ClaimTest is ClaimBase {
         uint256 wId = arena.marketCount() - 1;
 
         vm.warp(1);
-        _bet(alice, wId, 1, true,  10_000_000);
-        _bet(bob,   wId, 1, false,  6_000_000);
+        _makeCall(alice, wId, 1, true,  10_000_000);
+        _makeCall(bob,   wId, 1, false,  6_000_000);
 
         uint256 lt = _lock(wId, 1); uint256 et = _end(wId, 1);
         vm.warp(lt - 2); vm.prank(owner); feed.setPrice(100e8);
@@ -1125,8 +1125,8 @@ contract ClaimTest is ClaimBase {
         uint256 wId = arena.marketCount() - 1;
 
         vm.warp(1);
-        _bet(alice, wId, 1, true,  10_000_000);
-        _bet(bob,   wId, 1, false,  6_000_000);
+        _makeCall(alice, wId, 1, true,  10_000_000);
+        _makeCall(bob,   wId, 1, false,  6_000_000);
 
         uint256 lt = _lock(wId, 1); uint256 et = _end(wId, 1);
         vm.warp(lt - 2); vm.prank(owner); feed.setPrice(100e8);
@@ -1150,8 +1150,8 @@ contract ClaimTest is ClaimBase {
     /// A tie (U == D): every player is fully matched on both sides.
     function test_matchedStake_tie() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true,  MIN);
-        _bet(bob,   btcId, 1, false, MIN);
+        _makeCall(alice, btcId, 1, true,  MIN);
+        _makeCall(bob,   btcId, 1, false, MIN);
 
         uint256 lt = _lock(btcId, 1); uint256 et = _end(btcId, 1);
         vm.warp(lt - 2); vm.prank(owner); feed.setPrice(100e8);
@@ -1173,8 +1173,8 @@ contract ClaimTest is ClaimBase {
     /// matchedStake returns (0,0) for unsettled and refunded rounds.
     function test_matchedStake_zeroForRefundedAndUnsettled() public {
         vm.warp(1);
-        _bet(alice, btcId, 1, true,  MIN);
-        _bet(bob,   btcId, 1, false, MIN);
+        _makeCall(alice, btcId, 1, true,  MIN);
+        _makeCall(bob,   btcId, 1, false, MIN);
 
         // Unsettled
         (uint256 m, uint256 u) = arena.matchedStake(btcId, 1, alice);
@@ -1192,7 +1192,7 @@ contract ClaimTest is ClaimBase {
     //  Bigger-side loser claims on UP wins (spec requirement)
     // =========================================================
 
-    /// UP 10 / DOWN 6, UP wins. Bigger-side loser is the one-sided UP bettor
+    /// UP 10 / DOWN 6, UP wins. Bigger-side loser is the one-sided UP caller
     /// BUT wait – UP won means DOWN lost. DOWN (6M) is the smaller side,
     /// so DOWN losers have NothingToClaim. No bigger-side loser on the DOWN side.
     /// In this setup the UP side won and is the bigger side – they are winners.

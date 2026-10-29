@@ -67,8 +67,8 @@ export function makeReader({ pub, usdc, deployments }) {
     const count = Number(marketCount);
     const ids = Array.from({ length: count }, (_, i) => i);
 
-    // 1. every market's settings, name and next bettable round
-    const head = await batch(ids.flatMap((id) => [arenaCall('markets', [BigInt(id)]), arenaCall('marketName', [BigInt(id)]), arenaCall('nextBettableRound', [BigInt(id)])]));
+    // 1. every market's settings, name and next callable round
+    const head = await batch(ids.flatMap((id) => [arenaCall('markets', [BigInt(id)]), arenaCall('marketName', [BigInt(id)]), arenaCall('nextCallableRound', [BigInt(id)])]));
     const markets = ids.map((id) => {
       const [feedA, , roundLength, startOffset, minStake, paused] = head[id * 3];
       return { id, name: head[id * 3 + 1], roundLength: Number(roundLength), startOffset: Number(startOffset), minStake: Number(minStake), paused, nextRound: Number(head[id * 3 + 2]), rounds: {}, feed: { address: feedA, updates: [] } };

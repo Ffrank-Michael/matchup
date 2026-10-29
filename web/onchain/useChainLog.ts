@@ -23,7 +23,7 @@ const CHUNKS = 3;
 
 export const ROUND_SETTLED = toEventSelector("RoundSettled(uint256,uint256,uint8,uint80,uint80,int256,int256,uint8)");
 export const PRICE_RELAYED = toEventSelector("PriceRelayed(uint80,int256,int256,uint256)");
-export const BET_PLACED = toEventSelector("BetPlaced(uint256,uint256,address,bool,uint256)");
+export const CALL_PLACED = toEventSelector("CallPlaced(uint256,uint256,address,bool,uint256)");
 export const CLAIMED = toEventSelector("Claimed(uint256,uint256,address,uint256)");
 
 export interface Settlement {
@@ -52,7 +52,7 @@ export interface PricePush {
   tx: `0x${string}`;
 }
 
-export interface BetEvent {
+export interface CallEvent {
   marketId: number;
   roundIndex: number;
   player: `0x${string}`;
@@ -75,7 +75,7 @@ export interface ClaimEvent {
 export interface ChainLog {
   settlements: Map<string, Settlement>;
   pushes: Map<string, PricePush>;
-  bets: BetEvent[];
+  calls: CallEvent[];
   claims: ClaimEvent[];
 }
 
@@ -115,7 +115,7 @@ export function useChainLog(): ChainLog | null {
         logs.push(...got);
       }
 
-      const out: ChainLog = { settlements: new Map(), pushes: new Map(), bets: [], claims: [] };
+      const out: ChainLog = { settlements: new Map(), pushes: new Map(), calls: [], claims: [] };
       for (const l of logs) {
         const t0 = l.topics[0];
         const tx = l.transactionHash as `0x${string}`;
@@ -128,9 +128,9 @@ export function useChainLog(): ChainLog | null {
           const [answer, , updatedAt] = decodeAbiParameters(parseAbiParameters("int256,int256,uint256"), l.data);
           const roundId = BigInt(l.topics[1] as string);
           out.pushes.set(pushKey(l.address, roundId), { roundId, price: Number(answer) / 1e8, time: Number(updatedAt), tx });
-        } else if (t0 === BET_PLACED) {
+        } else if (t0 === CALL_PLACED) {
           const [up, amount] = decodeAbiParameters(parseAbiParameters("bool,uint256"), l.data);
-          out.bets.push({ marketId: topicNum(l.topics[1]), roundIndex: topicNum(l.topics[2]), player: topicAddr(l.topics[3]), side: up ? "UP" : "DOWN", amount, tx, block });
+          out.calls.push({ marketId: topicNum(l.topics[1]), roundIndex: topicNum(l.topics[2]), player: topicAddr(l.topics[3]), side: up ? "UP" : "DOWN", amount, tx, block });
         } else if (t0 === CLAIMED) {
           const [amount] = decodeAbiParameters(parseAbiParameters("uint256"), l.data);
           out.claims.push({ marketId: topicNum(l.topics[1]), roundIndex: topicNum(l.topics[2]), player: topicAddr(l.topics[3]), amount, tx, block });

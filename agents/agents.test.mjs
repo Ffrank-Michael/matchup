@@ -19,7 +19,7 @@ const flat = (p) => ({ startPrice: p, endPrice: p });
 const ctx = (over = {}) => ({
   market: 'BTC/USD',
   history: [],
-  bets: { up: 0, down: 0 },
+  calls: { up: 0, down: 0 },
   minStake: MIN,
   ...over,
 });
@@ -39,18 +39,18 @@ function mulberry32(seed) {
 
 // ---------------------------------------------------------------- trend follower
 
-test('trend follower: last round UP -> bets UP, with the real prices in the reason', () => {
+test('trend follower: last round UP -> calls UP, with the real prices in the reason', () => {
   const d = trend.decide(ctx({ history: [down(101000, 100000), up(100000, 100500)] }));
-  assert.equal(d.action, 'BET');
+  assert.equal(d.action, 'CALL');
   assert.equal(d.side, 'UP');
   assert.equal(d.stake, 500_000);
-  assert.equal(d.reason, 'BTC/USD last round went UP (100,000.00 -> 100,500.00, +0.50%), so I follow the trend and bet UP.');
+  assert.equal(d.reason, 'BTC/USD last round went UP (100,000.00 -> 100,500.00, +0.50%), so I follow the trend and call UP.');
 });
 
-test('trend follower: last round DOWN -> bets DOWN', () => {
+test('trend follower: last round DOWN -> calls DOWN', () => {
   const d = trend.decide(ctx({ history: [up(99000, 100000), down(100000, 99000)] }));
   assert.equal(d.side, 'DOWN');
-  assert.equal(d.reason, 'BTC/USD last round went DOWN (100,000.00 -> 99,000.00, -1.00%), so I follow the trend and bet DOWN.');
+  assert.equal(d.reason, 'BTC/USD last round went DOWN (100,000.00 -> 99,000.00, -1.00%), so I follow the trend and call DOWN.');
 });
 
 test('trend follower: only the LAST round counts', () => {
@@ -67,7 +67,7 @@ test('trend follower: no history or a flat last round -> skips and says why', ()
   assert.match(f.reason, /flat at 100,000\.00/);
 });
 
-test('trend follower: stake respects the minimum bet and the balance', () => {
+test('trend follower: stake respects the minimum call and the balance', () => {
   assert.equal(trend.decide(ctx({ history: [up(1, 2)], minStake: 700_000 })).stake, 700_000);
   assert.equal(trend.decide(ctx({ history: [up(1, 2)], balance: 300_000 })).stake, 300_000);
   assert.equal(trend.decide(ctx({ history: [up(1, 2)], balance: MIN })).stake, MIN);
@@ -78,43 +78,43 @@ test('trend follower: stake respects the minimum bet and the balance', () => {
 
 // ---------------------------------------------------------------- contrarian
 
-test('contrarian: more money on UP -> bets DOWN', () => {
-  const d = contrarian.decide(ctx({ bets: { up: 1_500_000, down: 500_000 } }));
-  assert.equal(d.action, 'BET');
+test('contrarian: more money on UP -> calls DOWN', () => {
+  const d = contrarian.decide(ctx({ calls: { up: 1_500_000, down: 500_000 } }));
+  assert.equal(d.action, 'CALL');
   assert.equal(d.side, 'DOWN');
   assert.equal(d.stake, 400_000);
-  assert.equal(d.reason, 'BTC/USD: $1.50 is on UP and $0.50 on DOWN (75% on UP), so I bet against the crowd: DOWN.');
+  assert.equal(d.reason, 'BTC/USD: $1.50 is on UP and $0.50 on DOWN (75% on UP), so I go against the crowd: DOWN.');
 });
 
-test('contrarian: more money on DOWN -> bets UP', () => {
-  const d = contrarian.decide(ctx({ bets: { up: 200_000, down: 800_000 } }));
+test('contrarian: more money on DOWN -> calls UP', () => {
+  const d = contrarian.decide(ctx({ calls: { up: 200_000, down: 800_000 } }));
   assert.equal(d.side, 'UP');
-  assert.equal(d.reason, 'BTC/USD: $0.20 is on UP and $0.80 on DOWN (80% on DOWN), so I bet against the crowd: UP.');
+  assert.equal(d.reason, 'BTC/USD: $0.20 is on UP and $0.80 on DOWN (80% on DOWN), so I go against the crowd: UP.');
 });
 
 test('contrarian: a one-cent lead is still a lead', () => {
-  assert.equal(contrarian.decide(ctx({ bets: { up: 510_000, down: 500_000 } })).side, 'DOWN');
+  assert.equal(contrarian.decide(ctx({ calls: { up: 510_000, down: 500_000 } })).side, 'DOWN');
 });
 
 test('contrarian: an empty round or an even split -> skips', () => {
   const empty = contrarian.decide(ctx());
   assert.equal(empty.action, 'SKIP');
-  assert.match(empty.reason, /nobody has bet/);
-  const even = contrarian.decide(ctx({ bets: { up: 500_000, down: 500_000 } }));
+  assert.match(empty.reason, /nobody has called/);
+  const even = contrarian.decide(ctx({ calls: { up: 500_000, down: 500_000 } }));
   assert.equal(even.action, 'SKIP');
   assert.match(even.reason, /even split/);
 });
 
 test('contrarian: ignores prices completely', () => {
-  const a = contrarian.decide(ctx({ bets: { up: 900_000, down: 100_000 }, history: [up(1, 2)] }));
-  const b = contrarian.decide(ctx({ bets: { up: 900_000, down: 100_000 }, history: [down(2, 1)] }));
+  const a = contrarian.decide(ctx({ calls: { up: 900_000, down: 100_000 }, history: [up(1, 2)] }));
+  const b = contrarian.decide(ctx({ calls: { up: 900_000, down: 100_000 }, history: [down(2, 1)] }));
   assert.equal(a.side, 'DOWN');
   assert.equal(b.side, 'DOWN');
 });
 
 test('contrarian: stake respects the balance', () => {
-  assert.equal(contrarian.decide(ctx({ bets: { up: 1, down: 0 }, balance: 150_000 })).stake, 150_000);
-  assert.equal(contrarian.decide(ctx({ bets: { up: 1, down: 0 }, balance: 90_000 })).action, 'SKIP');
+  assert.equal(contrarian.decide(ctx({ calls: { up: 1, down: 0 }, balance: 150_000 })).stake, 150_000);
+  assert.equal(contrarian.decide(ctx({ calls: { up: 1, down: 0 }, balance: 90_000 })).action, 'SKIP');
 });
 
 // ---------------------------------------------------------------- chart reader
@@ -126,7 +126,7 @@ const falling = () => candlesFrom(Array.from({ length: 20 }, (_, i) => 120 - i))
 
 test('chart reader: 5-candle average above the 20-candle average and the last candle closed higher -> UP', () => {
   const d = reader.decide(ctx({ candles: rising() }));
-  assert.equal(d.action, 'BET');
+  assert.equal(d.action, 'CALL');
   assert.equal(d.side, 'UP');
   assert.equal(d.stake, 500_000);
   assert.equal(d.reason, 'BTC/USD 5-candle average 117.00, 20-candle average 109.50, last candle 118.00 -> 119.00: the short average is above the long one and the last candle closed higher. I call UP.');
@@ -134,14 +134,14 @@ test('chart reader: 5-candle average above the 20-candle average and the last ca
 
 test('chart reader: 5-candle average below the 20-candle average and the last candle closed lower -> DOWN', () => {
   const d = reader.decide(ctx({ candles: falling() }));
-  assert.equal(d.action, 'BET');
+  assert.equal(d.action, 'CALL');
   assert.equal(d.side, 'DOWN');
 });
 
 test('chart reader: the averages say UP but the last candle closed lower -> follows the last candle: DOWN', () => {
   const closes = Array.from({ length: 20 }, (_, i) => 100 + i);
   const d = reader.decide(ctx({ candles: candlesFrom(closes, 125) })); // opened at 125, closed at 119
-  assert.equal(d.action, 'BET');
+  assert.equal(d.action, 'CALL');
   assert.equal(d.side, 'DOWN');
   assert.equal(d.stake, 500_000);
   assert.equal(d.reason, 'BTC/USD 5-candle average 117.00, 20-candle average 109.50, last candle 125.00 -> 119.00: the averages say UP but the last candle closed lower, so I follow the last candle. I call DOWN.');
@@ -150,7 +150,7 @@ test('chart reader: the averages say UP but the last candle closed lower -> foll
 test('chart reader: the averages say DOWN but the last candle closed higher -> follows the last candle: UP', () => {
   const closes = Array.from({ length: 20 }, (_, i) => 120 - i);
   const d = reader.decide(ctx({ candles: candlesFrom(closes, 90) })); // opened at 90, closed at 101
-  assert.equal(d.action, 'BET');
+  assert.equal(d.action, 'CALL');
   assert.equal(d.side, 'UP');
 });
 
@@ -166,7 +166,7 @@ test('chart reader: the last candle closing exactly where it opened -> follows t
 test('chart reader: a completely flat chart follows the newest candle that moved, and calls UP if nothing moved', () => {
   const quiet = Array.from({ length: 20 }, () => ({ open: 100, close: 100 }));
   const none = reader.decide(ctx({ candles: quiet }));
-  assert.equal(none.action, 'BET'); // never skips
+  assert.equal(none.action, 'CALL'); // never skips
   assert.equal(none.side, 'UP');
   // Averages equal (the two moves cancel), last candle flat: the newest candle that moved decides.
   const dipThenRise = quiet.map((c, i) => (i === 5 ? { open: 101, close: 99 } : i === 6 ? { open: 99, close: 101 } : c));
@@ -191,8 +191,8 @@ test('chart reader: uses only the newest 20 candles when it is given more', () =
 
 test('chart reader: ignores the rounds history and the money on each side', () => {
   const history = [up(1, 2), up(2, 3), up(3, 4)];
-  assert.equal(reader.decide(ctx({ candles: rising(), history, bets: { up: 0, down: 9_000_000 } })).side, 'UP');
-  assert.equal(reader.decide(ctx({ candles: falling(), history, bets: { up: 9_000_000, down: 0 } })).side, 'DOWN');
+  assert.equal(reader.decide(ctx({ candles: rising(), history, calls: { up: 0, down: 9_000_000 } })).side, 'UP');
+  assert.equal(reader.decide(ctx({ candles: falling(), history, calls: { up: 9_000_000, down: 0 } })).side, 'DOWN');
 });
 
 test('chart reader: stake respects the minimum and the balance', () => {
@@ -224,10 +224,10 @@ test('coin flipper: exactly 0.50 is UP', () => {
   assert.equal(flipper.decide(ctx({ random: sequence(0.5, 0.5) })).side, 'UP');
 });
 
-test('coin flipper: ignores prices and bets', () => {
+test('coin flipper: ignores prices and calls', () => {
   const r = () => sequence(0.7, 0.2);
   const plain = flipper.decide(ctx({ random: r() }));
-  const loaded = flipper.decide(ctx({ random: r(), history: [down(2, 1), down(3, 2), down(4, 3)], bets: { up: 0, down: 9_000_000 } }));
+  const loaded = flipper.decide(ctx({ random: r(), history: [down(2, 1), down(3, 2), down(4, 3)], calls: { up: 0, down: 9_000_000 } }));
   assert.equal(plain.side, loaded.side);
   assert.equal(plain.stake, loaded.stake);
 });
@@ -246,7 +246,7 @@ test('coin flipper: 1000 seeded flips are about half UP and every stake is legal
 
 test('coin flipper: works with the default random source, and respects the balance', () => {
   const d = flipper.decide(ctx());
-  assert.equal(d.action, 'BET');
+  assert.equal(d.action, 'CALL');
   assert.ok(d.side === 'UP' || d.side === 'DOWN');
   assert.equal(flipper.decide(ctx({ random: sequence(0.9, 0.999), balance: 120_000 })).stake, 120_000);
   assert.equal(flipper.decide(ctx({ random: sequence(0.9, 0.999), balance: 10_000 })).action, 'SKIP');
@@ -254,12 +254,12 @@ test('coin flipper: works with the default random source, and respects the balan
 
 // ---------------------------------------------------------------- all four together
 
-test('every agent: any BET is UP or DOWN, a whole number of micro-USDC, within limits, with a reason containing real numbers', () => {
+test('every agent: any CALL is UP or DOWN, a whole number of micro-USDC, within limits, with a reason containing real numbers', () => {
   const history = [up(100000, 101000), up(101000, 102000), up(102000, 103000), down(103000, 102500)];
-  const bets = { up: 1_200_000, down: 300_000 };
+  const calls = { up: 1_200_000, down: 300_000 };
   for (const a of agents) {
-    const d = a.decide(ctx({ history, bets, candles: rising(), balance: 5_000_000, random: sequence(0.3, 0.4) }));
-    assert.equal(d.action, 'BET', `${a.name} should bet here`);
+    const d = a.decide(ctx({ history, calls, candles: rising(), balance: 5_000_000, random: sequence(0.3, 0.4) }));
+    assert.equal(d.action, 'CALL', `${a.name} should call here`);
     assert.ok(d.side === 'UP' || d.side === 'DOWN');
     assert.ok(Number.isInteger(d.stake) && d.stake >= MIN && d.stake <= 5_000_000, `${a.name} stake ${d.stake}`);
     assert.match(d.reason, /\d/, `${a.name} reason has no numbers`);
@@ -269,7 +269,7 @@ test('every agent: any BET is UP or DOWN, a whole number of micro-USDC, within l
 
 test('every agent: the four have different names, and none touches the input', () => {
   assert.deepEqual(agents.map((a) => a.name), ['Agent 1 · Trend Follower', 'Agent 2 · Contrarian', 'Agent 3 · Chart Reader', 'Agent 4 · Coin Flipper']);
-  const input = ctx({ history: [up(1, 2), up(2, 3), up(3, 4)], bets: { up: 5, down: 1 } });
+  const input = ctx({ history: [up(1, 2), up(2, 3), up(3, 4)], calls: { up: 5, down: 1 } });
   const copy = JSON.stringify(input);
   for (const a of agents) a.decide({ ...input, random: sequence(0.5, 0.5) });
   assert.equal(JSON.stringify(input), copy);
@@ -286,9 +286,9 @@ test('every agent: reasons read as normal sentences (words never stuck together,
   ];
   const crowds = [{ up: 0, down: 0 }, { up: 800_000, down: 200_000 }, { up: 100_000, down: 900_000 }, { up: 500_000, down: 500_000 }];
   let checked = 0;
-  for (const a of agents) for (const history of histories) for (const bets of crowds) for (const balance of [undefined, 5_000_000, 50_000]) {
+  for (const a of agents) for (const history of histories) for (const calls of crowds) for (const balance of [undefined, 5_000_000, 50_000]) {
     for (let r = 0; r < 4; r++) {
-      const d = a.decide(ctx({ history, bets, candles: [rising(), falling(), []][r % 3], balance, random: sequence(r / 4, (r + 1) / 5) }));
+      const d = a.decide(ctx({ history, calls, candles: [rising(), falling(), []][r % 3], balance, random: sequence(r / 4, (r + 1) / 5) }));
       const text = d.reason;
       assert.ok(typeof text === 'string' && text.length > 10, `${a.name}: empty reason`);
       assert.doesNotMatch(text, /(UP|DOWN)[a-z]|[a-z](UP|DOWN)\b/, `${a.name}: UP/DOWN stuck to a word: ${text}`);

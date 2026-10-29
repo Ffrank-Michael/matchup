@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 // =============================================================
-//  Kairo Markets – GuardedRelayFeed
+//  GuardedRelayFeed
 //
 //  A Chainlink AggregatorV3Interface implementation for Arc mainnet.
 //  A trusted pusher submits high-frequency prices (e.g. from Bitfinex)
@@ -29,7 +29,7 @@ import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step
 import {AggregatorV3Interface}  from "./interfaces/AggregatorV3Interface.sol";
 
 /// @title  GuardedRelayFeed
-/// @notice A Chainlink-compatible price feed for Kairo Markets on Arc mainnet.
+/// @notice A Chainlink-compatible price feed on Arc mainnet.
 ///         A trusted pusher supplies high-frequency prices (e.g. Bitfinex);
 ///         every submission is validated against a live Chainlink guard feed.
 ///
@@ -74,7 +74,7 @@ contract GuardedRelayFeed is AggregatorV3Interface, Ownable2Step {
     ///         Changed by the owner via setPusher().
     address public pusher;
 
-    /// @notice Human-readable feed label, e.g. "Kairo relay BTC/USD".
+    /// @notice Human-readable feed label, e.g. "Matchup relay BTC/USD".
     ///         Set once in the constructor; never changed.
     string private _description;
 
@@ -166,7 +166,7 @@ contract GuardedRelayFeed is AggregatorV3Interface, Ownable2Step {
     ///                      points.  Must be 1..1000 (0.01 %..10 %).
     ///                      Immutable after deployment.
     /// @param description_  Human-readable label.
-    ///                      Must start with "Kairo relay " and be non-empty.
+    ///                      Must start with "Matchup relay " and be non-empty.
     constructor(
         address               owner_,
         address               pusher_,
@@ -189,8 +189,8 @@ contract GuardedRelayFeed is AggregatorV3Interface, Ownable2Step {
         // ── Validate description ──────────────────────────────
         bytes memory db = bytes(description_);
         require(db.length > 0, "empty description");
-        require(_startsWith(description_, "Kairo relay "),
-            "description must start with 'Kairo relay '");
+        require(_startsWith(description_, "Matchup relay "),
+            "description must start with 'Matchup relay '");
 
         // ── Read decimals from guard (must be nonzero) ─────────
         uint8 dec = guard_.decimals();

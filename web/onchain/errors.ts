@@ -84,7 +84,7 @@ function technicalNote(err: unknown): string {
 // Each key is the Solidity custom error name exactly as declared in PredictionArena.sol.
 
 const CONTRACT_MESSAGES: Record<string, string> = {
-  // ── Market / round checks (placeBet) ──────────────────────
+  // ── Market / round checks (placeCall) ──────────────────────
   MarketNotFound:
     "That market does not exist. Please refresh and try again.",
   MarketPaused:

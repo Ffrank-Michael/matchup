@@ -181,9 +181,9 @@ test('executor: a stale Chainlink answer blocks the price too', async () => {
   assert.equal(c.sent.length, 0);
 });
 
-test('executor: only price pushes and settles exist (no bets, approvals or claims on mainnet)', async () => {
+test('executor: only price pushes and settles exist (no calls, approvals or claims on mainnet)', async () => {
   const execute = fakeChain().make(true);
-  for (const type of ['bet', 'approve', 'claim']) await assert.rejects(execute({ type }), /unknown action/);
+  for (const type of ['call', 'approve', 'claim']) await assert.rejects(execute({ type }), /unknown action/);
 });
 
 test('describe: plain words for both actions', () => {
@@ -215,7 +215,7 @@ test('preflight: the testnet RPC, a missing contract, the owner as runner, a wro
   assert.match((await pre(pubFor({ code: '0x' })))[0], /no contract at MAINNET_ARENA_ADDRESS/);
   assert.match((await pre(pubFor({ owner: RUNNER })))[0], /also the arena owner/);
   assert.match((await pre(pubFor({ pusher: OWNER })))[0], /not the pusher of feed/);
-  assert.match((await pre(pubFor({ pusher: null })))[0], /not a Kairo relay/);
+  assert.match((await pre(pubFor({ pusher: null })))[0], /not a Matchup relay/);
 });
 
 // ---------------------------------------------------------------- no gas on rounds without two sides (planTick with matchedOnly)
@@ -297,7 +297,7 @@ test('matched only: the runner does not poll fast for a price that will not be p
   assert.equal(tickDelay(snap({ 9: R(1_000_000, 1_000_000) }), cfg()), CFG.fastTickSeconds);
 });
 
-test('runner only: no bets, approvals or claims are planned, even where the testnet runner would', () => {
+test('runner only: no calls, approvals or claims are planned, even where the testnet runner would', () => {
   const agent = { key: 'trend-follower', balance: 5_000_000, allowance: 10_000_000, positions: { '0:8': { up: 1_000_000, down: 0, claimed: false } } };
   const markets = [mk(0, 10, { 8: R(1_000_000, 0, 'Refunded') })];
   const r = planTick({ now: 3000 - 100, markets, agents: [agent], candles: {} }, cfg());
