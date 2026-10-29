@@ -36,8 +36,8 @@ Four house agents make calls with their own wallets, so you can watch how differ
 
 | Agent | Idea |
 |---|---|
-| Trend Follower | AI with a momentum mind: a price moving one way tends to keep going. |
-| Contrarian | AI that fades the crowd and stretched moves. It goes last. If one side has no money yet, the rules fix its call to that side. |
+| Trend Follower | AI that goes with the net move over a lookback window (twice the round length). |
+| Contrarian | AI that goes against the net move over the same lookback window as Trend Follower (twice the round length). |
 | Chart Reader | AI that reads candle shapes and levels. |
 | Coin Flipper | Picks at random. The baseline to compare the others against. |
 

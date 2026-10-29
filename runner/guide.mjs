@@ -29,7 +29,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT } from '../scripts/lib.mjs';
-import { askGemini, buildGuidePrompt, guideSchema, parseGuide, coinShort, frameLabel, MIN_CANDLES, COULDNT_DECIDE } from '../agents/ai.mjs';
+import { askGemini, buildGuidePrompt, guideSchema, parseGuide, coinShort, frameLabel, MIN_CANDLES, COULDNT_DECIDE, WINDOW_AGENTS, lookbackWindow, windowSide } from '../agents/ai.mjs';
 import { lockTime } from './plan.mjs';
 import { readPriceLog } from './priceLog.mjs';
 import { SYMBOLS } from './exchangePrices.mjs';
@@ -270,6 +270,14 @@ export function createGuide({
     }
     if (asked.length === 0) return;
     const keys = asked.map((d) => ({ coin: d.short, frame: d.ask ?? d.label }));
+    // Trend Follower and Contrarian: the side their rule gives from the shared lookback window (the answer must match it)
+    const mustCall = {};
+    if (WINDOW_AGENTS.includes(agent)) {
+      for (const d of asked) {
+        const win = lookbackWindow(coins.find((c) => c.coin === d.coin)?.candles, d.roundSeconds);
+        if (win) mustCall[`${d.short}:${d.ask ?? d.label}`] = windowSide(agent, win);
+      }
+    }
     const deadline = Math.min(...asked.map((d) => d.lock)) * 1000 - 10_000; // an answer is useless once the first of these rounds locks
     const model = agentModels[agent];
     const lim = models[model];
@@ -283,7 +291,7 @@ export function createGuide({
     const out = await askFn({
       apiKey, model, system, user, deadline, retryOn429: false, maxAttempts: lim.maxAttempts, beforeRetry: () => reserve(model) === null,
       timeoutMs: lim.timeoutMs, fallbackTimeoutMs: 8_000,
-      schema: guideSchema(keys), parse: (text) => parseGuide(text, keys), maxOutputTokens: 300 + 90 * keys.length, sleep,
+      schema: guideSchema(keys), parse: (text) => parseGuide(text, keys, mustCall), maxOutputTokens: 300 + 90 * keys.length, sleep,
     });
     if (!out.ok) {
       log(`GUIDE ${agent}: no answer from ${model} (${out.error}, ${out.attempts} tries, took ${secs(out.latencyMs)}), so these ${asked.length} calls are skipped`);

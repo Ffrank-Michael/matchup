@@ -23,6 +23,9 @@ const candles = Array.from({ length: 60 }, (_, i) => ({ time: T0 - 3600 + i * 60
 const AI_ENTRIES = 9; // 6 open rounds + the 5-minute round after the next one of each of the 3 coins
 const ALL_CALLS = 6 + 3 * AI_ENTRIES; // Coin Flipper's 6 + 3 AI agents x 9
 
+// the test candles only rise, so the lookback window ends higher than it began: Trend Follower goes with it (UP), Contrarian against it (DOWN)
+const ruleCall = (system) => (system.includes('You are the Trend Follower') ? 'UP' : system.includes('You are the Contrarian') ? 'DOWN' : null);
+
 // what a model that works answers: one UP/DOWN call and reason for every entry asked
 function answerFor(args) {
   const n = args.schema.properties.calls.minItems;
@@ -30,7 +33,7 @@ function answerFor(args) {
   const list = [];
   for (const c of coins) for (const f of frames) list.push({ coin: c, frame: f });
   const wanted = list.filter((e) => args.user.includes(`Coin: ${e.coin}.`) && args.user.includes(`- ${e.frame}:`)).slice(0, n);
-  return { ok: true, value: args.parse(JSON.stringify({ calls: wanted.map((e, i) => ({ coin: e.coin, frame: e.frame, call: i % 2 ? 'DOWN' : 'UP', reason: `${e.coin} ${e.frame} moved 0.2%` })) })), tokensIn: 100, tokensOut: 50, latencyMs: 5, attempts: 1, model: args.model };
+  return { ok: true, value: args.parse(JSON.stringify({ calls: wanted.map((e, i) => ({ coin: e.coin, frame: e.frame, call: ruleCall(args.system) ?? (i % 2 ? 'DOWN' : 'UP'), reason: `${e.coin} ${e.frame} moved 0.2%` })) })), tokensIn: 100, tokensOut: 50, latencyMs: 5, attempts: 1, model: args.model };
 }
 
 function setup(over = {}) {
@@ -461,4 +464,55 @@ test('a missing key means no request and no crash', async () => {
   await settle();
   assert.equal(t.asks.length, 0);
   assert.ok(t.logs.some((l) => /GEMINI_API_KEY is not set/.test(l)));
+});
+
+test('Trend Follower and Contrarian are given the same lookback window for a round, with opposite rules; Chart Reader is given none', () => {
+  const frames = [{ label: '5m', roundSeconds: 300, secondsToLock: 200 }, { label: '1h', roundSeconds: 3600, secondsToLock: 900 }];
+  const ask = (agent) => buildGuidePrompt({ agent, coins: [{ coin: 'BTC/USD', candles, frames }] });
+  const lines = (user) => user.split('\n').filter((l) => l.startsWith('- BTC ') && l.includes('net move'));
+  const trend = lines(ask('trend-follower').user), contra = lines(ask('contrarian').user);
+  assert.equal(trend.length, 2);
+  assert.match(trend[0], /^- BTC 5m: last 10 one-minute candles/);   // 2 x 5 minutes
+  assert.match(trend[1], /^- BTC 1h: last 60 one-minute candles/);   // only 60 candles exist, so the window is what there is
+  const same = (l) => l.replace(/; so you call (UP|DOWN)$/, '');
+  assert.deepEqual(trend.map(same), contra.map(same), 'the same data for both');
+  assert.ok(trend.every((l) => l.endsWith('so you call UP')) && contra.every((l) => l.endsWith('so you call DOWN')));
+  assert.match(ask('trend-follower').system, /go WITH that net move|You go WITH/);
+  assert.match(ask('contrarian').system, /You go AGAINST/);
+  assert.equal(lines(ask('chart-reader').user).length, 0);
+  assert.ok(!/another player|other player/i.test(ask('chart-reader').user), 'no call of another player is in a prompt');
+});
+
+test('an answer against its own rule is not used: that call is skipped, the others are kept', () => {
+  const entries = [{ coin: 'BTC', frame: '5m' }, { coin: 'ETH', frame: '5m' }];
+  const text = JSON.stringify({ calls: [{ coin: 'BTC', frame: '5m', call: 'UP', reason: 'a' }, { coin: 'ETH', frame: '5m', call: 'UP', reason: 'b' }] });
+  const out = parseGuide(text, entries, { 'BTC:5m': 'UP', 'ETH:5m': 'DOWN' });
+  assert.equal(out['BTC:5m'].call, 'UP');
+  assert.equal(out['ETH:5m'], null);
+  assert.equal(parseGuide(text, entries)['ETH:5m'].call, 'UP', 'no rule given: any call is read as before');
+});
+
+test('live: Trend Follower and Contrarian each ask once, separately, and call opposite sides of the same window', async () => {
+  const t = setup();
+  t.g.tick(t.snap); await settle();
+  const of = (who) => t.asks.filter((a) => a.system.includes(who));
+  assert.equal(of('You are the Trend Follower').length, 1);
+  assert.equal(of('You are the Contrarian').length, 1);
+  for (const a of t.asks) assert.ok(!/Contrarian|Trend Follower/.test(a.user), 'a prompt never shows or names the other agent');
+  // the same window lines in both requests, one rule each way
+  const windows = (who) => of(who)[0].user.split('\n').filter((l) => /net move/.test(l) && l.startsWith('- ')).map((l) => l.replace(/; so you call (UP|DOWN)$/, ''));
+  assert.deepEqual(windows('You are the Trend Follower'), windows('You are the Contrarian'));
+  assert.ok(windows('You are the Trend Follower').length > 0);
+  const m0 = markets()[0];
+  assert.equal(t.g.calls.get(callField(0, m0.nextRound, 'trend-follower')).c, 'UP');
+  assert.equal(t.g.calls.get(callField(0, m0.nextRound, 'contrarian')).c, 'DOWN');
+});
+
+test('live: an AI answer against its own rule is not saved: that call shows as skipped', async () => {
+  // a model that ignores the rule and answers UP for everyone: Trend Follower is fine, Contrarian is not
+  const t = setup({ askFn: async (args) => ({ ok: true, value: args.parse(JSON.stringify({ calls: args.schema.properties.calls.items.properties.coin.enum.flatMap((coin) => args.schema.properties.calls.items.properties.frame.enum.filter((f) => args.user.includes(`Coin: ${coin}.`) && args.user.includes(`- ${f}:`)).map((frame) => ({ coin, frame, call: 'UP', reason: 'up' }))) })), tokensIn: 1, tokensOut: 1, latencyMs: 1, attempts: 1, model: args.model }) });
+  t.g.tick(t.snap); await settle();
+  const m0 = markets()[0];
+  assert.equal(t.g.calls.get(callField(0, m0.nextRound, 'trend-follower')).s, 'called');
+  assert.notEqual(t.g.calls.get(callField(0, m0.nextRound, 'contrarian'))?.s, 'called');
 });

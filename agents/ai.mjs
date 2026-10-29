@@ -40,8 +40,8 @@ const SYSTEM = [
 
 /** Each agent's personality in a few words, for the tests and the site's text: the name on the card must match this. */
 export const PERSONALITIES = {
-  'trend-follower': 'momentum: rides the trend',
-  contrarian: 'fades the crowd and over-extended moves',
+  'trend-follower': 'goes with the net move over the lookback window',
+  contrarian: 'goes against the net move over the same window',
   'chart-reader': 'reads candle shapes and levels',
 };
 
@@ -234,15 +234,42 @@ export async function askGemini({ apiKey, model = DEFAULT_MODEL, system, user, s
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------
-// GUIDE CALLS (mainnet): no money moves and nothing goes on chain. Each AI agent gets ONE request per 5-minute cycle that covers
-// every coin and every time frame whose next round is open and has no call from it yet (so at most 12 requests an hour per agent).
+// GUIDE CALLS (mainnet): no money moves and nothing goes on chain. Each AI agent gets ONE request per 10-minute cycle that covers
+// every coin and every time frame whose next round is open and has no call from it yet (so at most 6 requests an hour per agent).
 // The answer is one call and one short reason for each (coin, time frame) asked.
 // ---------------------------------------------------------------------------------------------------------------------------
 export const GUIDE_LABEL = 'Guide call, no money';
 
+// ONE LOOKBACK WINDOW FOR TREND FOLLOWER AND CONTRARIAN. For a given round both look at the same stretch of one-minute candles: the
+// last 2 x the round length in minutes (10 for a 5-minute round, then 20, 60 and 120 for 10 minutes, 30 minutes and 1 hour). The net
+// move over that window (first open to last close) is worked out here, in code, so both agents are given exactly the same number.
+// Trend Follower goes WITH the net move and Contrarian goes AGAINST it. They are asked in separate requests: neither sees the other's call.
+export const WINDOW_AGENTS = ['trend-follower', 'contrarian'];
+export const lookbackMinutes = (roundSeconds) => Math.round((2 * roundSeconds) / 60);
+
+/** The window for a round: { minutes, from, to, open, close, pct, side } or null when there are too few candles. side = direction of the net move. */
+export function lookbackWindow(candles, roundSeconds) {
+  const want = lookbackMinutes(roundSeconds);
+  const w = (candles ?? []).slice(-want);
+  if (w.length < Math.min(want, MIN_CANDLES)) return null;
+  const open = w[0].open, close = w[w.length - 1].close;
+  let side = close > open ? 'UP' : close < open ? 'DOWN' : null;
+  if (!side) { // no net move at all: the newest candle that moved decides, and if none moved, UP
+    const moved = [...w].reverse().find((c) => c.close !== c.open);
+    side = moved && moved.close < moved.open ? 'DOWN' : 'UP';
+  }
+  return { minutes: w.length, from: w[0].time, to: w[w.length - 1].time, open, close, pct: open ? ((close - open) / open) * 100 : 0, side };
+}
+
+/** The side an agent must call from its window: Trend Follower with the net move, Contrarian against it. */
+export const windowSide = (agent, win) => (agent === 'contrarian' ? (win.side === 'UP' ? 'DOWN' : 'UP') : win.side);
+
+const pctText = (p) => (p >= 0 ? '+' : '') + p.toFixed(2) + '%';
+const windowLine = (win) => `last ${win.minutes} one-minute candles (${utc(win.from)} to ${utc(win.to)} UTC), open ${num(win.open)} -> close ${num(win.close)}, net move ${pctText(win.pct)} (${win.side})`;
+
 const GUIDE_PERSONAS = {
-  'trend-follower': 'You are the Trend Follower: you believe in momentum, a price that has been moving one way tends to keep going over the next few minutes. You ride the trend and look at the direction and strength of the recent move.',
-  contrarian: 'You are the Contrarian: you fade over-extended moves, when the price has run hard one way you lean the other way. No crowd can be seen, so give the side you would take against the recent move or the likely crowd.',
+  'trend-follower': "You are the Trend Follower: you believe in momentum, a price that has been moving one way tends to keep going. For every round you are given a lookback window (the net move over twice the round length). You go WITH that net move: UP if the window ended higher than it began, DOWN if lower. You cannot see any other player's call.",
+  contrarian: "You are the Contrarian: you fade moves, a price that has run one way tends to snap back. For every round you are given a lookback window (the net move over twice the round length). You go AGAINST that net move: DOWN if the window ended higher than it began, UP if lower. You cannot see any other player's call.",
   'chart-reader': 'You are the Chart Reader: you read candle shapes and levels: the size and direction of candles, wicks, highs and lows, recent support and resistance, and how the short-term average compares with the longer one.',
 };
 
@@ -288,6 +315,15 @@ export function buildGuidePrompt({ agent, coins }) {
       ...candles.map((k) => `${utc(k.time)} ${num(k.open)} ${num(k.high ?? Math.max(k.open, k.close))} ${num(k.low ?? Math.min(k.open, k.close))} ${num(k.close)}`),
     );
   }
+  if (WINDOW_AGENTS.includes(agent)) {
+    parts.push('', `Lookback window of each time frame (twice the round length, worked out for you; the net move is the number to go ${agent === 'contrarian' ? 'against' : 'with'}):`);
+    for (const c of coins) {
+      for (const f of c.frames) {
+        const win = lookbackWindow(c.candles, f.roundSeconds);
+        if (win) parts.push(`- ${coinShort(c.coin)} ${f.label}: ${windowLine(win)}; so you call ${windowSide(agent, win)}`);
+      }
+    }
+  }
   parts.push('', 'Reply with JSON only, one entry for every coin and time frame listed above.');
   return { system: GUIDE_SYSTEM(agent), user: parts.join('\n') };
 }
@@ -320,7 +356,7 @@ export function guideSchema(entries) {
  * { "BTC:5m": { call, reason } | null, ... } for the entries asked (a missing or malformed one is null: that call is skipped),
  * or null when nothing at all could be used.
  */
-export function parseGuide(text, entries) {
+export function parseGuide(text, entries, mustCall = {}) {
   let v;
   try { v = JSON.parse(text); } catch { return null; }
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
@@ -336,6 +372,7 @@ export function parseGuide(text, entries) {
     if (keys.length !== 4 || !['coin', 'frame', 'call', 'reason'].every((k) => keys.includes(k))) continue;
     const d = readDecision({ call: item.call, reason: item.reason });
     if (!d) continue;
+    if (mustCall[key] && d.call !== mustCall[key]) continue; // Trend Follower / Contrarian answered against their own rule: that call is not used
     out[key] = { call: d.call, reason: guideWording(d.reason) };
     usable++;
   }
