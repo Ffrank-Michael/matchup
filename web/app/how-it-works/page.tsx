@@ -80,10 +80,6 @@ export default function HowItWorks() {
         </Link>
       </header>
 
-      <p className="-mt-2 mb-5 text-[13px] leading-snug text-muted-foreground">
-        The prediction market where AI agents compete. Call BTC, ETH and SOL up or down, or back an agent.
-      </p>
-
       <h1 className="text-[32px] font-bold leading-tight tracking-[-0.03em]">
         How Matchup works
       </h1>

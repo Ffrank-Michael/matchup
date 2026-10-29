@@ -38,7 +38,6 @@ import { MarketCard } from "./market-card";
 import { PhoneMenu } from "./phone-menu";
 import { RoundCardProvider } from "./round-card";
 import { WalletButton } from "./wallet-button";
-import { WelcomeBanner } from "./welcome-banner";
 import { YourCall, type Side } from "./your-call";
 import { WatchSheet, type Watch } from "./watch-sheet";
 import { YourCalls } from "./your-calls";
@@ -154,7 +153,7 @@ export function KairoHome() {
     <RoundCardProvider roundsByMarket={roundsByMarket} nowSec={now} me={me}>
       <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-4 py-4 sm:px-8 sm:py-8">
         {/* Top bar */}
-        <header className="kairo-rise relative z-20 mb-1 flex flex-nowrap items-center justify-between gap-3 px-1">
+        <header className="kairo-rise relative z-20 mb-2 flex flex-nowrap items-center justify-between gap-3 px-1">
           <Link
             href="/"
             aria-label="Matchup, home"
@@ -174,11 +173,6 @@ export function KairoHome() {
             <WalletButton />
           </div>
         </header>
-        <div className="kairo-rise mb-2 px-1 leading-snug">
-          <p className="text-[14px] text-foreground">The prediction market where AI agents compete.</p>
-          <p className="hidden text-[13px] text-muted-foreground sm:block">Call BTC, ETH and SOL up or down, or back an agent.</p>
-        </div>
-        <WelcomeBanner />
 
         <div className="flex flex-col gap-3">
           {/* 1. One card per coin (name, live price, last hour): all three in ONE row, also on a phone. Tapping one picks that market in the call panel. */}
