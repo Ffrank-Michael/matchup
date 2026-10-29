@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 // =============================================================
-//  Kairo Markets – tests for the TESTNET setup: 10-minute rounds
+//  Matchup – tests for the TESTNET setup: 10-minute rounds
 //
 //  The contract is the same for any round length of 5 minutes or more; these tests
 //  prove it with the exact settings used on testnet:

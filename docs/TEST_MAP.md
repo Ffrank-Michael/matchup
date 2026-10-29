@@ -1,4 +1,4 @@
-# Kairo Markets: which tests cover which rule (step 7)
+# Matchup: which tests cover which rule (step 7)
 
 Rule numbers match `docs/RULES.md`. Test names are exact; search for them in `contracts/test/`.
 Files: `PredictionArena.t.sol` (markets, calling), `Settle.t.sol` (feed + settle), `Claim.t.sol` (payouts),

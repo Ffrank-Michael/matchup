@@ -1,4 +1,4 @@
-// Kairo Markets: make the two mainnet wallets and write their keys into .env.
+// Matchup: make the two mainnet wallets and write their keys into .env.
 //
 //   node scripts/create-mainnet-wallets.mjs
 //

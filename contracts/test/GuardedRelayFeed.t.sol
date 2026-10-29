@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 // =============================================================
-//  Kairo Markets – GuardedRelayFeed tests
+//  Matchup – GuardedRelayFeed tests
 //
 //  Covers: constructor checks, metadata, access control,
 //  pusher rotation, ownership, band edges, staleness,

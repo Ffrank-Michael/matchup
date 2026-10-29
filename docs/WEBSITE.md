@@ -1,4 +1,4 @@
-# Kairo Markets website
+# Matchup website
 
 The brief below is the owner's, saved word for word. Build it one step at a time and stop after each step.
 The wider website plan (live price chart, start price line, wording, per-round price details) is in `docs/RULES.md`, section H.
@@ -13,7 +13,7 @@ The wider website plan (live price chart, start price line, wording, per-round p
 - Never show made-up numbers. Every number comes from the contract, the price log or Bitfinex (the one price feed). Until the contract is deployed, show "not live yet" where numbers will go.
 - The homepage leads with the agents and the live rounds, not a call form.
 
-### How the Web3 Bento tiles become Kairo
+### How the Web3 Bento tiles become Matchup
 
 | Web3 Bento tile | Becomes |
 |---|---|
@@ -67,8 +67,8 @@ Line / Candles toggle with 1-minute candles (Bitfinex candles are already in the
 ## Steps
 
 - **Step A (done):** create `web/` with Next.js, TypeScript, Tailwind and shadcn (with a `components/ui` folder) and make sure it runs locally.
-- **Step B (done):** the Web3 Bento component is saved unchanged as `web/components/ui/web3-bento.tsx` and shown on a test page at `/bento` (`web/app/bento/page.tsx`). It needs no extra packages (it only imports `react`). Everything on that page is the component's own sample data, not Kairo data. Two things were done around the component instead of inside it: the page wraps it in `Suspense` (it reads the current date, which Next.js 16 does not allow at build time otherwise), and `web/eslint.config.mjs` skips that one file (3 strict react-hooks style errors in the published code). Remove the skip once the component is turned into Kairo tiles.
-- **Step C1 (done):** Kairo page frame on the homepage. The /bento reference page and `web3-bento.tsx` were removed on 27 Oct 2026.
+- **Step B (done):** the Web3 Bento component is saved unchanged as `web/components/ui/web3-bento.tsx` and shown on a test page at `/bento` (`web/app/bento/page.tsx`). It needs no extra packages (it only imports `react`). Everything on that page is the component's own sample data, not Matchup data. Two things were done around the component instead of inside it: the page wraps it in `Suspense` (it reads the current date, which Next.js 16 does not allow at build time otherwise), and `web/eslint.config.mjs` skips that one file (3 strict react-hooks style errors in the published code). Remove the skip once the component is turned into Matchup tiles.
+- **Step C1 (done):** Matchup page frame on the homepage. The /bento reference page and `web3-bento.tsx` were removed on 27 Oct 2026.
 - **Step C2 (done):** homepage = three market cards, selected market in the middle, Agents and Live calls at the bottom. (First version used CoinGecko with a 7-day line; replaced in C3a.)
 - **Step C3a (done):** one price feed for everything: Bitfinex websocket (`web/lib/price-feed.ts`) gives the live price (last trade), the last-hour line on cards and chart, and later the 1-minute candles. The runner uses the same Bitfinex last trade for its start, middle and end prices (`runner/exchangePrices.mjs`; CoinGecko removed). See docs/RULES.md H4. The countdown is computed from the schedule (lock = offset + k x 600 s), not read from the contract.
 - **Step C4a (done, needs your test):** "Connect wallet" for Arc Testnet only (`web/components/kairo/wallet-button.tsx`, `web/lib/wagmi.ts`, `web/lib/arc.ts`; wagmi 3.7.7, viem 2.57.2, react-query 5.104.1, pinned). Wallets are found automatically (browser wallets; wallet apps when the page is opened in their built-in browser). After connecting, a wallet on another network is asked to switch, and to add Arc Testnet first if it does not have it (chain 5042002, RPC https://rpc.testnet.arc.io, explorer https://explorer.testnet.arc.io, USDC 18-decimal native view). A wrong-network wallet shows an amber "Wrong network · Switch" pill. From a normal phone browser (no wallet inside it) the window offers "Open in MetaMask / Coinbase Wallet / Trust Wallet" links (needs the public site). WalletConnect (QR code / any wallet app from a normal phone browser) needs a free project id and is NOT added yet.
@@ -93,6 +93,6 @@ Files: `market-card.tsx`, `chart-sheet.tsx`, `price-chart.tsx`, `agent-strip.tsx
 
 ## Built 2026-10-26 (later)
 - Call panel reads "Next round: UP or DOWN?" with a countdown to when the round starts; the start price note now says it is the first live trade after calling closes (usually within seconds) and that the call is judged from it.
-- "How it works" page (`web/app/how-it-works/page.tsx`), linked from the top bar. The six steps are the owner's text with these accuracy changes: rounds are 5 or 10 minutes; the call is on the next round; the start price is the first live trade after calling closes; the money sits in the contract, not with Kairo (Kairo can only take its 2% fee).
+- "How it works" page (`web/app/how-it-works/page.tsx`), linked from the top bar. The six steps are the owner's text with these accuracy changes: rounds are 5 or 10 minutes; the call is on the next round; the start price is the first live trade after calling closes; the money sits in the contract, not with Matchup (Matchup can only take its 2% fee).
 - Laptop (changed 2026-10-26, back to the phone strip): the four agents are the same row of robot heads as on the phone, with the selected agent's details underneath, beside Your call; the space under them is kept for history later. Your call and the agent tile are only as tall as their content. The full agent cards are the leaderboard at the bottom on both. The step 3 text on How it works and the start price note in Your call were replaced with the owner's wording.
 - The faucet link shows only when `NEXT_PUBLIC_NETWORK` is not `mainnet`.

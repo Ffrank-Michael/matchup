@@ -147,10 +147,10 @@ function ConnectView({ onDone }: { onDone: () => void }) {
       ) : null}
 
       {IS_MAINNET ? (
-        <p className="mt-4 text-[12px] text-muted-foreground">Kairo runs on {activeChain.name}. If your wallet does not have the network yet, it will ask to add it. Fees are paid in USDC.</p>
+        <p className="mt-4 text-[12px] text-muted-foreground">Matchup runs on {activeChain.name}. If your wallet does not have the network yet, it will ask to add it. Fees are paid in USDC.</p>
       ) : (
         <p className="mt-4 text-[12px] text-muted-foreground">
-          Kairo runs on Arc Testnet. If your wallet does not have it yet, it will ask to add it. Fees are paid in test USDC (free from{" "}
+          Matchup runs on Arc Testnet. If your wallet does not have it yet, it will ask to add it. Fees are paid in test USDC (free from{" "}
           <a className="underline underline-offset-2 hover:text-foreground" href="https://faucet.circle.com" target="_blank" rel="noreferrer">faucet.circle.com</a>
           ).
         </p>
@@ -159,7 +159,7 @@ function ConnectView({ onDone }: { onDone: () => void }) {
   );
 }
 
-/** A small grey link at the bottom of the wallet window: takes back Kairo's permission to use the wallet's USDC (after a yes/no question). */
+/** A small grey link at the bottom of the wallet window: takes back Matchup's permission to use the wallet's USDC (after a yes/no question). */
 function RemoveAccess() {
   const wallet = useUsdc();
   const approval = useRevokeApproval();
@@ -198,11 +198,11 @@ function RemoveAccess() {
     <div className="mt-4 text-center">
       {hasAccess ? (
         <button type="button" onClick={() => setAsking(true)} className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
-          Remove Kairo&apos;s access to my USDC
+          Remove Matchup&apos;s access to my USDC
         </button>
       ) : null}
       <p className="text-[11px] text-muted-foreground" role="status">
-        {approval.status === "failed" && approval.errorMessage ? approval.errorMessage : approval.status === "done" ? "Kairo's access was removed." : ""}
+        {approval.status === "failed" && approval.errorMessage ? approval.errorMessage : approval.status === "done" ? "Matchup's access was removed." : ""}
       </p>
     </div>
   );
@@ -243,7 +243,7 @@ function AccountView({ address, wrongNetwork, onDone }: { address: `0x${string}`
 
       {wrongNetwork ? (
         <div className="mt-4 rounded-2xl border border-amber-400/50 bg-amber-400/10 p-3">
-          <p className="text-[13px]">Your wallet is on a different network. Kairo runs on {activeChain.name}.</p>
+          <p className="text-[13px]">Your wallet is on a different network. Matchup runs on {activeChain.name}.</p>
           <button
             type="button"
             disabled={switching}

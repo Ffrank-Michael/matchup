@@ -38,7 +38,7 @@ export const BETA_LIMIT_RAW = BigInt(BETA_LIMIT_USDC) * 1_000_000n;
 export const DEFAULT_APPROVAL_USDC = 50;
 
 /** The sentence shown BEFORE the permission is asked for. */
-export const APPROVAL_NOTICE = "Your wallet will ask you to approve once. This lets Kairo take only the amount of each call you make, never more than your limit (50 USDC). Nothing is taken until you make a call. If you switch it off, you can't make calls until you approve again.";
+export const APPROVAL_NOTICE = "Your wallet will ask you to approve once. This lets Matchup take only the amount of each call you make, never more than your limit (50 USDC). Nothing is taken until you make a call. If you switch it off, you can't make calls until you approve again.";
 
 /** Kept back for network fees (Arc pays fees in USDC). */
 export const GAS_RESERVE_RAW = 10_000n; // $0.01 (the approval and the call cost about $0.004 together)
@@ -140,7 +140,7 @@ export function useMakeCall(): UseMakeCallReturn {
 
       try {
         if (!address) return stop("Connect your wallet first.");
-        if (!arenaAddress) return stop("Kairo Markets is not deployed on this network yet.");
+        if (!arenaAddress) return stop("Matchup is not deployed on this network yet.");
         if (!client) return stop("No network connection. Please refresh the page.");
 
         const amountErr = validateAmount(params.amountUsdc);

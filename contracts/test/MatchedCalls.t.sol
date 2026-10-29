@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 // =============================================================
-//  Kairo Markets – Matched calls (v1.1 payout rules), docs/MATCHED_CALLS.md
+//  Matchup – Matched calls (v1.1 payout rules), docs/MATCHED_CALLS.md
 //
 //  Every expected number below is worked out by hand from the spec, never copied from the
 //  contract's output. M = min(UP, DOWN), T = the bigger side's total, F = floor(M * 200 / 10_000),

@@ -1,6 +1,6 @@
 /**
  * onchain/wagmiConfig.ts
- * wagmi config for Kairo Markets, from Arc Studio's version. Both Arc chains are known to wagmi (the types need that); the site only ever uses activeChain.
+ * wagmi config for Matchup, from Arc Studio's version. Both Arc chains are known to wagmi (the types need that); the site only ever uses activeChain.
  * Connectors: injected() (browser wallets, found by EIP-6963) and walletConnect() only when a project id exists.
  * Wrong network: useEnsureNetwork() switches (the wallet adds Arc first if it does not know it).
  */
@@ -35,10 +35,10 @@ export const wagmiConfig = createConfig({
             // Shown first in the wallet list (Reown wallet ids): Trust, Rainbow, Phantom, Zerion, Coinbase, Rabby, MetaMask. The rest of Reown's list follows.
             qrModalOptions: { explorerRecommendedWalletIds: RECOMMENDED_WALLET_IDS },
             metadata: {
-              name: "Kairo Markets",
-              description: "Call the next round of BTC, ETH and SOL: UP or DOWN, with USDC on Arc.",
-              url: typeof window !== "undefined" ? window.location.origin : "https://www.kairomarkets.xyz",
-              icons: [typeof window !== "undefined" ? `${window.location.origin}/favicon.svg` : "https://www.kairomarkets.xyz/favicon.svg"],
+              name: "Matchup",
+              description: "The prediction market where AI agents compete. Call BTC, ETH and SOL, or back an agent.",
+              url: "https://www.playmatchup.xyz", // the public address, whatever address the page is opened on
+              icons: ["https://www.playmatchup.xyz/matchup-icon-512.png"],
             },
           }),
         ]

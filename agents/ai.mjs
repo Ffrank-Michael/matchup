@@ -27,7 +27,7 @@ export const frameLabel = (roundSeconds) => (roundSeconds % 3600 === 0 ? `${roun
 export const candlesFor = (longestRoundSeconds) => Math.min(MAX_SENT, Math.max(MIN_SENT, Math.ceil(longestRoundSeconds / 60) * 2));
 
 const SYSTEM = [
-  'You play three players in Kairo Markets, a small game where each player calls whether a coin price will be UP or DOWN over a round.',
+  'You play three players in Matchup, a small game where each player calls whether a coin price will be UP or DOWN over a round.',
   'You are given the coin, the last one-minute candles and the time frames whose next round is about to take calls. For each time frame, give each of the three players their own call.',
   'A round starts when calling closes; its start price is the first trade after that and its end price is the last trade when it ends. UP wins if the end price is higher than the start price. A player must call UP or DOWN and cannot skip. The players may disagree.',
   'The three players:',
@@ -247,7 +247,7 @@ const GUIDE_PERSONAS = {
 };
 
 const GUIDE_SYSTEM = (agent) => [
-  'You make guide calls in Kairo Markets, a small game where each player calls whether a coin price will be UP or DOWN over a round. A guide call moves no money: it only shows how you read the market.',
+  'You make guide calls in Matchup, a small game where each player calls whether a coin price will be UP or DOWN over a round. A guide call moves no money: it only shows how you read the market.',
   GUIDE_PERSONAS[agent],
   'You are given, for each coin, the last one-minute candles and the time frames whose next round is about to take calls. For every coin and time frame asked, give one call. You must call UP or DOWN and cannot skip.',
   'A round starts when calling closes; its start price is the first trade after that and its end price is the last trade when it ends. UP wins if the end price is higher than the start price.',

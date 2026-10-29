@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 // =============================================================
-//  Kairo Markets – Step 7: rule-by-rule gap tests
+//  Matchup – Step 7: rule-by-rule gap tests
 //
 //  The rule-to-test map lives in docs/TEST_MAP.md.  This file holds the
 //  tests that were missing when that map was first drawn up:

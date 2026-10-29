@@ -1,4 +1,4 @@
-// Kairo Markets: deploy the twelve markets (BTC, ETH and SOL at 5, 10 and 30 minutes and 1 hour) with one guarded relay feed per coin.
+// Matchup: deploy the twelve markets (BTC, ETH and SOL at 5, 10 and 30 minutes and 1 hour) with one guarded relay feed per coin.
 //
 //   node scripts/deploy.mjs --set rehearsal                  DRY RUN on Arc TESTNET (default). Compiles, checks, estimates. Sends nothing.
 //   node scripts/deploy.mjs --set rehearsal --send           Deploys 3 test stand-ins for Chainlink, the arena, 3 relays, 12 markets, then verifies.

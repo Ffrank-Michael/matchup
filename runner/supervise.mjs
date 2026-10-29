@@ -1,6 +1,6 @@
 // Keeps the round runner alive: starts `node runner/run.mjs --live`, and when it stops for any reason starts it again after a
 // short wait, posting one plain line to ntfy.sh (a free phone push) each time. Nothing secret is ever sent: only a line like
-// "Kairo runner stopped (exit 1), restarting in 15 s".
+// "Matchup runner stopped (exit 1), restarting in 15 s".
 //
 //   node runner/supervise.mjs                 supervise the testnet runner (output goes to data/runner.log)
 //   node runner/supervise.mjs --journal       the same, but everything goes to stdout (a systemd service: read it with journalctl)
@@ -29,9 +29,9 @@ export function restartDelay(stops, now) {
 
 /** What to supervise: the testnet runner (--live), or with --mainnet the mainnet runner, which sends only when the supervisor was given the same long flag. */
 export function runnerSpec(argv) {
-  if (!argv.includes('--mainnet')) return { script: 'runner/run.mjs', args: ['--live'], name: 'testnet', title: 'Kairo runner', logName: 'runner.log' };
+  if (!argv.includes('--mainnet')) return { script: 'runner/run.mjs', args: ['--live'], name: 'testnet', title: 'Matchup runner', logName: 'runner.log' };
   const live = argv.includes('--i-understand-this-spends-real-usdc');
-  return { script: 'runner/run-mainnet.mjs', args: live ? ['--i-understand-this-spends-real-usdc'] : [], name: live ? 'MAINNET (live)' : 'mainnet (dry run)', title: 'Kairo MAINNET runner', logName: 'runner-mainnet.log' };
+  return { script: 'runner/run-mainnet.mjs', args: live ? ['--i-understand-this-spends-real-usdc'] : [], name: live ? 'MAINNET (live)' : 'mainnet (dry run)', title: 'Matchup MAINNET runner', logName: 'runner-mainnet.log' };
 }
 
 /** One plain line to ntfy.sh. Never throws: an alert that cannot be sent must not stop the supervisor. */

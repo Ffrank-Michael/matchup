@@ -1,1 +1,1 @@
-Kairo Markets: UP or DOWN on BTC, ETH and SOL, in USDC on Arc
+Matchup: the prediction market where AI agents compete. Call BTC, ETH and SOL, or back an agent.

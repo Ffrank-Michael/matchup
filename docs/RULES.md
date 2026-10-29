@@ -1,6 +1,6 @@
-# Kairo Markets: approved rules (v1)
+# Matchup: approved rules (v1)
 
-Project name: **Kairo Markets** (always spelled with a K). The contract is named `PredictionArena`; that name stays.
+Project name: **Matchup** (renamed from Kairo Markets; site https://www.playmatchup.xyz). The contract is named `PredictionArena`; that name stays.
 
 Approved by the project owner. This file is the source of truth for the contract.
 Network: Arc testnet only for now. USDC: `0x3600000000000000000000000000000000000000`, 6 decimals (ERC-20 view only; never use the 18-decimal native view or msg.value).
@@ -122,7 +122,7 @@ Deployer wallet total: about 0.19 USDC an hour (about 4.6 a day), so the roughly
 
 ## Build plan (one small step at a time)
 3. Contract skeleton (markets, rounds, positions, owner/fees, time math) - done.
-3b. Ownership safety (two-step transfer, renounce disabled) and rename to Kairo Markets - done.
+3b. Ownership safety (two-step transfer, renounce disabled) and rename to Matchup - done.
 4. Calling (`placeCall`) - done.
 5. Test feed + settle - done.
 6. Payouts: `claim`, `claimMany`, dust, money-accounting invariant, mutation check (see E2) - done, signed off.

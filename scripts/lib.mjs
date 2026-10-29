@@ -1,4 +1,4 @@
-// Shared helpers for the Kairo Markets scripts. Reads .env; NEVER prints a secret.
+// Shared helpers for the Matchup scripts. Reads .env; NEVER prints a secret.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

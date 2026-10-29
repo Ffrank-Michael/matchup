@@ -61,7 +61,7 @@ export function useClaim() {
       reset();
       const list = targets.filter((t) => t.claimableKind !== "none" && t.claimableAmount > 0n);
       if (!arenaAddress || !client) {
-        setErrorMessage("Kairo Markets is not deployed on this network yet.");
+        setErrorMessage("Matchup is not deployed on this network yet.");
         return setStatus("failed");
       }
       if (list.length === 0) {

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 // =============================================================
-//  Kairo Markets – Claim / Payout tests (Step 6, v1.1 Matched Calls)
+//  Matchup – Claim / Payout tests (Step 6, v1.1 Matched Calls)
 //
 //  Covers:
 //   - Happy paths (UP wins, DOWN wins, 3+ players, unequal calls)

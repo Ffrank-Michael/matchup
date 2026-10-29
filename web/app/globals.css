@@ -75,7 +75,7 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
-  /* Kairo: lime = UP, lilac = DOWN (same two colours as the Web3 Bento default) */
+  /* Matchup: lime = UP, lilac = DOWN (same two colours as the Web3 Bento default) */
   --kairo-up: oklch(0.89 0.2 128);
   --kairo-down: oklch(0.74 0.12 300);
   --sidebar: oklch(0.985 0 0);

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 // =============================================================
-//  Kairo Markets – Stateful invariant test (Step 6 v3, v1.1 Matched Calls)
+//  Matchup – Stateful invariant test (Step 6 v3, v1.1 Matched Calls)
 //
 //  KEY FIX (v3): the handler now records every feed update it
 //  pushes (real id + timestamp), so settleRound and fullCycle

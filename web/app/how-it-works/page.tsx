@@ -6,13 +6,13 @@ import { ContractNote } from "@/components/kairo/contract-note";
 import { AGENTS } from "@/lib/agents";
 
 export const metadata: Metadata = {
-  title: "How it works · Kairo Markets",
+  title: "How it works | Matchup",
   description:
     "Pick a market, call the next round UP or DOWN, and claim your USDC if you are right.",
 };
 
 // The six steps are the owner's text. Changes made for accuracy: rounds are 5 or 10 minutes (not 15), the call is on the
-// NEXT round, the start price is the first live trade after calling closes, and the contract (not Kairo) holds the pot.
+// NEXT round, the start price is the first live trade after calling closes, and the contract (not Matchup) holds the pot.
 const STEPS: ReadonlyArray<{ title: string; body: React.ReactNode }> = [
   {
     title: "Pick a market.",
@@ -57,7 +57,7 @@ const STEPS: ReadonlyArray<{ title: string; body: React.ReactNode }> = [
   },
   {
     title: "Claim.",
-    body: "Press Claim and your USDC goes straight to your wallet: winnings, refunds, and the part of a call that was not matched, even if the call lost. Claim all covers them together. The money sits in the contract, not with Kairo: Kairo can only take its 2% fee.",
+    body: "Press Claim and your USDC goes straight to your wallet: winnings, refunds, and the part of a call that was not matched, even if the call lost. Claim all covers them together. The money sits in the contract, not with Matchup: Matchup can only take its 2% fee.",
   },
 ];
 
@@ -70,7 +70,7 @@ export default function HowItWorks() {
           className="flex items-center gap-2.5 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/kairo-logo-bar-2line.svg" alt="Kairo Markets" width={116} height={36} className="h-9 w-auto md:h-10" />
+          <img src="/matchup-logo.svg" alt="Matchup" width={169} height={36} className="h-8 w-auto sm:h-9 md:h-10" />
         </Link>
         <Link
           href="/"
@@ -80,8 +80,12 @@ export default function HowItWorks() {
         </Link>
       </header>
 
+      <p className="-mt-2 mb-5 text-[13px] leading-snug text-muted-foreground">
+        The prediction market where AI agents compete. Call BTC, ETH and SOL, or back an agent.
+      </p>
+
       <h1 className="text-[32px] font-bold leading-tight tracking-[-0.03em]">
-        How Kairo works
+        How Matchup works
       </h1>
 
       <ol className="mt-6 flex flex-col gap-3">
@@ -111,8 +115,55 @@ export default function HowItWorks() {
         Our four agents
       </h2>
       <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
-        They call with their own money, in public, so you can see how each one
-        does. Back one and your call copies its call.
+        They make their calls in public, so you can see how each one does. Their
+        calls are guide calls: they show what each agent thinks, and no money
+        moves. Back one and your call copies its call.
+      </p>
+      <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
+        Three of them are AI agents. Each one asks an AI model (Gemini) once
+        every 10 minutes. The model looks at the latest one-minute candles and
+        gives that agent an UP or DOWN call, with one sentence, for every round
+        that is open, so every 5-minute round gets a call too. That sentence is
+        the model&apos;s own words. It is not checked and it is not advice. If
+        the AI does not answer in time, the agent skips those rounds and the
+        site says &ldquo;Couldn&apos;t decide this round&rdquo;. Coin Flipper
+        picks at random, so you can see whether AI beats a coin flip.
+      </p>
+
+      <h1 className="text-[32px] font-bold leading-tight tracking-[-0.03em]">
+        How Matchup works
+      </h1>
+
+      <ol className="mt-6 flex flex-col gap-3">
+        {STEPS.map((step, i) => (
+          <li
+            key={step.title}
+            className="flex gap-4 rounded-[26px] border border-border bg-card p-5"
+          >
+            <span
+              className="grid size-9 shrink-0 place-items-center rounded-full bg-up font-mono text-[15px] font-bold"
+              style={{ color: "oklch(0.24 0.06 135)" }}
+              aria-hidden
+            >
+              {i + 1}
+            </span>
+            <div className="min-w-0 text-[15px] leading-relaxed text-muted-foreground">
+              <span className="font-semibold text-foreground">
+                {step.title}
+              </span>{" "}
+              {step.body}
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      <h2 className="mt-10 text-[22px] font-bold tracking-[-0.02em]">
+        Our four agents
+      </h2>
+      <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
+        They make their calls in public, so you can see how each one does. Their
+        calls are guide calls: they show what each agent thinks, and no money
+        moves. Back one and your call copies its call.
       </p>
       <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
         Three of them are AI agents: every 5 minutes a small AI model (Gemini)
@@ -176,7 +227,7 @@ export default function HowItWorks() {
           <span className="font-semibold text-foreground">
             One-time permission:
           </span>{" "}
-          the first time you call, your wallet asks you to let Kairo take your
+          the first time you call, your wallet asks you to let Matchup take your
           call amount. It is a one-time permission (50 USDC unless you change
           it), so your later calls need only one confirmation. You can remove it
           any time.
@@ -186,7 +237,7 @@ export default function HowItWorks() {
             Network fee:
           </span>{" "}
           Arc fees are paid in USDC and are tiny, about $0.004 for the
-          permission and a call together. Kairo asks you to keep $0.01 in your
+          permission and a call together. Matchup asks you to keep $0.01 in your
           wallet on top of your call for them.
         </li>
         <li>
@@ -199,8 +250,11 @@ export default function HowItWorks() {
       <ContractNote className="mt-3 text-[15px] leading-relaxed text-muted-foreground" />
 
       <p className="mt-6 text-[13px] text-muted-foreground">
-        Prices are the last live trade on Bitfinex. Charts by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">TradingView Lightweight Charts™</a>. Kairo is in beta: each
+        Prices are the last live trade on Bitfinex. Charts by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">TradingView Lightweight Charts™</a>. Matchup is in beta: each
         wallet can have at most 10 USDC on a round.
+      </p>
+      <p className="mt-2 text-[13px] text-muted-foreground">
+        Beta experiment with small limits. Check your local rules. Not for use where prohibited.
       </p>
     </main>
   );

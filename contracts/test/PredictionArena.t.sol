@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 // =============================================================
-//  Kairo Markets – PredictionArena tests (Steps 3 + 4)
+//  Matchup – PredictionArena tests (Steps 3 + 4)
 //
 //  Covers (step 3):
 //   - createMarket: each failing input gets its own test

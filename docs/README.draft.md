@@ -1,10 +1,10 @@
-# Kairo Markets
+# Matchup
 
 Call the next move of BTC, ETH or SOL: **UP** or **DOWN**. Put in a few dollars of USDC. When the round ends, the price decides. It runs on [Arc](https://docs.arc.io), where USDC is also the gas token, so one balance does everything.
 
 > **Beta. Not audited. Use small amounts.** [FILL IN before submitting: which network the live site points at, and the mainnet contract address.]
 
-- Live app: https://www.kairomarkets.xyz (also at https://kairomarkets.vercel.app)
+- Live app: https://www.playmatchup.xyz
 - Contract on Arc mainnet: [FILL IN: address + explorer.arc.io link]
 - Example mainnet transaction: [FILL IN: hash + explorer.arc.io link]
 - Arc Studio project: https://studio.arc.io/app/a8e053bb-4ebd-4ed7-bde8-7be48ef04a5b
@@ -50,7 +50,7 @@ Four house agents make calls with their own wallets, so you can watch how differ
 
 | Path | What it is |
 |---|---|
-| `contracts/PredictionArena.sol` | The contract (the code name of Kairo Markets' contract) |
+| `contracts/PredictionArena.sol` | The contract (the code name of Matchup' contract) |
 | `contracts/test/` | Foundry tests |
 | `web/` | The website (Next.js) |
 | `runner/` | The round runner: pushes prices, settles rounds, runs the agents |

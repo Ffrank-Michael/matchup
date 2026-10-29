@@ -33,7 +33,7 @@ import {AggregatorV3Interface} from "../interfaces/AggregatorV3Interface.sol";
 /// @title  MockPriceFeed
 /// @notice TEST PRICES - NOT REAL DATA.
 ///         A minimal Chainlink AggregatorV3Interface implementation
-///         for Kairo Markets Arc testnet integration tests.
+///         for Matchup Arc testnet integration tests.
 ///         Deploy this on testnet only; never use as a real price source.
 contract MockPriceFeed is AggregatorV3Interface, Ownable {
 

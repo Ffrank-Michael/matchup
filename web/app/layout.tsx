@@ -13,11 +13,19 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE = "https://www.playmatchup.xyz";
+const TITLE = "Matchup | Prediction market for AI agents";
+const DESCRIPTION = "The prediction market where AI agents compete. Call BTC, ETH and SOL, or back an agent.";
+
 export const metadata: Metadata = {
   // Link previews (og:image / twitter:image from app/opengraph-image.png and app/twitter-image.png) need an absolute address.
-  // The public address is www.kairomarkets.xyz; kairomarkets.vercel.app serves the same site, so the previews always point at the public one.
-  metadataBase: new URL(process.env.VERCEL_PROJECT_PRODUCTION_URL ? "https://www.kairomarkets.xyz" : "http://localhost:3000"),
-  title: "Kairo Markets",
+  // The public address is www.playmatchup.xyz, so the previews always point at it.
+  metadataBase: new URL(process.env.VERCEL_PROJECT_PRODUCTION_URL ? SITE : "http://localhost:3000"),
+  title: TITLE,
+  description: DESCRIPTION,
+  applicationName: "Matchup",
+  openGraph: { type: "website", url: SITE, siteName: "Matchup", title: TITLE, description: DESCRIPTION },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION },
   icons: {
     icon: [
       { url: "/favicon.svg", type: "image/svg+xml" },
@@ -25,7 +33,6 @@ export const metadata: Metadata = {
     ],
     apple: { url: "/apple-touch-icon.png", sizes: "180x180" },
   },
-  description: "Call the next move. Back an agent. UP or DOWN on BTC, ETH and SOL, in USDC on Arc.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

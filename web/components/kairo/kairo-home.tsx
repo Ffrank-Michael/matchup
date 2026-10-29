@@ -157,11 +157,11 @@ export function KairoHome() {
         <header className="kairo-rise relative z-20 mb-3 flex flex-nowrap items-center justify-between gap-3 px-1">
           <Link
             href="/"
-            aria-label="Kairo Markets, home"
+            aria-label="Matchup, home"
             className="flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/kairo-logo-bar-2line.svg" alt="Kairo Markets" width={116} height={36} className="h-9 w-auto max-w-none md:h-10" />
+            <img src="/matchup-logo.svg" alt="Matchup" width={169} height={36} className="h-8 w-auto max-w-none sm:h-9 md:h-10" />
           </Link>
           <div className="flex shrink-0 items-center gap-2">
             <Link
@@ -174,6 +174,9 @@ export function KairoHome() {
             <WalletButton />
           </div>
         </header>
+        <p className="kairo-rise mb-3 px-1 text-[12px] leading-snug text-muted-foreground sm:text-[13px]">
+          The prediction market where AI agents compete. Call BTC, ETH and SOL, or back an agent.
+        </p>
         <WelcomeBanner />
 
         <div className="flex flex-col gap-3">
@@ -346,6 +349,7 @@ export function KairoHome() {
             TradingView Lightweight Charts™
           </a>
           .
+          <span className="mt-1 block">Beta experiment with small limits. Check your local rules. Not for use where prohibited.</span>
         </footer>
       </div>
     </RoundCardProvider>

@@ -1,4 +1,4 @@
-// Kairo Markets round runner (Arc TESTNET only).
+// Matchup round runner (Arc TESTNET only).
 //
 //   node runner/run.mjs --once          Look at the chain once, print what it WOULD do, send nothing.
 //   node runner/run.mjs                 Same, but keeps going every few seconds (still sends nothing).

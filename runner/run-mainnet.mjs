@@ -1,4 +1,4 @@
-// Kairo Markets round runner for Arc MAINNET (chain 5042, real USDC for gas).
+// Matchup round runner for Arc MAINNET (chain 5042, real USDC for gas).
 //
 //   node runner/run-mainnet.mjs --once                                      Look at the chain once, print what it WOULD do, send nothing.
 //   node runner/run-mainnet.mjs                                             Same, but keeps going every few seconds (still sends nothing).

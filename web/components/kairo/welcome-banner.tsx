@@ -44,7 +44,7 @@ export function WelcomeBanner() {
   return (
     <div role="note" className="kairo-rise mb-3 flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-2.5 text-[13px]">
       <Link href="/how-it-works" className="min-w-0 flex-1 font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        New here? See how Kairo works in <span className="whitespace-nowrap">30 seconds →</span>
+        New here? See how Matchup works in <span className="whitespace-nowrap">30 seconds →</span>
       </Link>
       <button type="button" onClick={dismiss} aria-label="Close this message" className="grid size-7 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         ✕

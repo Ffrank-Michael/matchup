@@ -1,4 +1,4 @@
-# Running the Kairo runner on a server (Oracle Cloud free VM)
+# Running the Matchup runner on a server (Oracle Cloud free VM)
 
 The runner pushes prices, settles rounds and plays the house agents. It must run all day, so it lives on a small server, not on your PC.
 

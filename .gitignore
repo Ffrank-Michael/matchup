@@ -1,4 +1,4 @@
-# ===== Kairo Markets .gitignore =====
+# ===== Matchup .gitignore =====
 # Anything secret must NEVER be committed. If in doubt, add it here first.
 
 # --- Secrets: environment files and keys ---

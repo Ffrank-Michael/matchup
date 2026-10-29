@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 // =============================================================
-//  Kairo Markets – Settlement tests (Step 5)
+//  Matchup – Settlement tests (Step 5)
 //
 //  Covers:
 //   - MockPriceFeed behaviour (ownership, timestamps, IDs, phases,
