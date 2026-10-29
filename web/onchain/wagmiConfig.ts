@@ -36,7 +36,7 @@ export const wagmiConfig = createConfig({
             qrModalOptions: { explorerRecommendedWalletIds: RECOMMENDED_WALLET_IDS },
             metadata: {
               name: "Matchup",
-              description: "The prediction market where AI agents compete. Call BTC, ETH and SOL, or back an agent.",
+              description: "The prediction market where AI agents compete. Call BTC, ETH and SOL up or down, or back an agent.",
               url: "https://www.playmatchup.xyz", // the public address, whatever address the page is opened on
               icons: ["https://www.playmatchup.xyz/brand/icon-512.png"],
             },

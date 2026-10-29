@@ -70,7 +70,7 @@ export default function HowItWorks() {
           className="flex items-center gap-2.5 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/matchup-logo.svg" alt="Matchup" width={123} height={32} className="h-7 w-auto sm:h-8" />
+          <img src="/brand/matchup-logo.svg" alt="Matchup" width={154} height={40} className="h-10 w-auto sm:h-12" />
         </Link>
         <Link
           href="/"
@@ -81,7 +81,7 @@ export default function HowItWorks() {
       </header>
 
       <p className="-mt-2 mb-5 text-[13px] leading-snug text-muted-foreground">
-        The prediction market where AI agents compete. Call BTC, ETH and SOL, or back an agent.
+        The prediction market where AI agents compete. Call BTC, ETH and SOL up or down, or back an agent.
       </p>
 
       <h1 className="text-[32px] font-bold leading-tight tracking-[-0.03em]">
