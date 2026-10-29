@@ -215,7 +215,7 @@ test('live: ONE request per AI agent covers every open round plus the 5-minute r
       assert.equal(after.lock, m.startOffset + (m.nextRound + 1) * 300);
     }
   }
-  assert.equal(t.g.calls.get(callField(0, markets()[0].nextRound, 'chart-reader')).model, 'gemini-3.5-flash-lite');
+  assert.equal(t.g.calls.get(callField(0, markets()[0].nextRound, 'chart-reader')).model, 'gemini-3.1-flash-lite');
   assert.equal(t.g.calls.get(callField(0, markets()[0].nextRound, 'contrarian')).model, 'gemini-3.1-flash-lite');
   assert.equal(t.g.calls.get(callField(0, markets()[0].nextRound, 'trend-follower')).model, 'gemini-3.1-flash-lite');
   const flip = t.g.calls.get(callField(0, markets()[0].nextRound, 'coin-flipper'));
@@ -361,66 +361,78 @@ test('a price that cannot be fetched is tried again later, and never crashes', a
 const modelsOf = (t) => t.asks.map((a) => a.model).sort();
 const askedBy = (t) => Object.fromEntries(t.asks.map((a) => [a.system.includes('Chart Reader') ? 'chart-reader' : a.system.includes('Contrarian') ? 'contrarian' : 'trend-follower', a.model]));
 
-test('the models: Chart Reader gemini-3.5-flash-lite, Contrarian and Trend Follower gemini-3.1-flash-lite; no other model, no fallback', async () => {
-  assert.deepEqual(AGENT_MODELS, { 'chart-reader': 'gemini-3.5-flash-lite', contrarian: 'gemini-3.1-flash-lite', 'trend-follower': 'gemini-3.1-flash-lite' });
-  assert.deepEqual(Object.keys(GUIDE_MODELS).sort(), ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite']);
-  assert.deepEqual(Object.values(GUIDE_MODELS).map((m) => m.dailyCap), [450, 450]);
-  assert.ok(!/gemma/i.test(JSON.stringify(GUIDE_MODELS) + JSON.stringify(AGENT_MODELS)));
+const M = 'gemini-3.1-flash-lite';
+
+test('the models: all three AI agents use gemini-3.1-flash-lite; it is the only model in the list, and there is no fallback', async () => {
+  assert.deepEqual(AGENT_MODELS, { 'chart-reader': M, contrarian: M, 'trend-follower': M });
+  assert.deepEqual(Object.keys(GUIDE_MODELS), [M]);
+  assert.deepEqual(Object.values(GUIDE_MODELS).map((m) => m.dailyCap), [450]);
+  assert.equal(GUIDE_MODELS[M].perMinute, 10);
+  assert.ok(!/gemma|3\.5/i.test(JSON.stringify(GUIDE_MODELS) + JSON.stringify(AGENT_MODELS)));
   const t = setup();
   t.g.tick(t.snap); await settle();
-  assert.deepEqual(askedBy(t), { 'trend-follower': 'gemini-3.1-flash-lite', contrarian: 'gemini-3.1-flash-lite', 'chart-reader': 'gemini-3.5-flash-lite' });
+  assert.deepEqual(askedBy(t), { 'trend-follower': M, contrarian: M, 'chart-reader': M });
   for (const a of t.asks) { assert.equal(a.timeoutMs, 16_000); assert.equal(a.plain, undefined); }
 });
 
-test('expected requests a day: 144 per agent, so 144 on gemini-3.5-flash-lite and 288 on gemini-3.1-flash-lite', () => {
+test('expected requests a day: 144 per agent, so 432 on the one model, under its cap of 450', () => {
   assert.equal(GUIDE_CFG.requestsPerDayEach, 144);
-  assert.deepEqual(expectedPerDay(), { 'gemini-3.5-flash-lite': 144, 'gemini-3.1-flash-lite': 288 });
+  assert.deepEqual(expectedPerDay(), { [M]: 432 });
+  assert.ok(432 <= GUIDE_MODELS[M].dailyCap);
 });
 
-test('a limit or quota answer is not retried and there is no fallback: that model rests 10 minutes and its agents skip their calls', async () => {
-  const t = setup({ askFn: async (args) => { t.asks.push(args); return args.model === 'gemini-3.1-flash-lite' ? { ok: false, error: 'HTTP 429', attempts: 1, latencyMs: 3, model: args.model } : answerFor(args); } });
-  // the agents are asked 22 seconds apart, so the limit answer to the first is known when the second is due
+test('the three staggered requests never exceed the per-minute limit, even with every retry', () => {
+  const secs = Object.values(ASK_OFFSETS).sort((a, b) => a - b);
+  assert.equal(secs.length, 3);
+  assert.ok(secs.every((s, i) => i === 0 || s - secs[i - 1] >= 20), 'at least 20 s apart');
+  assert.ok(secs[2] - secs[0] < 60, 'all three fall inside one minute');
+  const worst = 3 * GUIDE_MODELS[M].maxAttempts; // every agent tries twice
+  assert.ok(worst <= GUIDE_MODELS[M].perMinute, `${worst} requests in a minute at most, limit ${GUIDE_MODELS[M].perMinute}`);
+  assert.ok(GUIDE_MODELS[M].perMinute <= 15, "under Google's own 15 a minute");
+});
+
+test('a limit or quota answer is not retried and there is no fallback: the model rests 10 minutes and the agents after it skip their calls', async () => {
+  const t = setup({ askFn: async (args) => { t.asks.push(args); return { ok: false, error: 'HTTP 429', attempts: 1, latencyMs: 3, model: args.model }; } });
+  // the agents are asked 22 seconds apart, so the limit answer to the first is known when the next is due
   for (const sec of [ASK_OFFSETS['trend-follower'], ASK_OFFSETS.contrarian, ASK_OFFSETS['chart-reader']]) { at(t, sec); assert.doesNotThrow(() => t.g.tick(t.snap)); await settle(); }
-  // Trend Follower (first) gets the limit answer; Contrarian then finds the model resting and is not asked; Chart Reader is on the other model
-  assert.deepEqual(modelsOf(t), ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite']);
+  // Trend Follower (first) gets the limit answer; Contrarian and Chart Reader then find the model resting and are not asked
+  assert.deepEqual(modelsOf(t), [M]);
   assert.ok(t.logs.some((l) => /gemini-3\.1-flash-lite says too many requests/.test(l)));
   assert.ok(t.logs.some((l) => /contrarian: gemini-3\.1-flash-lite not used \(paused until/.test(l)));
+  assert.ok(t.logs.some((l) => /chart-reader: gemini-3\.1-flash-lite not used \(paused until/.test(l)));
   assert.ok(!t.logs.some((l) => /gemma/i.test(l)));
-  // the rounds that lock before the next cycle: "Couldn't decide this round", for both agents
-  for (const agent of ['trend-follower', 'contrarian']) {
+  // the rounds that lock before the next cycle: "Couldn't decide this round", for all three agents
+  for (const agent of ['trend-follower', 'contrarian', 'chart-reader']) {
     const skip = t.g.calls.get(callField(0, markets()[0].nextRound, agent));
     assert.equal(skip.s, 'skipped');
     assert.equal(skip.c, null);
     assert.match(skip.t, /decide/);
     assert.equal(t.g.calls.get(callField(0, markets()[0].nextRound + 1, agent)).s, 'skipped', 'the later 5-minute round locks before the next cycle too');
   }
-  assert.equal(t.g.calls.get(callField(0, markets()[0].nextRound, 'chart-reader')).s, 'called');
-  // not asked again in a loop; asked once at the next cycle, when the rest is over
+  // not asked again in a loop; asked once each at the next cycle, when the rest is over
   at(t, 300 + 50); t.g.tick(t.snap); await settle();
-  assert.equal(t.asks.length, 2);
+  assert.equal(t.asks.length, 1);
   at(t, 600 + 60); t.g.tick({ markets: later(1) }); await settle();
-  assert.equal(t.asks.length, 5, 'one request each again (Contrarian too, now that the rest is over)');
+  assert.equal(t.asks.length, 4, 'one request each again (all three, now that the rest is over)');
 });
 
 test('any other failure skips those calls and carries on: no retry loop, no other model', async () => {
   const t = setup({ askFn: async (args) => { t.asks.push(args); return { ok: false, error: 'timed out', attempts: 2, latencyMs: 24_000, model: args.model }; } });
   t.g.tick(t.snap); await settle();
   assert.equal(t.asks.length, 3);
-  assert.ok(t.logs.some((l) => /no answer from gemini-3\.5-flash-lite \(timed out, 2 tries, took 24\.0 s\)/.test(l)));
+  assert.ok(t.logs.some((l) => /no answer from gemini-3\.1-flash-lite \(timed out, 2 tries, took 24\.0 s\)/.test(l)));
   assert.ok(t.g.calls.has(callField(1, markets()[1].nextRound, 'chart-reader')), 'ETH 5m locks soon: it gets its skip');
   assert.equal([...t.g.calls.values()].filter((r) => r.a === 'coin-flipper' && r.s === 'called').length, 6, 'Coin Flipper does not need Gemini');
 });
 
 test("a model at its daily cap is not asked: its agents skip their calls for the cycle; the day follows Google's reset (midnight Pacific)", async () => {
-  const models = { ...GUIDE_MODELS, 'gemini-3.5-flash-lite': { ...GUIDE_MODELS['gemini-3.5-flash-lite'], dailyCap: 1 } };
+  const models = { [M]: { ...GUIDE_MODELS[M], dailyCap: 1 } };
   const t = setup({ models });
   t.g.tick(t.snap); await settle();
-  assert.equal(modelsOf(t).filter((m) => m === 'gemini-3.5-flash-lite').length, 1);
+  assert.equal(t.asks.length, 1, 'only one request fits under a cap of 1: the other two agents are not asked');
   at(t, 600 + 50); t.g.tick({ markets: later(1) }); await settle();
-  const second = t.asks.slice(3);
-  assert.equal(second.length, 2, 'only the agents on the other model');
-  assert.ok(second.every((a) => a.model === 'gemini-3.1-flash-lite'));
-  assert.ok(t.logs.some((l) => /chart-reader: gemini-3\.5-flash-lite not used \(daily cap 1 reached\)/.test(l)));
+  assert.equal(t.asks.length, 1, 'still at the cap the next cycle');
+  assert.ok(t.logs.some((l) => /chart-reader: gemini-3\.1-flash-lite not used \(daily cap 1 reached\)/.test(l)));
   const skipped = t.g.calls.get(callField(0, later(1)[0].nextRound, 'chart-reader'));
   assert.equal(skipped.s, 'skipped');
   assert.match(skipped.t, /decide/);
@@ -434,9 +446,9 @@ test("a model at its daily cap is not asked: its agents skip their calls for the
 test('a retry after a timeout or a server error is counted like any request', async () => {
   const t = setup();
   t.g.tick(t.snap); await settle();
-  const a = t.asks.find((x) => x.model === 'gemini-3.5-flash-lite');
+  const a = t.asks.find((x) => x.model === M);
   assert.equal(a.beforeRetry(), true);
-  assert.match(t.g.summary(), /gemini-3\.5-flash-lite 2, gemini-3\.1-flash-lite 2/);
+  assert.match(t.g.summary(), /gemini-3\.1-flash-lite 4/); // three first tries and one retry
 });
 
 test('the hourly line counts the requests per model and gives the expected daily total for each', async () => {
@@ -445,16 +457,16 @@ test('the hourly line counts the requests per model and gives the expected daily
   t.clock.ms += 3600_000;
   t.g.tick(t.snap); await settle();
   const line = t.logs.find((l) => l.startsWith('GUIDE Gemini requests:'));
-  assert.match(line, /3 in the last hour \(gemini-3\.5-flash-lite 1, gemini-3\.1-flash-lite 2\)/);
+  assert.match(line, /3 in the last hour \(gemini-3\.1-flash-lite 3\)/);
   assert.match(line, /today \(Pacific day/);
-  assert.match(line, /caps gemini-3\.5-flash-lite 450, gemini-3\.1-flash-lite 450/);
-  assert.match(line, /expected a day: gemini-3\.1-flash-lite 288, gemini-3\.5-flash-lite 144|expected a day: gemini-3\.5-flash-lite 144, gemini-3\.1-flash-lite 288/);
+  assert.match(line, /caps gemini-3\.1-flash-lite 450/);
+  assert.match(line, /expected a day: gemini-3\.1-flash-lite 432/);
 });
 
 test('the log says how many seconds a call took', async () => {
-  const t = setup({ askFn: async (args) => { t.asks.push(args); return { ...answerFor(args), latencyMs: args.model === 'gemini-3.5-flash-lite' ? 6200 : 900 }; } });
+  const t = setup({ askFn: async (args) => { t.asks.push(args); return { ...answerFor(args), latencyMs: args.system.includes('Chart Reader') ? 6200 : 900 }; } });
   t.g.tick(t.snap); await settle();
-  assert.ok(t.logs.some((l) => /GUIDE chart-reader: 9 calls saved for 9 rounds \(gemini-3\.5-flash-lite, 100 in \/ 50 out tokens, took 6\.2 s\)/.test(l)));
+  assert.ok(t.logs.some((l) => /GUIDE chart-reader: 9 calls saved for 9 rounds \(gemini-3\.1-flash-lite, 100 in \/ 50 out tokens, took 6\.2 s\)/.test(l)));
   assert.ok(t.logs.some((l) => /GUIDE contrarian: 9 calls saved for 9 rounds \(gemini-3\.1-flash-lite, 100 in \/ 50 out tokens, took 0\.9 s\)/.test(l)));
 });
 

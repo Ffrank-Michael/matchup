@@ -38,13 +38,13 @@ export const GUIDE_AGENTS = ['trend-follower', 'contrarian', 'chart-reader', 'co
 export const GUIDE_AI_AGENTS = ['trend-follower', 'contrarian', 'chart-reader'];
 
 // WHICH MODEL EACH AGENT USES, AND THE LIMITS OF EACH MODEL: the one place to read or change them. The limits are Google AI Studio's free-tier
-// limits for our key (gemini-3.5-flash-lite and gemini-3.1-flash-lite: 500 requests a day, 15 a minute); dailyCap is kept below Google's own daily
-// limit, perMinute is our own ceiling per model. Contrarian and Trend Follower share gemini-3.1-flash-lite: 2 x 144 = 288 requests a day on it.
+// limits for our key (gemini-3.1-flash-lite: 500 requests a day, 15 a minute); dailyCap is kept below Google's own daily limit, perMinute is our
+// own ceiling per model. All three AI agents share gemini-3.1-flash-lite: 3 x 144 = 432 requests a day on it (cap 450). They are asked 22 seconds
+// apart (ASK_OFFSETS), so at most 3 first requests, and 6 with every retry, fall in any one minute: under perMinute 10 and Google's 15.
 export const GUIDE_MODELS = {
-  'gemini-3.5-flash-lite': { dailyCap: 450, perMinute: 10, timeoutMs: 16_000, maxAttempts: 2 },
   'gemini-3.1-flash-lite': { dailyCap: 450, perMinute: 10, timeoutMs: 16_000, maxAttempts: 2 },
 };
-export const AGENT_MODELS = { 'chart-reader': 'gemini-3.5-flash-lite', contrarian: 'gemini-3.1-flash-lite', 'trend-follower': 'gemini-3.1-flash-lite' };
+export const AGENT_MODELS = { 'chart-reader': 'gemini-3.1-flash-lite', contrarian: 'gemini-3.1-flash-lite', 'trend-follower': 'gemini-3.1-flash-lite' };
 /** Seconds after each 10-minute mark at which each agent is asked: at least 20 s apart, so the three requests never go out in the same second. */
 export const ASK_OFFSETS = { 'trend-follower': 3, contrarian: 25, 'chart-reader': 47 };
 /** Google resets the daily limits at midnight Pacific time: the counters follow that day. */
