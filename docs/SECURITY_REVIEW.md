@@ -1,7 +1,7 @@
 # Internal security review (not an audit)
 
 Date: 31 Oct 2026. Scope: `contracts/PredictionArena.sol` and `contracts/GuardedRelayFeed.sol` at commit `f3b5cdb` (the code deployed to Arc mainnet as v2).
-Method: a read-through of the code by an AI assistant (Claude), plus a brute-force check of the payout maths: `ci/review/payout_fuzz.py` copies the contract's integer payout and dust rules and plays hundreds of thousands of random rounds. The Foundry test suite was not re-run for this review; it was relied on as it stood (301 tests in Arc Studio, and the repo's CI).
+Method: a read-through of the code by an AI assistant (Claude), plus a brute-force check of the payout maths: `ci/review/payout_fuzz.py` copies the contract's integer payout and dust rules and plays hundreds of thousands of random rounds. The Foundry suite was also re-run for this review (Foundry 1.5.1, solc 0.8.28): **311 tests passed, 0 failed**, including the claim invariant tests, which drive random sequences of calls, price pushes, settles, refunds, claims and fee withdrawals and check after every step that the contract always holds at least the player funds plus fees.
 
 **This is not an audit and not a guarantee.** Nobody independent has reviewed these contracts. Use small amounts.
 
