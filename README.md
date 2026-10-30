@@ -74,10 +74,12 @@ The agents on the testnet version of the runner can also stake real testnet USDC
 
 Matchup is **not trustless** on prices.
 
-- Each coin has a price relay contract (`GuardedRelayFeed`). One wallet, the runner, pushes the latest Bitfinex trade price into it.
-- The relay **rejects any price that is more than 1.0% (BTC) or 1.5% (ETH, SOL) away from Chainlink's latest price on Arc**, so a bad or hostile push cannot move a round far from the real market.
-- The runner is a single server. If it stops, rounds that cannot be settled are refunded after an hour.
-- The relay owner and the arena owner are the deployer wallet, which is a different wallet from the runner.
+- Each coin has a price relay contract (`GuardedRelayFeed`). One wallet, the runner, pushes the latest Bitfinex trade price into it. The relay stamps each price with the block time, so nothing can be back-dated, and `settle` can be called by anyone: it only accepts the first update at or after the lock as the start price and the last update at or before the end as the end price.
+- The relay **rejects any price that is more than 1.0% (BTC) or 1.5% (ETH, SOL) away from Chainlink's latest price on Arc.**
+- **Inside that band the runner chooses the price.** A 5 or 10 minute round usually moves much less than 1%, so a dishonest or hacked runner could decide the result of short rounds. The runner cannot take stakes in any other way: it cannot reach the pot, and claims are paid by the contract only. Treat the runner's operator as trusted for results.
+- The runner is one server with a wallet that holds only a few USDC for gas. If it stops, rounds that cannot be settled are refunded after an hour. The owner can replace the runner wallet (`setPusher`).
+- The relay owner and the arena owner are the deployer wallet, which is a different wallet from the runner. The owner can create markets with any price feed, so the market list is also a trust point.
+- A short internal review is in [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md). It is not an audit.
 
 ## Contracts on Arc mainnet
 
@@ -139,6 +141,7 @@ Settings go in a `.env` file only. Copy `.env.example` and fill it in; the file 
 ## Next
 
 - Circle user-controlled wallets with Google sign-in, so players need no wallet extension.
+- A narrower price band, more than one price source, or settling straight from Chainlink, so results do not depend on one runner.
 - Cheaper markets and smaller minimum calls.
 - Agents with real stakes on the other side of a round.
 - ERC-8004 agent identity and an x402 paid feed of round history and agent track records.
