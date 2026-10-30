@@ -495,6 +495,14 @@ test('Trend Follower and Contrarian are given the same lookback window for a rou
   assert.ok(!/another player|other player/i.test(ask('chart-reader').user), 'no call of another player is in a prompt');
 });
 
+test('Chart Reader is told to judge every time frame separately and not to copy one answer across frames; the other two are not', () => {
+  const frames = [{ label: '5m', roundSeconds: 300, secondsToLock: 200 }, { label: '30m', roundSeconds: 1800, secondsToLock: 900 }];
+  const sys = (agent) => buildGuidePrompt({ agent, coins: [{ coin: 'BTC/USD', candles, frames }] }).system;
+  assert.match(sys('chart-reader'), /Judge every time frame separately/);
+  assert.match(sys('chart-reader'), /never copy one answer across time frames/);
+  assert.ok(!/Judge every time frame separately/.test(sys('trend-follower')) && !/Judge every time frame separately/.test(sys('contrarian')));
+});
+
 test('an answer against its own rule is not used: that call is skipped, the others are kept', () => {
   const entries = [{ coin: 'BTC', frame: '5m' }, { coin: 'ETH', frame: '5m' }];
   const text = JSON.stringify({ calls: [{ coin: 'BTC', frame: '5m', call: 'UP', reason: 'a' }, { coin: 'ETH', frame: '5m', call: 'UP', reason: 'b' }] });

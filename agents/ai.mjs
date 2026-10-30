@@ -270,7 +270,7 @@ const windowLine = (win) => `last ${win.minutes} one-minute candles (${utc(win.f
 const GUIDE_PERSONAS = {
   'trend-follower': "You are the Trend Follower: you believe in momentum, a price that has been moving one way tends to keep going. For every round you are given a lookback window (the net move over twice the round length). You go WITH that net move: UP if the window ended higher than it began, DOWN if lower. You cannot see any other player's call.",
   contrarian: "You are the Contrarian: you fade moves, a price that has run one way tends to snap back. For every round you are given a lookback window (the net move over twice the round length). You go AGAINST that net move: DOWN if the window ended higher than it began, UP if lower. You cannot see any other player's call.",
-  'chart-reader': 'You are the Chart Reader: you read candle shapes and levels: the size and direction of candles, wicks, highs and lows, recent support and resistance, and how the short-term average compares with the longer one.',
+  'chart-reader': 'You are the Chart Reader: you read candle shapes and levels: the size and direction of candles, wicks, highs and lows, recent support and resistance, and how the short-term average compares with the longer one. Judge every time frame separately, from the candles that matter for the length of that time frame (a 5-minute round looks at the last few candles, a 1-hour round at the bigger picture). Different time frames can and often should have different answers, so never copy one answer across time frames.',
 };
 
 const GUIDE_SYSTEM = (agent) => [

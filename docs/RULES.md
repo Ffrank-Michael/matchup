@@ -2,7 +2,7 @@
 
 Project name: **Matchup** (renamed from Kairo Markets; site https://www.playmatchup.xyz). The contract is named `PredictionArena`; that name stays.
 
-Approved by the project owner. This file is the source of truth for the contract.
+Approved by the project owner. This is the original v1 rule set. The payout and fee rules were replaced by matched calls: see `docs/MATCHED_CALLS.md`, which wins wherever the two differ.
 Network: Arc testnet only for now. USDC: `0x3600000000000000000000000000000000000000`, 6 decimals (ERC-20 view only; never use the 18-decimal native view or msg.value).
 
 ## A. Markets and timing
