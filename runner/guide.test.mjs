@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { askGemini, buildGuidePrompt, guideSchema, parseGuide, guideWording, GUIDE_LABEL } from '../agents/ai.mjs';
-import { createGuide, dueRounds, laterRounds, expectedPerDay, outcomeOf, resultOf, callField, resField, limitDay, GUIDE_AI_AGENTS, GUIDE_CFG, GUIDE_HASH, GUIDE_MODELS, AGENT_MODELS, ASK_OFFSETS, CYCLE_SECONDS } from './guide.mjs';
+import { createGuide, dueRounds, laterRounds, expectedPerDay, outcomeOf, resultOf, callField, resField, limitDay, GUIDE_AI_AGENTS, GUIDE_CFG, GUIDE_HASH, GUIDE_MODELS, AGENT_MODELS, FALLBACK_MODELS, ASK_OFFSETS, CYCLE_SECONDS } from './guide.mjs';
 
 // T0 is a multiple of 600: the 10-minute cycle starts at T0 and the three AI agents are asked at T0 + 3, T0 + 25 and T0 + 47.
 const T0 = 1_800_000_000;
@@ -363,16 +363,19 @@ const askedBy = (t) => Object.fromEntries(t.asks.map((a) => [a.system.includes('
 
 const M = 'gemini-3.1-flash-lite';
 
-test('the models: all three AI agents use gemini-3.1-flash-lite; it is the only model in the list, and there is no fallback', async () => {
+const B = 'gemini-3.5-flash-lite';
+
+test('the models: all three AI agents use gemini-3.1-flash-lite first; gemini-3.5-flash-lite is the backup for it', async () => {
   assert.deepEqual(AGENT_MODELS, { 'chart-reader': M, contrarian: M, 'trend-follower': M });
-  assert.deepEqual(Object.keys(GUIDE_MODELS), [M]);
-  assert.deepEqual(Object.values(GUIDE_MODELS).map((m) => m.dailyCap), [450]);
+  assert.deepEqual(Object.keys(GUIDE_MODELS), [M, B]);
+  assert.deepEqual(FALLBACK_MODELS, { [M]: B });
+  assert.deepEqual(Object.values(GUIDE_MODELS).map((m) => m.dailyCap), [450, 450]);
   assert.equal(GUIDE_MODELS[M].perMinute, 10);
-  assert.ok(!/gemma|3\.5/i.test(JSON.stringify(GUIDE_MODELS) + JSON.stringify(AGENT_MODELS)));
+  assert.ok(!/gemma/i.test(JSON.stringify(GUIDE_MODELS) + JSON.stringify(AGENT_MODELS)));
   const t = setup();
   t.g.tick(t.snap); await settle();
   assert.deepEqual(askedBy(t), { 'trend-follower': M, contrarian: M, 'chart-reader': M });
-  for (const a of t.asks) { assert.equal(a.timeoutMs, 16_000); assert.equal(a.plain, undefined); }
+  for (const a of t.asks) { assert.equal(a.fallbackModel, B); assert.equal(a.plain, undefined); assert.equal(a.timeoutMs, 16_000); assert.ok(a.maxAttempts >= 2); }
 });
 
 test('expected requests a day: 144 per agent, so 432 on the one model, under its cap of 450', () => {
@@ -386,22 +389,22 @@ test('the three staggered requests never exceed the per-minute limit, even with 
   assert.equal(secs.length, 3);
   assert.ok(secs.every((s, i) => i === 0 || s - secs[i - 1] >= 20), 'at least 20 s apart');
   assert.ok(secs[2] - secs[0] < 60, 'all three fall inside one minute');
-  const worst = 3 * GUIDE_MODELS[M].maxAttempts; // every agent tries twice
+  const worst = 3 * Math.max(2, GUIDE_MODELS[M].maxAttempts); // every agent tries twice (the first model, then the backup)
   assert.ok(worst <= GUIDE_MODELS[M].perMinute, `${worst} requests in a minute at most, limit ${GUIDE_MODELS[M].perMinute}`);
+  assert.ok(worst <= GUIDE_MODELS[B].perMinute);
   assert.ok(GUIDE_MODELS[M].perMinute <= 15, "under Google's own 15 a minute");
 });
 
-test('a limit or quota answer is not retried and there is no fallback: the model rests 10 minutes and the agents after it skip their calls', async () => {
+test('a limit or quota answer is not retried: that model rests 10 minutes, the next agent uses the backup, and when both rest the agents skip', async () => {
   const t = setup({ askFn: async (args) => { t.asks.push(args); return { ok: false, error: 'HTTP 429', attempts: 1, latencyMs: 3, model: args.model }; } });
-  // the agents are asked 22 seconds apart, so the limit answer to the first is known when the next is due
   for (const sec of [ASK_OFFSETS['trend-follower'], ASK_OFFSETS.contrarian, ASK_OFFSETS['chart-reader']]) { at(t, sec); assert.doesNotThrow(() => t.g.tick(t.snap)); await settle(); }
-  // Trend Follower (first) gets the limit answer; Contrarian and Chart Reader then find the model resting and are not asked
-  assert.deepEqual(modelsOf(t), [M]);
+  // Trend Follower is told the limit is reached on the first model; Contrarian finds it resting and goes to the backup, which also says so; Chart Reader finds both resting
+  assert.deepEqual(modelsOf(t), [M, B]);
   assert.ok(t.logs.some((l) => /gemini-3\.1-flash-lite says too many requests/.test(l)));
-  assert.ok(t.logs.some((l) => /contrarian: gemini-3\.1-flash-lite not used \(paused until/.test(l)));
+  assert.ok(t.logs.some((l) => /contrarian: gemini-3\.1-flash-lite not used \(paused until.*asking gemini-3\.5-flash-lite instead/.test(l)));
+  assert.ok(t.logs.some((l) => /gemini-3\.5-flash-lite says too many requests/.test(l)));
   assert.ok(t.logs.some((l) => /chart-reader: gemini-3\.1-flash-lite not used \(paused until/.test(l)));
   assert.ok(!t.logs.some((l) => /gemma/i.test(l)));
-  // the rounds that lock before the next cycle: "Couldn't decide this round", for all three agents
   for (const agent of ['trend-follower', 'contrarian', 'chart-reader']) {
     const skip = t.g.calls.get(callField(0, markets()[0].nextRound, agent));
     assert.equal(skip.s, 'skipped');
@@ -409,11 +412,38 @@ test('a limit or quota answer is not retried and there is no fallback: the model
     assert.match(skip.t, /decide/);
     assert.equal(t.g.calls.get(callField(0, markets()[0].nextRound + 1, agent)).s, 'skipped', 'the later 5-minute round locks before the next cycle too');
   }
-  // not asked again in a loop; asked once each at the next cycle, when the rest is over
+  // not asked again in a loop; asked again at the next cycle, when the rest is over
   at(t, 300 + 50); t.g.tick(t.snap); await settle();
-  assert.equal(t.asks.length, 1);
+  assert.equal(t.asks.length, 2);
   at(t, 600 + 60); t.g.tick({ markets: later(1) }); await settle();
-  assert.equal(t.asks.length, 4, 'one request each again (all three, now that the rest is over)');
+  assert.ok(t.asks.length > 2, 'asked again once the rest is over');
+});
+
+test('the backup: when the first model is down (server error or timeout) the same request goes to gemini-3.5-flash-lite and the calls are saved', async () => {
+  const t = setup({ askFn: async (args) => {
+    t.asks.push(args);
+    // what askGemini does: the first model fails, the backup answers
+    const ok = answerFor({ ...args, model: args.fallbackModel });
+    return { ...ok, model: args.fallbackModel, attempts: 2 };
+  } });
+  t.g.tick(t.snap); await settle();
+  assert.equal(t.asks.length, 3);
+  assert.ok(t.asks.every((a) => a.model === M && a.fallbackModel === B));
+  const saved = [...t.g.calls.values()].filter((r) => r.a === 'chart-reader' && r.s === 'called');
+  assert.ok(saved.length > 0);
+  assert.ok(t.logs.some((l) => /GUIDE chart-reader: \d+ calls saved .*gemini-3\.5-flash-lite/.test(l)));
+});
+
+test('the backup: when the first model is at its daily cap the agent asks the backup straight away, and the backup is counted on its own', async () => {
+  const models = { ...GUIDE_MODELS, [M]: { ...GUIDE_MODELS[M], dailyCap: 1 } };
+  const t = setup({ models });
+  t.g.tick(t.snap); await settle();
+  assert.deepEqual(modelsOf(t), [B, B, M].sort());
+  assert.ok(t.logs.some((l) => /gemini-3\.1-flash-lite not used \(daily cap 1 reached\); asking gemini-3\.5-flash-lite instead/.test(l)));
+  const asked = t.asks.filter((a) => a.model === B);
+  assert.ok(asked.every((a) => a.fallbackModel === null));
+  assert.match(t.g.summary(), /gemini-3\.1-flash-lite 1/);
+  assert.match(t.g.summary(), /gemini-3\.5-flash-lite 2/);
 });
 
 test('any other failure skips those calls and carries on: no retry loop, no other model', async () => {
@@ -457,9 +487,9 @@ test('the hourly line counts the requests per model and gives the expected daily
   t.clock.ms += 3600_000;
   t.g.tick(t.snap); await settle();
   const line = t.logs.find((l) => l.startsWith('GUIDE Gemini requests:'));
-  assert.match(line, /3 in the last hour \(gemini-3\.1-flash-lite 3\)/);
+  assert.match(line, /3 in the last hour \(gemini-3\.1-flash-lite 3, gemini-3\.5-flash-lite 0\)/);
   assert.match(line, /today \(Pacific day/);
-  assert.match(line, /caps gemini-3\.1-flash-lite 450/);
+  assert.match(line, /caps gemini-3\.1-flash-lite 450, gemini-3\.5-flash-lite 450/);
   assert.match(line, /expected a day: gemini-3\.1-flash-lite 432/);
 });
 

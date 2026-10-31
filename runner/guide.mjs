@@ -38,13 +38,18 @@ export const GUIDE_AGENTS = ['trend-follower', 'contrarian', 'chart-reader', 'co
 export const GUIDE_AI_AGENTS = ['trend-follower', 'contrarian', 'chart-reader'];
 
 // WHICH MODEL EACH AGENT USES, AND THE LIMITS OF EACH MODEL: the one place to read or change them. The limits are Google AI Studio's free-tier
-// limits for our key (gemini-3.1-flash-lite: 500 requests a day, 15 a minute); dailyCap is kept below Google's own daily limit, perMinute is our
-// own ceiling per model. All three AI agents share gemini-3.1-flash-lite: 3 x 144 = 432 requests a day on it (cap 450). They are asked 22 seconds
-// apart (ASK_OFFSETS), so at most 3 first requests, and 6 with every retry, fall in any one minute: under perMinute 10 and Google's 15.
+// limits for our key (gemini-3.1-flash-lite and gemini-3.5-flash-lite: 500 requests a day each, 15 a minute); dailyCap is kept below Google's own
+// daily limit, perMinute is our own ceiling per model. All three AI agents ask gemini-3.1-flash-lite first: 3 x 144 = 432 requests a day on it
+// (cap 450). When it answers 503 or times out, the second try goes to gemini-3.5-flash-lite (slower, but a different model with its own daily
+// limit); the same backup takes over when the first model has reached its cap. They are asked 22 seconds apart (ASK_OFFSETS), so at most 3 first
+// requests, and 6 with every retry, fall in any one minute: under perMinute 10 and Google's 15.
 export const GUIDE_MODELS = {
   'gemini-3.1-flash-lite': { dailyCap: 450, perMinute: 10, timeoutMs: 16_000, maxAttempts: 2 },
+  'gemini-3.5-flash-lite': { dailyCap: 450, perMinute: 10, timeoutMs: 16_000, maxAttempts: 1 },
 };
 export const AGENT_MODELS = { 'chart-reader': 'gemini-3.1-flash-lite', contrarian: 'gemini-3.1-flash-lite', 'trend-follower': 'gemini-3.1-flash-lite' };
+/** The model tried on the second try (and used instead when the first is at its cap or resting). A model without an entry has no backup. */
+export const FALLBACK_MODELS = { 'gemini-3.1-flash-lite': 'gemini-3.5-flash-lite' };
 /** Seconds after each 10-minute mark at which each agent is asked: at least 20 s apart, so the three requests never go out in the same second. */
 export const ASK_OFFSETS = { 'trend-follower': 3, contrarian: 25, 'chart-reader': 47 };
 /** Google resets the daily limits at midnight Pacific time: the counters follow that day. */
@@ -133,7 +138,7 @@ export async function freshCandles(candleSource, coin, { nowMs = Date.now, sleep
 export function createGuide({
   env = process.env, live = false, log = () => {}, getCandles, askFn = askGemini, fetchFn = fetch, now = () => Date.now(),
   random = Math.random, file = GUIDE_FILE, stateFile = GUIDE_STATE_FILE, priceFile = GUIDE_PRICE_FILE, chainPriceLog = () => readPriceLog(),
-  cfg: over = {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), models = GUIDE_MODELS, agentModels = AGENT_MODELS,
+  cfg: over = {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), models = GUIDE_MODELS, agentModels = AGENT_MODELS, fallbackModels = FALLBACK_MODELS,
 } = {}) {
   const cfg = { ...GUIDE_CFG, ...over };
   const apiKey = env.GEMINI_API_KEY || '';
@@ -279,25 +284,32 @@ export function createGuide({
       }
     }
     const deadline = Math.min(...asked.map((d) => d.lock)) * 1000 - 10_000; // an answer is useless once the first of these rounds locks
-    const model = agentModels[agent];
-    const lim = models[model];
-    const why = reserve(model);
-    if (why) { // at its daily cap or resting after a limit answer: this agent's calls for the cycle are skipped, there is no other model
+    let model = agentModels[agent];
+    let backup = fallbackModels[model] && models[fallbackModels[model]] ? fallbackModels[model] : null;
+    let why = reserve(model);
+    if (why && backup) { // the first model is at its cap or resting: the backup takes this request
+      const first = model;
+      if (reserve(backup) === null) { log(`GUIDE ${agent}: ${first} not used (${why}); asking ${backup} instead`); model = backup; backup = null; why = null; }
+    }
+    if (why) { // no model may be asked: this agent's calls for the cycle are skipped
       log(`GUIDE ${agent}: ${model} not used (${why}); its ${asked.length} calls this cycle are skipped`);
       giveUp(asked, agent, why);
       return;
     }
+    const lim = models[model];
     const { system, user } = buildGuidePrompt({ agent, coins });
     const out = await askFn({
-      apiKey, model, system, user, deadline, retryOn429: false, maxAttempts: lim.maxAttempts, beforeRetry: () => reserve(model) === null,
-      timeoutMs: lim.timeoutMs, fallbackTimeoutMs: 8_000,
+      apiKey, model, fallbackModel: backup, system, user, deadline, retryOn429: false, maxAttempts: backup ? Math.max(2, lim.maxAttempts) : lim.maxAttempts,
+      beforeRetry: () => reserve(backup ?? model) === null,
+      timeoutMs: lim.timeoutMs, fallbackTimeoutMs: backup ? Math.min(models[backup].timeoutMs, 14_000) : 8_000,
       schema: guideSchema(keys), parse: (text) => parseGuide(text, keys, mustCall), maxOutputTokens: 300 + 90 * keys.length, sleep,
     });
     if (!out.ok) {
-      log(`GUIDE ${agent}: no answer from ${model} (${out.error}, ${out.attempts} tries, took ${secs(out.latencyMs)}), so these ${asked.length} calls are skipped`);
-      if (out.error === 'HTTP 429') { // a limit or quota answer: never retried, and this model rests for a while
-        quotaUntil[model] = now() + cfg.quotaPauseMs;
-        log(`GUIDE: ${model} says too many requests (a limit or quota). Not asking it again until ${hhmm(quotaUntil[model])} UTC`);
+      log(`GUIDE ${agent}: no answer from ${out.model ?? model} (${out.error}, ${out.attempts} tries, took ${secs(out.latencyMs)}), so these ${asked.length} calls are skipped`);
+      if (out.error === 'HTTP 429') { // a limit or quota answer: never retried, and the model that said it rests for a while
+        const resting = out.model ?? model;
+        quotaUntil[resting] = now() + cfg.quotaPauseMs;
+        log(`GUIDE: ${resting} says too many requests (a limit or quota). Not asking it again until ${hhmm(quotaUntil[resting])} UTC`);
       }
       giveUp(asked, agent, out.error); // any failure: skipped now, nothing is tried in a loop
       return;
