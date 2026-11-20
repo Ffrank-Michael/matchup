@@ -5,11 +5,14 @@ import { IS_MAINNET } from "@/lib/network";
 import { useConnect, useConnection, useConnectors, useSwitchChain } from "wagmi";
 
 import { chipAddress } from "@/lib/arc";
+import { useGoogleWallet, type GooglePhase, type GoogleWallet } from "@/lib/use-google-wallet";
 import { useRevokeApproval, useUsdc, usdcRaw } from "@/onchain";
+import { arcMainnet } from "@/onchain/chains";
 import { activeChain, isAnnouncedWallet, useDisconnectWallet } from "@/onchain/wagmiConfig";
 import { cn } from "@/lib/utils";
 
-// "Connect wallet" for the site's Arc network (NEXT_PUBLIC_NETWORK; browser wallets and wallet apps; Google sign-in comes later).
+// "Connect wallet" for the site's Arc network (NEXT_PUBLIC_NETWORK; browser wallets and wallet apps), plus "Continue with Google"
+// (a Circle wallet on Arc mainnet, lib/use-google-wallet.tsx; sign-in, address and balance only for now).
 // - Wallets are found automatically. On a phone they appear when this page is opened inside a wallet
 //   app's own browser; from a normal phone browser the window offers "open in <wallet app>" links.
 // - After connecting, a wallet on another network is asked to switch to the site's Arc network, and to add it first
@@ -39,7 +42,18 @@ function Row({ children, onClick, disabled }: { children: React.ReactNode; onCli
   );
 }
 
-function ConnectView({ onDone }: { onDone: () => void }) {
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 48 48" className="size-7 rounded-lg bg-white p-1" aria-hidden>
+      <path fill="#EA4335" d="M24 9.5c3.5 0 6.7 1.2 9.2 3.6l6.9-6.9C35.9 2.4 30.5 0 24 0 14.6 0 6.6 5.4 2.6 13.3l8 6.2C12.5 13.6 17.8 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 7l7.4 5.7c4.3-4 6.9-9.9 6.9-17.2z" />
+      <path fill="#FBBC05" d="M10.6 28.5c-.5-1.4-.8-2.9-.8-4.5s.3-3.1.8-4.5l-8-6.2C1 16.6 0 20.2 0 24s1 7.4 2.6 10.7l8-6.2z" />
+      <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.3-8.5 2.3-6.2 0-11.5-4.1-13.4-9.8l-8 6.2C6.6 42.6 14.6 48 24 48z" />
+    </svg>
+  );
+}
+
+function ConnectView({ onDone, google }: { onDone: () => void; google: GoogleWallet }) {
   const connectors = useConnectors();
   // onSuccess is set here, not on connect(): this list is replaced by the account view the moment the wallet connects
   const { mutate: connect, isPending, variables, error, reset } = useConnect({ mutation: { onSuccess: onDone } });
@@ -64,6 +78,26 @@ function ConnectView({ onDone }: { onDone: () => void }) {
 
   return (
     <>
+      {google.enabled ? (
+        <div className="mb-2">
+          <Row
+            onClick={() => {
+              reset();
+              onDone(); // Circle's own window opens later on top of the page; this window must not cover it
+              google.retry(); // a new Google sign-in, or (still signed in) carry on with the wallet setup where it stopped
+            }}
+          >
+            <GoogleMark />
+            <span className="flex-1">Continue with Google</span>
+          </Row>
+          {google.phase === "error" && google.error ? (
+            <p className="mt-2 rounded-xl bg-muted px-3 py-2 text-[12px]" role="status">
+              {google.error}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {wallets.length > 0 ? (
         <ul className="space-y-2">
           {wallets.map((c) => (
@@ -279,6 +313,73 @@ function AccountView({ address, wrongNetwork, onDone }: { address: `0x${string}`
   );
 }
 
+/** The wallet window after "Continue with Google": the Circle wallet's address and USDC on Arc mainnet, and sign out. */
+function GoogleAccountView({ google, address, onDone }: { google: GoogleWallet; address: `0x${string}`; onDone: () => void }) {
+  const [copied, setCopied] = React.useState(false);
+  const { refresh } = google;
+  React.useEffect(() => refresh(), [refresh]); // a fresh balance every time the window opens
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard not allowed here: the address is shown in full above anyway */
+    }
+  };
+
+  return (
+    <>
+      <p className="mb-2 flex items-center gap-2 text-[12px] text-muted-foreground">
+        <GoogleMark /> Signed in with Google
+      </p>
+      <p className="break-all rounded-2xl bg-muted px-4 py-3 font-mono text-[12px]">{address}</p>
+      <div className="mt-2 flex gap-2">
+        <button type="button" onClick={copy} className="flex-1 rounded-full border border-border px-3 py-2 text-[12px] font-medium hover:bg-muted">
+          {copied ? "Copied" : "Copy address"}
+        </button>
+        <a
+          href={`${arcMainnet.blockExplorers.default.url}/address/${address}`}
+          target="_blank"
+          rel="noreferrer"
+          className="flex-1 rounded-full border border-border px-3 py-2 text-center text-[12px] font-medium hover:bg-muted"
+        >
+          View on explorer
+        </a>
+      </div>
+
+      <p className="mt-4 flex items-center justify-between rounded-2xl border border-border px-4 py-3 text-[13px]">
+        <span className="text-muted-foreground">{arcMainnet.name} · balance</span>
+        <span className="font-mono font-semibold tabular-nums">{google.usdc !== null ? `${google.usdc} USDC` : "…"}</span>
+      </p>
+
+      <p className="mt-4 text-[12px] text-muted-foreground">
+        This wallet is yours, on {arcMainnet.name} mainnet, and your Google account protects it. Matchup cannot open it or recover it,
+        so keep your Google account safe.{IS_MAINNET ? "" : " (This copy of the site shows Arc Testnet; the Google wallet is on mainnet.)"}
+      </p>
+
+      <button
+        type="button"
+        onClick={() => {
+          google.signOut();
+          onDone();
+        }}
+        className="mt-4 w-full rounded-full border border-border px-4 py-2.5 text-[13px] font-medium hover:bg-muted"
+      >
+        Sign out
+      </button>
+    </>
+  );
+}
+
+const GOOGLE_BUSY: Partial<Record<GooglePhase, string>> = {
+  starting: "Opening Google…",
+  verifying: "Signing in…",
+  creating: "Creating wallet…",
+  loading: "Loading wallet…",
+};
+
 const menuItem =
   "block w-full rounded-xl px-3 py-2.5 text-left text-[13px] font-medium transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
@@ -377,8 +478,19 @@ function AccountMenu({ address, onSwitch, onDetails }: { address: `0x${string}`;
 export function WalletButton() {
   const { address, chainId, status } = useConnection();
   const { mutate: switchChain, isPending: switching } = useSwitchChain();
+  const google = useGoogleWallet();
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDialogElement>(null);
+
+  // After a Google sign-in (not a quiet reload of one), the window opens by itself on the result: the wallet, or what went wrong
+  const signingIn = React.useRef(false);
+  React.useEffect(() => {
+    if (["starting", "verifying", "creating"].includes(google.phase)) signingIn.current = true;
+    if ((google.phase === "ready" || google.phase === "error") && signingIn.current) {
+      signingIn.current = false;
+      setOpen(true);
+    }
+  }, [google.phase]);
 
   React.useEffect(() => {
     const d = ref.current;
@@ -389,6 +501,9 @@ export function WalletButton() {
 
   const connected = status === "connected" && address !== undefined;
   const wrongNetwork = connected && chainId !== activeChain.id;
+  // a connected browser wallet always comes first; the Google wallet shows only when none is connected
+  const googleAddress = !connected && google.phase === "ready" ? google.address : null;
+  const googleBusy = GOOGLE_BUSY[google.phase];
 
   let button: React.ReactNode;
   if (status === "reconnecting" || status === "connecting") {
@@ -411,6 +526,19 @@ export function WalletButton() {
     );
   } else if (connected) {
     button = <AccountMenu address={address} onSwitch={() => setOpen(true)} onDetails={() => setOpen(true)} />;
+  } else if (googleAddress) {
+    button = (
+      <button type="button" onClick={() => setOpen(true)} className={cn(pillBase, "flex items-center gap-2 border border-border hover:bg-muted")}>
+        <span className="size-2 rounded-full bg-up" aria-hidden />
+        {chipAddress(googleAddress)}
+      </button>
+    );
+  } else if (googleBusy) {
+    button = (
+      <button type="button" disabled className={cn(pillBase, "border border-border text-muted-foreground")}>
+        {googleBusy}
+      </button>
+    );
   } else {
     button = (
       <button type="button" onClick={() => setOpen(true)} className={cn(pillBase, "bg-foreground text-background hover:opacity-90")}>
@@ -428,18 +556,24 @@ export function WalletButton() {
         onClick={(e) => {
           if (e.target === e.currentTarget) setOpen(false);
         }}
-        aria-label={connected ? "Your wallet" : "Connect wallet"}
+        aria-label={connected || googleAddress ? "Your wallet" : "Connect wallet"}
         className="mb-3 mt-auto w-[calc(100%-1.5rem)] max-w-md rounded-[26px] border border-border bg-card p-5 text-card-foreground backdrop:bg-black/60 backdrop:backdrop-blur-sm sm:m-auto"
       >
         {open ? (
           <>
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="text-[16px] font-semibold tracking-tight">{connected ? "Your wallet" : "Connect wallet"}</h2>
+              <h2 className="text-[16px] font-semibold tracking-tight">{connected || googleAddress ? "Your wallet" : "Connect wallet"}</h2>
               <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="grid size-8 place-items-center rounded-full border border-border text-muted-foreground hover:bg-muted">
                 ×
               </button>
             </div>
-            {connected ? <AccountView address={address} wrongNetwork={wrongNetwork} onDone={() => setOpen(false)} /> : <ConnectView onDone={() => setOpen(false)} />}
+            {connected ? (
+              <AccountView address={address} wrongNetwork={wrongNetwork} onDone={() => setOpen(false)} />
+            ) : googleAddress ? (
+              <GoogleAccountView google={google} address={googleAddress} onDone={() => setOpen(false)} />
+            ) : (
+              <ConnectView onDone={() => setOpen(false)} google={google} />
+            )}
           </>
         ) : null}
       </dialog>

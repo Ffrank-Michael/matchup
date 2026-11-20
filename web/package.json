@@ -10,10 +10,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test onchain/payout.test.ts lib/guide-merge.test.ts"
+    "test": "node --test onchain/payout.test.ts lib/guide-merge.test.ts lib/circle-api.test.ts lib/circle-wallet-pick.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
+    "@circle-fin/w3s-pw-web-sdk": "1.1.11",
     "@tanstack/react-query": "5.104.1",
     "@walletconnect/ethereum-provider": "2.25.0",
     "class-variance-authority": "^0.7.1",
