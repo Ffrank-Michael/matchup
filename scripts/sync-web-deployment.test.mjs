@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { toWebDeployment, toWebAgents, syncWebDeployment } from './sync-web-deployment.mjs';
+import { toWebDeployment, toWebAgents, syncWebDeployment, readEnvValue, siteNetwork } from './sync-web-deployment.mjs';
 
 const ARENA = '0xec52762e8f91b2380d39cf2d03101412a8a3530c';
 const rec = (markets) => ({ network: 'arc-testnet', chainId: 5042002, arena: { address: ARENA, tx: '0xsecret-looking-but-public' }, owner: '0x1', markets, guards: {}, feeds: {} });
@@ -41,6 +41,24 @@ test('writes web/lib/deployment.generated.json, and says so when the deployment 
   fs.writeFileSync(path.join(root, 'deployments', 'arc-testnet.json'), JSON.stringify(rec([m(0, 'BTC/USD 5m', 300, 0)])));
   const { to } = syncWebDeployment({ network: 'testnet', root });
   assert.equal(JSON.parse(fs.readFileSync(to, 'utf8')).markets[0].name, 'BTC/USD 5m');
+});
+
+test('reads one variable from .env text', () => {
+  const text = '# comment\nOTHER=1\nexport NEXT_PUBLIC_NETWORK="mainnet" # inline\r\nX=y';
+  assert.equal(readEnvValue(text, 'NEXT_PUBLIC_NETWORK'), 'mainnet');
+  assert.equal(readEnvValue('NEXT_PUBLIC_NETWORK=mainnet # note', 'NEXT_PUBLIC_NETWORK'), 'mainnet');
+  assert.equal(readEnvValue("NEXT_PUBLIC_NETWORK='testnet'\nNEXT_PUBLIC_NETWORK=mainnet", 'NEXT_PUBLIC_NETWORK'), 'mainnet');
+  assert.equal(readEnvValue('NEXT_PUBLIC_NETWORK_X=mainnet', 'NEXT_PUBLIC_NETWORK'), undefined);
+});
+
+test('the network comes from the environment first, then web/.env.local, else testnet', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kairo-env-'));
+  fs.mkdirSync(path.join(root, 'web'));
+  assert.equal(siteNetwork({ root, env: {} }), 'testnet');
+  fs.writeFileSync(path.join(root, 'web', '.env.local'), 'NEXT_PUBLIC_NETWORK=mainnet\n');
+  assert.equal(siteNetwork({ root, env: {} }), 'mainnet');
+  assert.equal(siteNetwork({ root, env: { NEXT_PUBLIC_NETWORK: 'testnet' } }), 'testnet');
+  assert.equal(siteNetwork({ root, env: { NEXT_PUBLIC_NETWORK: 'mainnet' } }), 'mainnet');
 });
 
 test('the committed site copy matches the testnet deployment file', () => {

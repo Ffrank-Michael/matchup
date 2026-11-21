@@ -2,7 +2,8 @@
 // market list (and the arena address) from the deployment instead of a hard-coded list. The site is built from web/ alone
 // and cannot import files outside it, which is why this copy exists.
 //   node scripts/sync-web-deployment.mjs              testnet rehearsal (deployments/arc-testnet.json), or mainnet when
-//                                                      NEXT_PUBLIC_NETWORK=mainnet (deployments/arc-mainnet.json)
+//                                                      NEXT_PUBLIC_NETWORK=mainnet (deployments/arc-mainnet.json), set in the
+//                                                      environment or in web/.env.local (the environment wins)
 // Only public facts are copied: network, chain id, arena address, and for each market its id, name, coin, round length,
 // offset and feed address. The script runs before `npm run dev` and `npm run build` in web/.
 import fs from 'node:fs';
@@ -33,7 +34,38 @@ export function toWebDeployment(d, agents = []) {
   return { network: d.network, chainId: d.chainId, arena: d.arena.address, markets: markets.sort((a, b) => a.id - b.id), agents };
 }
 
-export function syncWebDeployment({ network = process.env.NEXT_PUBLIC_NETWORK === 'mainnet' ? 'mainnet' : 'testnet', root = ROOT } = {}) {
+/** One variable from a .env file's text (KEY=value lines; # comments, `export ` and surrounding quotes allowed); undefined if absent. */
+export function readEnvValue(text, key) {
+  let value;
+  for (const raw of String(text).split(/\r?\n/)) {
+    const line = raw.trim().replace(/^export\s+/, '');
+    if (!line || line.startsWith('#')) continue;
+    const eq = line.indexOf('=');
+    if (eq < 0 || line.slice(0, eq).trim() !== key) continue;
+    let v = line.slice(eq + 1).trim();
+    const q = v[0];
+    if ((q === '"' || q === "'") && v.lastIndexOf(q) > 0) v = v.slice(1, v.lastIndexOf(q));
+    else v = v.replace(/\s+#.*$/, '');
+    value = v; // the last line wins, as in dotenv
+  }
+  return value;
+}
+
+/**
+ * The site's network, decided the way Next.js decides it: a real environment variable wins (the host's settings),
+ * otherwise NEXT_PUBLIC_NETWORK from web/.env.local. This script runs as plain node before `next dev`/`next build`,
+ * so Next.js has not loaded .env.local yet and it is read here. Anything other than "mainnet" means testnet.
+ */
+export function siteNetwork({ root = ROOT, env = process.env } = {}) {
+  let value = env.NEXT_PUBLIC_NETWORK;
+  if (value === undefined) {
+    const file = path.join(root, 'web', '.env.local');
+    if (fs.existsSync(file)) value = readEnvValue(fs.readFileSync(file, 'utf8'), 'NEXT_PUBLIC_NETWORK');
+  }
+  return value === 'mainnet' ? 'mainnet' : 'testnet';
+}
+
+export function syncWebDeployment({ root = ROOT, network = siteNetwork({ root }) } = {}) {
   const from = path.join(root, 'deployments', network === 'mainnet' ? 'arc-mainnet.json' : 'arc-testnet.json');
   if (!fs.existsSync(from)) throw new Error(`${path.relative(root, from)} does not exist yet: deploy the contracts first`);
   const circleFile = path.join(root, 'deployments', network === 'mainnet' ? 'circle-mainnet.json' : 'circle-testnet.json');
@@ -47,7 +79,7 @@ export function syncWebDeployment({ network = process.env.NEXT_PUBLIC_NETWORK ==
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
   try {
     const { to, out } = syncWebDeployment();
-    console.log(`Site market list: ${out.markets.length} markets (${out.markets.map((m) => m.name).join(', ')}) -> ${path.relative(ROOT, to)}`);
+    console.log(`Site market list (${out.network}): ${out.markets.length} markets (${out.markets.map((m) => m.name).join(', ')}) -> ${path.relative(ROOT, to)}`);
   } catch (e) {
     console.error('STOP: ' + e.message);
     process.exit(1);
