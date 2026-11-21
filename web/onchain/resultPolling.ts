@@ -20,7 +20,17 @@ export function setWaitingEnds(ends: number[]): void {
   waitingEnds = ends;
 }
 
-/** The interval for reading the round states, in ms. */
-export function roundsPollMs(ends: number[] = waitingEnds, nowSec: number = Date.now() / 1000): number {
+/** The interval for reading the round states, in ms, for these end times at this moment (seconds). Pure: reads no clock. */
+export function roundsPollMs(ends: number[], nowSec: number): number {
   return ends.some((e) => nowSec >= e - FAST_BEFORE_SEC && nowSec < e + FAST_FOR_SEC) ? WAITING_POLL_MS : NORMAL_POLL_MS;
+}
+
+/**
+ * useAllRounds' refetchInterval callback. TanStack Query also calls it while the page is prerendered on the server, and with
+ * cacheComponents Next.js refuses a clock read there (Date.now() would be frozen into the page). So the clock is read only in
+ * the browser; on the server the answer is simply the normal interval (nothing is polled there anyway).
+ */
+export function roundsRefetchInterval(): number {
+  if (typeof window === "undefined") return NORMAL_POLL_MS;
+  return roundsPollMs(waitingEnds, Date.now() / 1000);
 }
