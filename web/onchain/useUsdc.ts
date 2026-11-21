@@ -11,12 +11,12 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { usePublicClient } from "wagmi";
-import { useConnection } from "wagmi";
 import { ERC20_ABI } from "./abi";
 import { USDC_ADDRESS } from "./chains";
 import { ARENA_ADDRESSES } from "./addresses";
 import { NETWORK } from "./env";
 import { usdc as formatUsdc } from "./format";
+import { usePlayer } from "./usePlayer";
 
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 const REFETCH_MS = 5_000;
@@ -39,7 +39,7 @@ export interface UsdcState {
  */
 export function useUsdc(): UsdcState {
   const client = usePublicClient();
-  const { address } = useConnection();
+  const { address } = usePlayer();
   const arenaAddress = ARENA_ADDRESSES[NETWORK];
 
   const { data, isLoading } = useQuery({

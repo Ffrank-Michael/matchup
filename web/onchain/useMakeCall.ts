@@ -11,12 +11,17 @@
  *   3. simulate placeCall (a revert reason shows before the wallet opens), then send it
  *   4. wait for the receipt, refresh the screens
  *
+ * Google wallet (a Circle EOA on Arc mainnet, see onchain/usePlayer.ts): the same checks, read from the chain with its address;
+ * then the permission and placeCall each go through Circle (our server builds the contract call, the player confirms it on
+ * Circle's "Contract interaction" screen; lib/use-google-wallet.tsx contractCall). Circle's screen takes a moment, so a Google
+ * call is refused when less than 30 seconds are left before calling closes, checked before each Circle step.
+ *
  * Words on screen: "call", "position". Function names such as placeCall stay in code only.
  */
 
 import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useConnection, usePublicClient, useWriteContract } from "wagmi";
+import { usePublicClient, useWriteContract } from "wagmi";
 import { parseUnits } from "viem";
 
 import { ARENA_ABI, ERC20_ABI } from "./abi";
@@ -25,6 +30,9 @@ import { USDC_ADDRESS } from "./chains";
 import { NETWORK } from "./env";
 import { explainError } from "./errors";
 import { useEnsureNetwork } from "./wagmiConfig";
+import { usePlayer, type PlayerSource } from "./usePlayer";
+import { useGoogleWallet } from "@/lib/use-google-wallet";
+import { APPROVE_SIGNATURE, PLACE_CALL_SIGNATURE, lockTimeProblem, microToUsdc } from "@/lib/circle-calls";
 
 // ── Beta limit ────────────────────────────────────────────────
 
@@ -78,6 +86,8 @@ export interface UseMakeCallReturn {
   reset: () => void;
   txHash: `0x${string}` | null;
   approveTxHash: `0x${string}` | null;
+  /** which wallet the call goes through (the waiting texts differ for Google: Circle's window) */
+  via: PlayerSource;
 }
 
 // ── Pure checks (exported for tests) ──────────────────────────
@@ -107,7 +117,8 @@ export function checkBetaLimit(existingUp: bigint, existingDown: bigint, newAmou
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 
 export function useMakeCall(): UseMakeCallReturn {
-  const { address } = useConnection();
+  const { address, source } = usePlayer();
+  const google = useGoogleWallet();
   const client = usePublicClient();
   const { ensureNetwork } = useEnsureNetwork();
   const { mutateAsync: writeContractAsync } = useWriteContract();
@@ -182,6 +193,49 @@ export function useMakeCall(): UseMakeCallReturn {
           );
         }
 
+        if (source === "google") {
+          // ── Google wallet: the permission and the call go through Circle ──
+          const lt = Number(await client.readContract({ ...arena, functionName: "lockTime", args: [BigInt(params.marketId), BigInt(params.round)] }));
+          const tooLate = () => lockTimeProblem(lt, Math.floor(Date.now() / 1000));
+          let late = tooLate();
+          if (late) return stop(late);
+          const hex = (h: string | null) => (h && /^0x[0-9a-fA-F]{64}$/.test(h) ? (h as `0x${string}`) : null);
+
+          if (allowance < amountRaw) {
+            let allowRaw = parseUnits(String(DEFAULT_APPROVAL_USDC), 6);
+            if (params.approvalUsdc !== undefined && validateAmount(params.approvalUsdc) === null) allowRaw = parseUnits(params.approvalUsdc, 6);
+            if (allowRaw < amountRaw) allowRaw = amountRaw;
+            setStatus("approve-wallet");
+            const a = await google.contractCall(
+              "approve",
+              { amount: microToUsdc(allowRaw) },
+              { contract: USDC_ADDRESS, signature: APPROVE_SIGNATURE },
+              () => setStatus("approve-confirming"),
+            );
+            setApproveTxHash(hex(a.txHash));
+            if (!a.ok) return stop(`The permission was not given, so no call was made. ${a.error}`);
+            late = tooLate();
+            if (late) return stop(`The permission is done (later calls skip it), but this round is closing. ${late}`);
+          }
+
+          // Catch a revert reason before Circle's window opens (a read: the Google wallet's address is enough).
+          const googleArgs = [BigInt(params.marketId), BigInt(params.round), params.side === "UP", amountRaw] as const;
+          await client.simulateContract({ ...arena, functionName: "placeCall", args: googleArgs, account: address });
+
+          setStatus("call-wallet");
+          const r = await google.contractCall(
+            "placeCall",
+            { marketId: String(params.marketId), roundIndex: String(params.round), up: params.side === "UP", amount: microToUsdc(amountRaw) },
+            { contract: arenaAddress, signature: PLACE_CALL_SIGNATURE },
+            () => setStatus("call-confirming"),
+          );
+          setTxHash(hex(r.txHash));
+          if (!r.ok) return stop(`Your call was not made. ${r.error}`);
+          setStatus("done");
+          for (const key of ["rounds", "myPositions", "usdc", "markets", "myCalls"]) void queryClient.invalidateQueries({ queryKey: [key] });
+          return;
+        }
+
         await ensureNetwork();
 
         // The one-time permission, only when the current one is too small. The visitor can change its size; it is never below the call.
@@ -217,10 +271,10 @@ export function useMakeCall(): UseMakeCallReturn {
         setStatus("failed");
       }
     },
-    [address, arenaAddress, client, ensureNetwork, queryClient, reset, writeContractAsync],
+    [address, source, google, arenaAddress, client, ensureNetwork, queryClient, reset, writeContractAsync],
   );
 
-  return { makeCall, status, errorMessage, errorTechnical, reset, txHash, approveTxHash };
+  return { makeCall, status, errorMessage, errorTechnical, reset, txHash, approveTxHash, via: source };
 }
 
 /** Removes the permission (sets it to zero; the next call then needs a new one-time permission). */

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useConnection } from "wagmi";
+
 
 import { AGENTS } from "@/lib/agents";
 import { useBackedAgents } from "@/lib/backed";
@@ -17,6 +17,7 @@ import { StartEnd } from "./price-proof";
 import { RoundBadge, roundStatusOf } from "./round-badge";
 import { RoundHistory } from "./round-history";
 import { Tile } from "./tile";
+import { usePlayer } from "@/onchain/usePlayer";
 
 const hm = (unixSec: number) =>
   new Date(unixSec * 1000).toLocaleTimeString([], {
@@ -50,7 +51,7 @@ export function LiveCalls({
   className?: string;
 }) {
   const { calls, isLoading } = useLiveCalls(market.id);
-  const { address } = useConnection();
+  const { address } = usePlayer();
   const settlements = useSettlements();
   const backedOf = useBackedAgents(address);
   // the AI agents' one-sentence reasons for the rounds shown here

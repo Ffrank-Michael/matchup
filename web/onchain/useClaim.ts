@@ -4,6 +4,8 @@
  * this version waits for the receipt itself and refreshes the screens once, instead of doing that while rendering.
  *
  * A win and a refund use the same contract function. The screen text differs: "Claim your winnings" / "Get your money back".
+ * A Google (Circle) wallet sends the same claim or claimMany through Circle: our server builds it and the player confirms it
+ * on Circle's screen (lib/use-google-wallet.tsx contractCall).
  */
 
 import { useCallback, useState } from "react";
@@ -15,6 +17,9 @@ import { ARENA_ADDRESSES } from "./addresses";
 import { NETWORK } from "./env";
 import { explainError } from "./errors";
 import type { ClaimableKind } from "./useMyPositions";
+import { usePlayer } from "./usePlayer";
+import { useGoogleWallet } from "@/lib/use-google-wallet";
+import { GOOGLE_CLAIM_STATUS_TEXT, MAX_CLAIM_ROUNDS, claimSignature } from "@/lib/circle-calls";
 
 export type ClaimStatus = "idle" | "claim-wallet" | "claim-confirming" | "done" | "failed";
 
@@ -42,6 +47,8 @@ export function useClaim() {
   const client = usePublicClient();
   const queryClient = useQueryClient();
   const { mutateAsync: writeContractAsync } = useWriteContract();
+  const { source } = usePlayer();
+  const google = useGoogleWallet();
 
   const [status, setStatus] = useState<ClaimStatus>("idle");
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
@@ -68,6 +75,29 @@ export function useClaim() {
         setErrorMessage("There is nothing to claim right now.");
         return setStatus("failed");
       }
+      // Google (Circle) wallet: the same claim or claimMany, built by our server and confirmed on Circle's screen. The contract
+      // pays the wallet that sends the claim, so the money goes to the Google wallet. At most 20 rounds in one claim.
+      if (source === "google") {
+        if (list.length > MAX_CLAIM_ROUNDS) {
+          setErrorMessage(`A Google wallet claims at most ${MAX_CLAIM_ROUNDS} rounds at a time. Claim these, then the rest.`);
+          return setStatus("failed");
+        }
+        setStatus("claim-wallet");
+        const r = await google.contractCall(
+          "claim",
+          { marketIds: list.map((t) => String(t.marketId)), roundIndexes: list.map((t) => String(t.roundIndex)) },
+          { contract: arenaAddress, signature: claimSignature(list.length) },
+          () => setStatus("claim-confirming"),
+        );
+        setTxHash(r.txHash && /^0x[0-9a-fA-F]{64}$/.test(r.txHash) ? (r.txHash as `0x${string}`) : null);
+        if (!r.ok) {
+          setErrorMessage(`Nothing was claimed. ${r.error}`);
+          return setStatus("failed");
+        }
+        setStatus("done");
+        for (const key of ["rounds", "myPositions", "usdc", "myOlderRounds"]) void queryClient.invalidateQueries({ queryKey: [key] });
+        return;
+      }
       try {
         setStatus("claim-wallet");
         const arena = { address: arenaAddress, abi: ARENA_ABI } as const;
@@ -92,11 +122,16 @@ export function useClaim() {
         setStatus("failed");
       }
     },
-    [arenaAddress, client, queryClient, reset, writeContractAsync],
+    [arenaAddress, client, google, queryClient, reset, source, writeContractAsync],
   );
 
   const claim = useCallback((target: ClaimTarget) => send([target]), [send]);
   const claimAll = useCallback((targets: ClaimTarget[]) => send(targets), [send]);
+  // a Google wallet confirms in Circle's window, not "your wallet"
+  const statusText: string =
+    source === "google" && status in GOOGLE_CLAIM_STATUS_TEXT
+      ? GOOGLE_CLAIM_STATUS_TEXT[status as keyof typeof GOOGLE_CLAIM_STATUS_TEXT]
+      : CLAIM_STATUS_TEXT[status];
 
-  return { claim, claimAll, status, txHash, errorMessage, errorTechnical, reset };
+  return { claim, claimAll, status, statusText, txHash, errorMessage, errorTechnical, reset };
 }

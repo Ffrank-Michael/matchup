@@ -29,13 +29,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { usePublicClient } from "wagmi";
-import { useConnection } from "wagmi";
 import { ARENA_ABI } from "./abi";
 import { ARENA_ADDRESSES } from "./addresses";
 import { NETWORK } from "./env";
 import type { Market } from "./useMarkets";
 import type { Round } from "./useRounds";
 import { setWaitingEnds } from "./resultPolling";
+import { usePlayer } from "./usePlayer";
 
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 const REFETCH_MS = 5_000;
@@ -100,7 +100,7 @@ export function useMyPositions(
   roundsByMarket: Record<number, Round[]>,
 ): { positions: MyPosition[] | null; isLoading: boolean } {
   const client = usePublicClient();
-  const { address } = useConnection();
+  const { address } = usePlayer();
   const arenaAddress = ARENA_ADDRESSES[NETWORK];
 
   // Build the list of (marketId, roundIndex) pairs to query

@@ -6,13 +6,14 @@ import { useConnect, useConnection, useConnectors, useSwitchChain } from "wagmi"
 
 import { chipAddress } from "@/lib/arc";
 import { useGoogleWallet, type GooglePhase, type GoogleWallet } from "@/lib/use-google-wallet";
+import { GoogleDeposit, GoogleWithdraw } from "@/components/kairo/google-send";
 import { useRevokeApproval, useUsdc, usdcRaw } from "@/onchain";
 import { arcMainnet } from "@/onchain/chains";
 import { activeChain, isAnnouncedWallet, useDisconnectWallet } from "@/onchain/wagmiConfig";
 import { cn } from "@/lib/utils";
 
 // "Connect wallet" for the site's Arc network (NEXT_PUBLIC_NETWORK; browser wallets and wallet apps), plus "Continue with Google"
-// (a Circle wallet on Arc mainnet, lib/use-google-wallet.tsx; sign-in, address and balance only for now).
+// (a Circle wallet on Arc mainnet, lib/use-google-wallet.tsx; sign-in, balance, Deposit and Withdraw; no calls yet).
 // - Wallets are found automatically. On a phone they appear when this page is opened inside a wallet
 //   app's own browser; from a normal phone browser the window offers "open in <wallet app>" links.
 // - After connecting, a wallet on another network is asked to switch to the site's Arc network, and to add it first
@@ -313,46 +314,50 @@ function AccountView({ address, wrongNetwork, onDone }: { address: `0x${string}`
   );
 }
 
-/** The wallet window after "Continue with Google": the Circle wallet's address and USDC on Arc mainnet, and sign out. */
+/** The wallet window after "Continue with Google", top to bottom: the balance, Deposit (the address to send USDC to), Withdraw,
+ *  the older smart-contract wallet if the player has one (with its own Withdraw; its fee is sponsored), and sign out. */
 function GoogleAccountView({ google, address, onDone }: { google: GoogleWallet; address: `0x${string}`; onDone: () => void }) {
-  const [copied, setCopied] = React.useState(false);
   const { refresh } = google;
   React.useEffect(() => refresh(), [refresh]); // a fresh balance every time the window opens
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(address);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard not allowed here: the address is shown in full above anyway */
-    }
-  };
 
   return (
     <>
       <p className="mb-2 flex items-center gap-2 text-[12px] text-muted-foreground">
         <GoogleMark /> Signed in with Google
       </p>
-      <p className="break-all rounded-2xl bg-muted px-4 py-3 font-mono text-[12px]">{address}</p>
-      <div className="mt-2 flex gap-2">
-        <button type="button" onClick={copy} className="flex-1 rounded-full border border-border px-3 py-2 text-[12px] font-medium hover:bg-muted">
-          {copied ? "Copied" : "Copy address"}
-        </button>
-        <a
-          href={`${arcMainnet.blockExplorers.default.url}/address/${address}`}
-          target="_blank"
-          rel="noreferrer"
-          className="flex-1 rounded-full border border-border px-3 py-2 text-center text-[12px] font-medium hover:bg-muted"
-        >
-          View on explorer
-        </a>
-      </div>
 
-      <p className="mt-4 flex items-center justify-between rounded-2xl border border-border px-4 py-3 text-[13px]">
+      <p className="flex items-center justify-between rounded-2xl border border-border px-4 py-3 text-[13px]">
         <span className="text-muted-foreground">{arcMainnet.name} · balance</span>
         <span className="font-mono font-semibold tabular-nums">{google.usdc !== null ? `${google.usdc} USDC` : "…"}</span>
       </p>
+
+      <GoogleDeposit address={address} />
+      <GoogleWithdraw google={google} from="main" address={address} usdc={google.usdc} />
+
+      {google.oldWallet ? (
+        // The player's first Google wallet was a smart-contract wallet (phase 1). It is kept, never deleted, and shown here so
+        // its USDC is not hidden. Its own Withdraw works because the owner set up a Gas Station policy, which pays its fee.
+        <div className="mt-4 rounded-2xl border border-dashed border-border px-4 py-3 text-[12px]">
+          <p className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground">Older wallet (smart account)</span>
+            <span className="font-mono font-semibold tabular-nums">{google.oldWallet.usdc !== null ? `${google.oldWallet.usdc} USDC` : "…"}</span>
+          </p>
+          <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">{google.oldWallet.address}</p>
+          <p className="mt-1 text-muted-foreground">
+            Your first Google wallet. It is still yours and its USDC is safe there. You can withdraw from it below; its network
+            fee is paid for you. The wallet above is the one Matchup uses.{" "}
+            <a
+              href={`${arcMainnet.blockExplorers.default.url}/address/${google.oldWallet.address}`}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium underline underline-offset-2"
+            >
+              View on explorer
+            </a>
+          </p>
+          <GoogleWithdraw google={google} from="old" address={google.oldWallet.address} usdc={google.oldWallet.usdc} sponsored />
+        </div>
+      ) : null}
 
       <p className="mt-4 text-[12px] text-muted-foreground">
         This wallet is yours, on {arcMainnet.name} mainnet, and your Google account protects it. Matchup cannot open it or recover it,

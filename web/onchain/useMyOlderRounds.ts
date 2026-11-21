@@ -10,7 +10,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { toEventSelector } from "viem";
-import { useConnection, usePublicClient } from "wagmi";
+import { usePublicClient } from "wagmi";
 
 import { ARENA_ABI } from "./abi";
 import { ARENA_ADDRESSES } from "./addresses";
@@ -19,6 +19,7 @@ import { addressTopic, explorerLogs } from "./explorerLogs";
 import { displayState } from "./useAllRounds";
 import type { Market } from "./useMarkets";
 import type { Round } from "./useRounds";
+import { usePlayer } from "./usePlayer";
 
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 const CALL_PLACED_TOPIC = toEventSelector("CallPlaced(uint256,uint256,address,bool,uint256)");
@@ -26,7 +27,7 @@ const CALL_PLACED_TOPIC = toEventSelector("CallPlaced(uint256,uint256,address,bo
 /** Rounds with money waiting for the connected wallet that are older than `recent`, per market, newest first. null until read. */
 export function useMyOlderRounds(markets: Market[] | null, recent: Record<number, Round[]> | null): Record<number, Round[]> | null {
   const client = usePublicClient();
-  const { address } = useConnection();
+  const { address } = usePlayer();
   const arenaAddress = ARENA_ADDRESSES[NETWORK];
 
   // 1. every (market, round) the wallet has called, from the events

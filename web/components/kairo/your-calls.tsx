@@ -1,13 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { useConnection } from "wagmi";
+
 
 import { MARKETS } from "@/lib/markets";
 import { refundReasonText } from "@/lib/refund-reason";
 import {
   claimLabel,
-  CLAIM_STATUS_TEXT,
   settledPayout,
   settlementKey,
   txLink,
@@ -21,6 +20,7 @@ import {
 import { StartEnd } from "./price-proof";
 import { RoundBadge, roundStatusOf } from "./round-badge";
 import { Tile } from "./tile";
+import { usePlayer } from "@/onchain/usePlayer";
 
 const clock = (unixSec: number) =>
   new Date(unixSec * 1000).toLocaleTimeString([], {
@@ -77,8 +77,8 @@ export function YourCalls({
   index: number;
   className?: string;
 }) {
-  const { address } = useConnection();
-  const { claim, claimAll, status, txHash, errorMessage, reset } = useClaim();
+  const { address } = usePlayer();
+  const { claim, claimAll, status, statusText, txHash, errorMessage, reset } = useClaim();
   const busy = status === "claim-wallet" || status === "claim-confirming";
   const settlements = useSettlements();
 
@@ -274,7 +274,7 @@ export function YourCalls({
       )}
       {status !== "idle" ? (
         <p className="mt-3 text-[12px] text-muted-foreground" role="status">
-          {status === "failed" ? errorMessage : CLAIM_STATUS_TEXT[status]}{" "}
+          {status === "failed" ? errorMessage : statusText}{" "}
           {txHash ? (
             <a
               href={txLink(txHash) ?? undefined}

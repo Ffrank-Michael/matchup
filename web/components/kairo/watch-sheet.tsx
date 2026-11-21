@@ -203,6 +203,7 @@ export function WatchSheet({
   const {
     claim,
     status: claimStatus,
+    statusText: claimStatusText,
     txHash: claimTx,
     errorMessage: claimError,
     reset: resetClaim,
@@ -797,7 +798,7 @@ export function WatchSheet({
                     ? claimError
                     : claimStatus === "done"
                       ? "Done. The money is in your wallet."
-                      : "Confirm in your wallet."}{" "}
+                      : claimStatusText}{" "}
                   {claimStatus === "done" || claimStatus === "failed" ? (
                     <button
                       type="button"

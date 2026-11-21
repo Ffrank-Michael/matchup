@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import * as React from "react";
-import { useConnection } from "wagmi";
+
 
 import type { Agent } from "@/lib/agents";
 import { formatCountdown, frameWords, type Market } from "@/lib/markets";
@@ -11,6 +11,8 @@ import { APPROVAL_NOTICE, BETA_LIMIT_USDC, estimatePayout, STATUS_TEXT, useMakeC
 
 import { AgentAvatar } from "./agent-avatar";
 import { INK, Tile } from "./tile";
+import { usePlayer } from "@/onchain/usePlayer";
+import { GOOGLE_STATUS_TEXT } from "@/lib/circle-calls";
 
 export type Side = "UP" | "DOWN";
 
@@ -94,10 +96,15 @@ export function YourCall({
   const tooSmall = parsed !== null && parsed < minStake;
   const tooBig = parsed !== null && parsed > MAX_STAKE;
   const inputId = React.useId();
-  const { address } = useConnection();
+  const { address } = usePlayer();
   const connected = !!address;
   const { isWrongNetwork: wrongNetwork } = useWalletStatus();
   const call = useMakeCall();
+  // a Google wallet confirms in Circle's window, not "your wallet"
+  const statusText: string =
+    call.via === "google" && call.status in GOOGLE_STATUS_TEXT
+      ? GOOGLE_STATUS_TEXT[call.status as keyof typeof GOOGLE_STATUS_TEXT]
+      : STATUS_TEXT[call.status];
   // Backing an agent: its side is the call. Until it has called this round there is no side, and the button waits.
   const side: Side | null = backing ? backingCall : pickedSide;
 
@@ -306,12 +313,12 @@ export function YourCall({
         className="mt-4 flex min-h-14 w-full items-center justify-center rounded-2xl px-3 py-2 text-center text-[16px] font-bold leading-tight transition-opacity disabled:cursor-not-allowed"
         style={canConfirm ? { background: INK, color: "var(--color-up)" } : { background: "color-mix(in oklch, black 22%, transparent)", color: INK, opacity: 0.6 }}
       >
-        {busy ? STATUS_TEXT[call.status].replace("…", "") : confirmLabel}
+        {busy ? statusText.replace("…", "") : confirmLabel}
       </button>
 
       {call.status === "done" || call.status === "failed" ? (
         <div className="mt-2 text-center text-[12px] leading-snug" role="status">
-          <p className="font-semibold">{call.status === "failed" ? (call.errorMessage ?? STATUS_TEXT.failed) : STATUS_TEXT[call.status]}</p>
+          <p className="font-semibold">{call.status === "failed" ? (call.errorMessage ?? STATUS_TEXT.failed) : statusText}</p>
           {call.errorTechnical && call.status === "failed" ? <p className="mt-0.5 break-words text-[11px] opacity-60">{call.errorTechnical}</p> : null}
           {call.status === "done" && sent ? (
             <button type="button" onClick={() => onCalled(sent.marketId, sent.roundIndex)} className="underline underline-offset-2">

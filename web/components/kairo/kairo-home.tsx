@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import * as React from "react";
-import { useConnection } from "wagmi";
+
 
 import { AGENTS, type AgentKey } from "@/lib/agents";
 import { rememberBacked } from "@/lib/backed";
@@ -41,6 +41,7 @@ import { WalletButton } from "./wallet-button";
 import { YourCall, type Side } from "./your-call";
 import { WatchSheet, type Watch } from "./watch-sheet";
 import { YourCalls } from "./your-calls";
+import { usePlayer } from "@/onchain/usePlayer";
 
 // The agreed phone-first layout (docs/WEBSITE.md), top to bottom:
 // Same components on phone and laptop, only arranged differently. Top to bottom: the market cards (one row, each with
@@ -67,7 +68,7 @@ export function KairoHome() {
     [],
   );
   const closeWatch = React.useCallback(() => setWatch(null), []);
-  const { address: me } = useConnection();
+  const { address: me } = usePlayer();
   const backingAgent = AGENTS.find((a) => a.key === backing) ?? null;
   // Tapping "Back this agent": remember it, and on a phone (one column) bring the call card into view.
   const backAgent = React.useCallback((key: AgentKey | null) => {
