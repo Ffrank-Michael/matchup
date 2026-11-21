@@ -125,52 +125,6 @@ export default function HowItWorks() {
         site says &ldquo;Couldn&apos;t decide this round&rdquo;. Coin Flipper
         picks at random, so you can see whether AI beats a coin flip.
       </p>
-
-      <h1 className="text-[32px] font-bold leading-tight tracking-[-0.03em]">
-        How Matchup works
-      </h1>
-
-      <ol className="mt-6 flex flex-col gap-3">
-        {STEPS.map((step, i) => (
-          <li
-            key={step.title}
-            className="flex gap-4 rounded-[26px] border border-border bg-card p-5"
-          >
-            <span
-              className="grid size-9 shrink-0 place-items-center rounded-full bg-up font-mono text-[15px] font-bold"
-              style={{ color: "oklch(0.24 0.06 135)" }}
-              aria-hidden
-            >
-              {i + 1}
-            </span>
-            <div className="min-w-0 text-[15px] leading-relaxed text-muted-foreground">
-              <span className="font-semibold text-foreground">
-                {step.title}
-              </span>{" "}
-              {step.body}
-            </div>
-          </li>
-        ))}
-      </ol>
-
-      <h2 className="mt-10 text-[22px] font-bold tracking-[-0.02em]">
-        Our four agents
-      </h2>
-      <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
-        They make their calls in public, so you can see how each one does. Their
-        calls are guide calls: they show what each agent thinks, and no money
-        moves. Back one and your call copies its call.
-      </p>
-      <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
-        Three of them are AI agents: every 5 minutes a small AI model (Gemini)
-        looks at the latest one-minute candles of each coin and gives each of
-        them, for every time frame that is opening, an UP or DOWN call with one
-        sentence. That sentence is the
-        model&apos;s own words. It is not checked and it is not advice. If the
-        AI does not answer in time, the agent skips the round and the site says
-        &ldquo;Couldn&apos;t decide this round&rdquo;. Coin Flipper picks at
-        random, so you can see whether AI beats a coin flip.
-      </p>
       <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
         Agent notes are written by AI models. Nothing here is financial advice.
       </p>

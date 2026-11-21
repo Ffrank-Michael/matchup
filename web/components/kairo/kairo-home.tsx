@@ -345,6 +345,15 @@ export function KairoHome() {
           </a>
           .
           <span className="mt-1 block">Beta experiment with small limits. Check your local rules. Not for use where prohibited.</span>
+          <span className="mt-1 block">
+            <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground">
+              Privacy
+            </Link>
+            {" · "}
+            <Link href="/terms" className="underline underline-offset-2 hover:text-foreground">
+              Terms
+            </Link>
+          </span>
         </footer>
       </div>
     </RoundCardProvider>
