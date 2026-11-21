@@ -11,6 +11,7 @@ import { setup } from '../scripts/lib.mjs';
 import { displayName } from '../agents/index.mjs';
 import { CFG } from './config.mjs';
 import { planTick, tickDelay, LATE } from './plan.mjs';
+import { retryAfterMs } from './retry.mjs';
 import { loadDeployments, makeReader } from './chain.mjs';
 import { makeExecutor, describe } from './wallets.mjs';
 import { createCandles } from './candles.mjs';
@@ -56,6 +57,7 @@ let candleRefresh = null;
 const decided = new Set();   // decisions already taken (a skip counts), so no agent decides twice per round
 const loggedSkips = new Set(); // retryable skips already written to the log (once per round)
 const failedUntil = new Map(); // action text -> time before which we do not retry it
+const failures = new Map();    // action text -> how many times in a row it has failed (a settle waits longer each time)
 let execute;
 let agentLane = Promise.resolve(); // the background lane for agent transactions
 const inflight = new Set();   // action texts being executed right now
@@ -104,13 +106,17 @@ async function runLane(list) {
     inflight.add(text);
     try {
       const res = await execute(a);
+      failures.delete(text);
       log(`${LIVE ? 'DONE' : 'WOULD'}: ${text}${res.note ? '\n         ' + res.note : ''}${res.tx ? '\n         tx ' + res.tx : ''}`);
       if (LIVE && a.type === 'call' && a.ai) notes.publish({ m: a.market, r: a.round, a: a.agent, s: 'called', c: a.side, t: a.reason, at: Math.floor(Date.now() / 1000), model: ai.model, src: a.rule ? 'rule' : 'ai' });
     } catch (e) {
-      // do not hammer a failing action; a failed price push is retried after 5 s (the start price waits for the first trade after the lock)
+      // do not hammer a failing action; a failed price push is retried after 5 s (the start price waits for the first trade after the lock),
+      // a settle after 15 s and then longer each time up to 4 minutes (retry.mjs)
       // a failed contrarian approval or call is tried again soon (its window is short) and its decision is taken back after that
       const late = a.agent === LATE && (a.type === 'call' || a.type === 'approve');
-      failedUntil.set(text, Date.now() + (a.type === 'pushPrice' ? 5_000 : late ? 15_000 : 5 * 60_000));
+      const n = (failures.get(text) || 0) + 1;
+      failures.set(text, n);
+      failedUntil.set(text, Date.now() + (late ? 15_000 : retryAfterMs(a.type, n)));
       if (late && a.type === 'call') setTimeout(() => decided.delete(`${a.market}:${a.round}:${a.agent}`), 15_000); // then it is planned again (if its window is still open)
       const why = String(e.shortMessage || e.message).slice(0, 300);
       // the start price waits for the first trade after the lock: that is waiting, not a failure

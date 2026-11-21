@@ -21,6 +21,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { ROOT, NETWORKS, arcChain } from '../scripts/lib.mjs';
 import { CFG } from './config.mjs';
 import { planTick, tickDelay } from './plan.mjs';
+import { retryAfterMs } from './retry.mjs';
 import { makeReader } from './chain.mjs';
 import { createCandles } from './candles.mjs';
 import { createGuide, freshCandles } from './guide.mjs';
@@ -59,6 +60,7 @@ const guide = createGuide({ env: runnerEnv, live: LIVE, log, getCandles: (coin) 
 let execute;
 let checked = false;
 const failedUntil = new Map(); // action text -> time before which we do not retry it
+const failures = new Map();    // action text -> how many times in a row it has failed (a settle waits longer each time)
 const inflight = new Set();    // action texts being executed right now
 
 async function tick() {
@@ -87,10 +89,14 @@ async function tick() {
     inflight.add(text);
     try {
       const res = await execute(a);
+      failures.delete(text);
       log(`${LIVE ? 'DONE' : 'WOULD'}: ${text}${res.note ? '\n         ' + res.note : ''}${res.tx ? '\n         tx ' + res.tx : ''}`);
     } catch (e) {
-      // do not hammer a failing action; a failed price push is retried after 5 s (the start price waits for the first trade after the lock)
-      failedUntil.set(text, Date.now() + (a.type === 'pushPrice' ? 5_000 : 5 * 60_000));
+      // do not hammer a failing action: a price push is retried after 5 s (the start price waits for the first trade after the lock),
+      // a settle after 15 s, then longer each time up to 4 minutes (retry.mjs), anything else after 5 minutes
+      const n = (failures.get(text) || 0) + 1;
+      failures.set(text, n);
+      failedUntil.set(text, Date.now() + retryAfterMs(a.type, n));
       const why = String(e.shortMessage || e.message).slice(0, 300);
       log(`${/will try again/.test(why) ? 'WAITING' : LIVE ? 'FAILED' : 'WOULD FAIL'}: ${text}\n         ${why}`);
     } finally {

@@ -210,8 +210,32 @@ export function priceDue(m, now, cfg) {
   return null;
 }
 
-/** Seconds to wait before the next look: short while any market is waiting for a start or end price. */
+/**
+ * Seconds from now until the first second after the soonest end of a round the runner will settle (an unsettled round with
+ * calls, with real money when cfg.matchedOnly is set), or Infinity when there is none. Only reads the snapshot: no price
+ * source and no AI is asked, so waking at that moment costs one more look at the chain.
+ */
+export function secondsToNextSettle(snap, cfg) {
+  let soonest = Infinity;
+  for (const m of snap.markets) {
+    for (let j = Math.max(0, m.nextRound - lookbackFor(m, cfg)); j < m.nextRound; j++) {
+      const r = m.rounds[j];
+      if (!r || r.state !== 'Unsettled' || r.up + r.down === 0) continue;
+      if (cfg.matchedOnly && realMoney(m, j, snap.agents) === 0) continue; // the same rounds planTick settles
+      const et = endTime(m, j);
+      if (et < snap.now) continue; // already ended: the next look settles it
+      soonest = Math.min(soonest, et + 1 - snap.now); // settle() needs block time strictly after the end
+    }
+  }
+  return soonest;
+}
+
+/** Seconds to wait before the next look: short while any market is waiting for a start or end price, and never past the end of a round to settle. */
 export function tickDelay(snap, cfg) {
+  return Math.max(1, Math.min(baseDelay(snap, cfg), secondsToNextSettle(snap, cfg)));
+}
+
+function baseDelay(snap, cfg) {
   // Look one slow tick (plus a few seconds for reading the chain) ahead, so the first look inside the end window is not late.
   const ahead = cfg.tickSeconds + 5;
   if (snap.markets.some((m) => priceDue(m, snap.now, cfg) || priceDue(m, snap.now + ahead, cfg))) return cfg.fastTickSeconds;

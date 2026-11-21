@@ -4,8 +4,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { CFG } from './config.mjs';
-import { planTick, tickDelay, lookbackFor, lockTime, endTime, unmatchedBack } from './plan.mjs';
+import { planTick, tickDelay, secondsToNextSettle, lookbackFor, lockTime, endTime, unmatchedBack } from './plan.mjs';
 import { findSettleIds } from './settleIds.mjs';
+import { retryAfterMs } from './retry.mjs';
 import { createWalk } from './priceWalk.mjs';
 import { simulate, createWorld, mulberry32 } from './simulate.mjs';
 
@@ -303,6 +304,40 @@ test('settles an ended round with the exact start and end update ids', () => {
   assert.equal(s.round, 10);
   assert.equal(s.startId, id(5));
   assert.equal(s.endId, id(6));
+});
+
+test('the runner wakes one second after a round with calls ends, so the settle is not up to a tick late', () => {
+  // round 10 runs 6000..6600; both its prices are in (FEED10), so no price push makes the runner look faster
+  const delay = (now, rounds, c = CFG, a) => tickDelay(snap(now, market(now, { rounds, feed: { updates: FEED10 } }), a), c);
+  assert.equal(delay(6300, ended()), 10);   // the end is far: the usual 10 s
+  assert.equal(delay(6595, ended()), 6);    // wakes at 6601, the first second settle() is allowed
+  assert.equal(delay(6599, ended()), 2);
+  assert.equal(delay(6600, ended()), 1);    // block time must be strictly after the end
+  assert.equal(delay(6601, ended()), 10);   // ended: this very look settles it
+  assert.equal(delay(6595, {}), 10);        // nobody called: nothing to settle, no early wake
+  assert.equal(delay(6595, ended({ 10: { state: 'SettledUp', up: 300_000, down: 200_000, startPrice: 0n, endPrice: 0n } })), 10);
+  // matched calls on mainnet: a round with only a house agent's money is never settled, so it does not wake the runner either
+  const house = agents({ 'trend-follower': { positions: { '0:10': { up: 300_000, down: 200_000 } } } });
+  assert.equal(delay(6595, ended(), cfg({ matchedOnly: true }), house), 10);
+  assert.equal(delay(6595, ended(), cfg({ matchedOnly: true }), agents()), 6);
+  assert.equal(secondsToNextSettle(snap(6595, market(6595, { rounds: {} })), CFG), Infinity);
+});
+
+test('the early wake never pushes a price-due look later', () => {
+  // round 10's end price is still missing at 6545, so the runner looks every 3 s; the end at 6600 does not change that
+  const f = [...FEED, upd(5, 6003, 102)];
+  assert.equal(tickDelay(snap(6545, market(6545, { rounds: ended(), feed: { updates: f } })), CFG), 3);
+});
+
+test('a failed settle is tried again after 15 s, then longer each time, at most 4 minutes', () => {
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 20].map((n) => retryAfterMs('settle', n)), [15_000, 30_000, 60_000, 120_000, 240_000, 240_000, 240_000]);
+  assert.equal(retryAfterMs('pushPrice', 1), 5_000);
+  assert.equal(retryAfterMs('pushPrice', 9), 5_000);
+  assert.equal(retryAfterMs('call', 1), 5 * 60_000);
+  assert.equal(retryAfterMs('claim', 3), 5 * 60_000);
+  // all retries together stay well inside the contract's 1-hour settle window
+  const total = Array.from({ length: 10 }, (_, i) => retryAfterMs('settle', i + 1)).reduce((x, y) => x + y, 0);
+  assert.ok(total < CFG.settleWindow * 1000 / 2);
 });
 
 test('an update exactly at lock is the start and one exactly at the end is the end', () => {
