@@ -35,6 +35,7 @@ import { ARENA_ADDRESSES } from "./addresses";
 import { NETWORK } from "./env";
 import type { Market } from "./useMarkets";
 import type { Round } from "./useRounds";
+import { setWaitingEnds } from "./resultPolling";
 
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 const REFETCH_MS = 5_000;
@@ -115,9 +116,9 @@ export function useMyPositions(
       "myPositions",
       NETWORK,
       address,
-      // Re-fetch when rounds change (state changes after settle)
+      // Re-fetch when rounds change: a new round, or a round's state (a settle shows the Claim button on the same read that saw it)
       markets?.map((m) => m.nextRound).join(","),
-      Object.values(roundsByMarket).reduce((n, list) => n + list.length, 0),
+      Object.values(roundsByMarket).flat().map((r) => `${r.marketId}.${r.roundIndex}.${r.state}`).join(","),
     ],
     queryFn: async (): Promise<MyPosition[]> => {
       if (!arenaAddress || !address || !client || queries.length === 0) {
@@ -188,12 +189,22 @@ export function useMyPositions(
         });
       }
 
+      // rounds of this wallet still waiting for a result: the round states are read faster around their end (resultPolling.ts)
+      setWaitingEnds(
+        positions
+          .filter((p) => !p.claimed)
+          .map((p) => (roundsByMarket[p.marketId] ?? []).find((r) => r.roundIndex === p.roundIndex))
+          .filter((r): r is Round => !!r && (r.state === "locked" || r.state === "unsettled"))
+          .map((r) => r.endTimeSec),
+      );
+
       return positions;
     },
     enabled: !!client && !!address && !!arenaAddress && queries.length > 0,
     refetchInterval: REFETCH_MS,
     refetchIntervalInBackground: false,
     staleTime: REFETCH_MS,
+    placeholderData: (previous) => previous, // keep showing the last positions while a new key is read (no flash of "loading")
     retry: 3,
   });
 

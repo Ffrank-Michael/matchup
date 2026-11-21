@@ -12,6 +12,7 @@ import { ARENA_ADDRESSES } from "./addresses";
 import { NETWORK } from "./env";
 import type { Round, RoundDisplayState } from "./useRounds";
 import type { Market } from "./useMarkets";
+import { roundsPollMs } from "./resultPolling";
 
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 const SETTLE_WINDOW_SEC = 3_600;
@@ -68,9 +69,9 @@ export function useAllRounds(markets: Market[] | null): { roundsByMarket: Record
       return out;
     },
     enabled: !!client && !!arenaAddress && !!markets && markets.length > 0,
-    refetchInterval: 5_000,
+    refetchInterval: () => roundsPollMs(), // 5 s, and 2 s while one of the wallet's rounds is waiting for its result
     refetchIntervalInBackground: false,
-    staleTime: 4_000,
+    staleTime: 1_500,
     retry: 3,
   });
 
