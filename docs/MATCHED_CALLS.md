@@ -1,8 +1,6 @@
 # Matched calls (v1.1 payout rules) — spec for the contract change
 
-Status: **planned**, not built. Decision (owner, 26 Oct 2026): build it now with a checkpoint on **Wed 28 Oct 21:00 Lagos**.
-If the new contract passes every test and has run cleanly on testnet for several hours, mainnet uses it. If not, mainnet launches
-with the current rules and matched calls become v2. Everything else in `docs/RULES.md` stays as it is.
+Status: **built and live on Arc mainnet** (contract v2, deployed 29 Oct 2026). This file is the current payout rule; it replaces the payout and fee wording in `docs/RULES.md`.
 
 ## The rule, in plain words
 
