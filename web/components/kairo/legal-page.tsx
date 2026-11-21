@@ -2,7 +2,7 @@ import Link from "next/link";
 import type * as React from "react";
 
 /** Where players can write to Matchup. Fill this in before going live; until it holds an "@" it is shown as plain text. */
-export const CONTACT_EMAIL = "<your email>";
+export const CONTACT_EMAIL = "playmatchupxyz@gmail.com";
 
 /** The contact address, as a mailto link once it is filled in */
 export function ContactEmail() {
