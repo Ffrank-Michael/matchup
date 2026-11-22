@@ -4,6 +4,7 @@ import * as React from "react";
 
 
 import { MARKETS } from "@/lib/markets";
+import { oneSidedNote } from "@/lib/one-sided";
 import { refundReasonText } from "@/lib/refund-reason";
 import {
   claimLabel,
@@ -166,6 +167,8 @@ export function YourCalls({
               decided && round?.state === (side === "UP" ? "up" : "down");
             // matched calls: a win adds the matched share of the pot, a loss costs only the matched part of the stake
             const delta = !decided ? null : settledPayout(mine, myTotal, otherTotal, wonIt) - mine;
+            // nobody on the other side yet (or at all): say what happens to the money
+            const waitNote = round && !p.claimed ? oneSidedNote(round, nowSec) : null;
             return (
               <li
                 key={`${p.marketId}-${p.roundIndex}`}
@@ -231,6 +234,11 @@ export function YourCalls({
                           : ""}
                       </span>
                     </span>
+                    {waitNote ? (
+                      <span className="mt-0.5 block text-[11px] text-muted-foreground" data-testid="one-sided-note">
+                        {waitNote}
+                      </span>
+                    ) : null}
                   </button>
                   {market &&
                   s &&

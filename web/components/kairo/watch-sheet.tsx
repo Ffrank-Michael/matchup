@@ -631,6 +631,7 @@ export function WatchSheet({
                   upTotal={round.upTotal}
                   downTotal={round.downTotal}
                   includesStake
+                  closed={round.state !== "open" || (nowSec !== null && lock !== null && nowSec >= lock)}
                   className="mt-3 rounded-2xl border border-border bg-muted/40 px-4 py-3 text-[13px] leading-snug"
                 />
               ) : null}

@@ -5,6 +5,7 @@ import * as React from "react";
 import { formatUsd, frameWords, MARKETS } from "@/lib/markets";
 import { useBackedAgents } from "@/lib/backed";
 import { whoIs, whoName } from "@/lib/players";
+import { oneSidedNote } from "@/lib/one-sided";
 import { refundReasonText } from "@/lib/refund-reason";
 import { cn } from "@/lib/utils";
 import {
@@ -167,6 +168,8 @@ function RoundCard({
   const biggerTotal = round ? (round.upTotal > round.downTotal ? round.upTotal : round.downTotal) : 0n;
   const fee = settled && matchedM > 0n ? (matchedM * 200n) / 10_000n : 0n;
   const total = round ? round.upTotal + round.downTotal : 0n;
+  // calls on one side only and no result yet: say so (the contract refunds such a round in full)
+  const waitNote = round ? oneSidedNote(round, nowSec) : null;
 
   const people = React.useMemo(() => {
     const by = new Map<
@@ -298,6 +301,12 @@ function RoundCard({
                       : "Prices are recorded when the round is settled"}
                 </p>
               </div>
+
+              {waitNote ? (
+                <p className="mt-4 rounded-2xl border border-border bg-muted/40 px-4 py-3 text-[13px] leading-snug" data-testid="one-sided-note">
+                  {waitNote}
+                </p>
+              ) : null}
 
               <dl className="mt-4 divide-y divide-border rounded-2xl border border-border px-4">
                 <Row label="Start price">

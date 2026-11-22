@@ -1,3 +1,4 @@
+import { oneSidedText } from "@/lib/one-sided";
 import { estimatePayout, usdc } from "@/onchain";
 
 /**
@@ -22,6 +23,7 @@ export function MatchedLine({
   upTotal,
   downTotal,
   includesStake,
+  closed = false,
   className = "",
 }: {
   side: "UP" | "DOWN";
@@ -29,6 +31,8 @@ export function MatchedLine({
   upTotal: bigint;
   downTotal: bigint;
   includesStake: boolean;
+  /** calling has closed: nobody can join the other side any more */
+  closed?: boolean;
   className?: string;
 }) {
   const up = includesStake && side === "UP" ? upTotal - stake : upTotal;
@@ -36,7 +40,7 @@ export function MatchedLine({
   const text = matchedLine(side, stake, up, down);
   return (
     <p className={className} data-testid="matched-line">
-      {text ?? "Nobody is on the other side yet. If it stays that way, your money comes back."}
+      {text ?? oneSidedText(closed)}
     </p>
   );
 }

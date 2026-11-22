@@ -6,6 +6,7 @@ import * as React from "react";
 
 import type { Agent } from "@/lib/agents";
 import { formatCountdown, frameWords, type Market } from "@/lib/markets";
+import { WAITING_TEXT } from "@/lib/one-sided";
 import { cn } from "@/lib/utils";
 import { APPROVAL_NOTICE, BETA_LIMIT_USDC, estimatePayout, STATUS_TEXT, useMakeCall, usdc, useUsdc, useWalletStatus } from "@/onchain";
 
@@ -287,7 +288,7 @@ export function YourCall({
           </p>
           <p className="mt-1.5">
             {estimate?.kind === "refund" ? (
-              <>No one on the other side yet · Your money comes back if it stays that way</>
+              <>{WAITING_TEXT}</>
             ) : (
               <>
                 If you win <span className="font-mono font-semibold tabular-nums">{estimate ? `+${usdc(estimate.bonus)}` : "—"}</span> · If you lose{" "}
