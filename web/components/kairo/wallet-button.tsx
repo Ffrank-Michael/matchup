@@ -11,6 +11,7 @@ import { useRevokeApproval, useUsdc, usdcRaw } from "@/onchain";
 import { arcMainnet } from "@/onchain/chains";
 import { activeChain, isAnnouncedWallet, useDisconnectWallet } from "@/onchain/wagmiConfig";
 import { cn } from "@/lib/utils";
+import { useHydrated } from "@/lib/use-hydrated";
 
 // "Connect wallet" for the site's Arc network (NEXT_PUBLIC_NETWORK; browser wallets and wallet apps), plus "Continue with Google"
 // (a Circle wallet on Arc mainnet, lib/use-google-wallet.tsx; sign-in, balance, Deposit and Withdraw; no calls yet).
@@ -481,7 +482,13 @@ function AccountMenu({ address, onSwitch, onDetails }: { address: `0x${string}`;
 }
 
 export function WalletButton() {
-  const { address, chainId, status } = useConnection();
+  const live = useConnection();
+  // Until the page has hydrated, draw what the server drew: nobody connected. wagmi starts reconnecting (and the Google wallet
+  // restores its session) in effects that can run before this header hydrates, because the page hydrates in parts; reading
+  // them straight away made the first render say "Connecting…" where the server's HTML says "Connect wallet" (a hydration
+  // error). One render later the real state shows.
+  const hydrated = useHydrated();
+  const { address, chainId, status } = hydrated ? live : { address: undefined, chainId: undefined, status: "disconnected" as const };
   const { mutate: switchChain, isPending: switching } = useSwitchChain();
   const google = useGoogleWallet();
   const [open, setOpen] = React.useState(false);
@@ -507,8 +514,8 @@ export function WalletButton() {
   const connected = status === "connected" && address !== undefined;
   const wrongNetwork = connected && chainId !== activeChain.id;
   // a connected browser wallet always comes first; the Google wallet shows only when none is connected
-  const googleAddress = !connected && google.phase === "ready" ? google.address : null;
-  const googleBusy = GOOGLE_BUSY[google.phase];
+  const googleAddress = hydrated && !connected && google.phase === "ready" ? google.address : null;
+  const googleBusy = hydrated ? GOOGLE_BUSY[google.phase] : undefined;
 
   let button: React.ReactNode;
   if (status === "reconnecting" || status === "connecting") {
