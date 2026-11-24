@@ -361,9 +361,10 @@ function RatioNotice({ market }: { market: Market }) {
         {a} wins if {a}&apos;s % move over the hour beats {b}&apos;s. Both can go up or down: only which one does better counts.
       </p>
       <p className="mt-1.5">
-        <span className="font-semibold">The prices are relayed.</span> Our runner pushes the {a}/{b} ratio from Bitfinex trades to the
-        chain. The contract only checks it is within 2.5% of Chainlink&apos;s own ratio, and a typical hour moves far less than that,
-        so you are trusting the runner to push the real ratio. Every push is public and can be checked against Bitfinex.
+        <span className="font-semibold">The prices are relayed.</span> Our runner works out the {a}/{b} ratio from Bitfinex trades and
+        pushes it to the chain. The contract only checks it is within 2.5% of Chainlink&apos;s own ratio, and a typical hour moves far
+        less than that, so you are trusting the runner to push the real ratio. Each pushed ratio is public on the chain, but the two
+        Bitfinex trades behind it are kept only in the runner&apos;s own log, so you cannot check them yourself yet.
       </p>
     </div>
   );

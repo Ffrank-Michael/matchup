@@ -140,7 +140,8 @@ export default function HowItWorks() {
             Bitfinex, divides them and pushes the ratio to the contract. The contract only accepts a ratio within 2.5% of the
             ratio of Chainlink&apos;s own prices, and a typical hour moves much less than that (about 0.2%). So the check stops a
             broken or far-off price, but it does not stop our runner from choosing the result: you are trusting it to push the
-            real ratio. Every push is public on the chain and can be checked against Bitfinex&apos;s trade history.
+            real ratio. Each pushed ratio is public on the chain, but the two Bitfinex trades it was worked out from are kept only
+            in the runner&apos;s own log, so for now you cannot check a ratio against Bitfinex yourself.
           </div>
         </>
       ) : null}
