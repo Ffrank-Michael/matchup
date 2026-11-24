@@ -11,7 +11,7 @@ import { setup } from '../scripts/lib.mjs';
 import { displayName } from '../agents/index.mjs';
 import { CFG } from './config.mjs';
 import { planTick, tickDelay, LATE } from './plan.mjs';
-import { retryAfterMs } from './retry.mjs';
+import { retryAfterMs, wrongSettleIds } from './retry.mjs';
 import { loadDeployments, makeReader } from './chain.mjs';
 import { makeExecutor, describe } from './wallets.mjs';
 import { createCandles } from './candles.mjs';
@@ -117,6 +117,7 @@ async function runLane(list) {
       const n = (failures.get(text) || 0) + 1;
       failures.set(text, n);
       failedUntil.set(text, Date.now() + (late ? 15_000 : retryAfterMs(a.type, n)));
+      if (a.type === 'settle' && a.feed && wrongSettleIds(e)) { readSnapshot.forgetFeed?.(a.feed); log(`settle refused for a wrong price id: ${a.marketName}'s feed history will be read again from scratch`); }
       if (late && a.type === 'call') setTimeout(() => decided.delete(`${a.market}:${a.round}:${a.agent}`), 15_000); // then it is planned again (if its window is still open)
       const why = String(e.shortMessage || e.message).slice(0, 300);
       // the start price waits for the first trade after the lock: that is waiting, not a failure

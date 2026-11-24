@@ -24,36 +24,77 @@ export function loadDeployments() {
   return { arena, circle };
 }
 
-export function makeReader({ pub, usdc, deployments }) {
-  const art = compile();
-  const A = deployments.arena.arena.address;
-  const read = (address, abi, functionName, args = []) => pub.readContract({ address, abi, functionName, args });
+const ROUND_IN_PHASE = 0xffffffffffffffffn;
+/** Did a feed read fail because the contract reverted (e.g. "No data present"), not because the node could not be reached? */
+export function isRevert(e) {
+  if (!e) return false;
+  if (typeof e.walk === 'function') return !!e.walk((x) => x?.name === 'ContractFunctionRevertedError');
+  return e.name === 'ContractFunctionRevertedError';
+}
 
-  // A price goes in about every minute, so the feed is remembered between passes and only the
-  // newest updates are fetched. Updates never change once written, so remembering them is safe.
-  const feedCache = {};
-  async function feedUpdates(feedAddress, oldestNeeded) {
+/**
+ * The remembered update history of each price feed (audit part 2, P2-15).
+ * A price goes in about every minute, so the history is remembered between passes and only the newest updates are fetched;
+ * updates never change once written, so remembering them is safe. The rule that keeps it right: the remembered list is only
+ * ever saved WITHOUT GAPS. A read that fails half-way through a walk saves nothing and the pass says `complete: false`, so
+ * the planner does not settle from it (a wrong start id would be refused by the contract again and again until the round
+ * timed out as a refund). `complete` is true only when the list reaches back past `oldestNeeded` (or to the feed's very
+ * first update), so every start and end the planner looks for is in it.
+ *
+ *   history(feed, oldestNeeded) -> { updates: [{ id, updatedAt, price }] oldest first, complete }
+ *   forget(feed)                -> drops what is remembered, so the next pass reads that feed again from scratch
+ */
+export function createFeedHistory(readFeed, { maxReadsPerPass = 500 } = {}) {
+  const cache = {};
+  const reachesBack = (list, oldestNeeded) => list.length > 0 && (list[0].updatedAt < oldestNeeded || (list[0].id & ROUND_IN_PHASE) <= 1n);
+
+  async function history(feed, oldestNeeded) {
+    const cached = cache[feed] || [];
     let latest;
-    try { latest = await read(feedAddress, art.feed.abi, 'latestRoundData'); } catch { return []; } // no price yet
-    const cached = feedCache[feedAddress] || [];
+    try { latest = await readFeed(feed, 'latestRoundData'); } catch (e) {
+      if (isRevert(e) && cached.length === 0) return { updates: [], complete: true }; // no price yet: nothing to remember
+      return { updates: cached, complete: false };                                      // the node did not answer
+    }
     const lastKnown = cached.length ? cached[cached.length - 1].id : null;
     let [id, answer, , updatedAt] = latest;
     const fresh = [];
     let joined = false; // did the walk back reach what we already remembered?
-    for (let i = 0; i < 500; i++) {
+    let reads = 0;
+    for (;;) {
       if (lastKnown !== null && id <= lastKnown) { joined = true; break; }
       fresh.unshift({ id, updatedAt: Number(updatedAt), price: answer });
-      if (Number(updatedAt) < oldestNeeded || (id & 0xffffffffffffffffn) <= 1n) break; // went back far enough, or reached the first update
-      try { [id, answer, , updatedAt] = await read(feedAddress, art.feed.abi, 'getRoundData', [id - 1n]); } catch { break; }
+      if (Number(updatedAt) < oldestNeeded || (id & ROUND_IN_PHASE) <= 1n) break; // went back far enough, or reached the first update
+      if (++reads > maxReadsPerPass) break; // the rest is read on the next pass (backfill below)
+      try { [id, answer, , updatedAt] = await readFeed(feed, 'getRoundData', [id - 1n]); } catch {
+        // half-way through: what we have now has a gap below it. Save nothing; the next pass tries again.
+        return { updates: cached.concat(fresh), complete: false };
+      }
     }
     let all = joined ? cached.concat(fresh) : fresh;
+    // Backfill: an earlier list may not reach back far enough (the walk was cut off by maxReadsPerPass). Extend it downwards,
+    // still without gaps; a failed read keeps what was read so far, which is still gap-free.
+    while (!reachesBack(all, oldestNeeded) && all.length && reads++ <= maxReadsPerPass) {
+      try {
+        const [pid, pans, , pat] = await readFeed(feed, 'getRoundData', [all[0].id - 1n]);
+        all = [{ id: pid, updatedAt: Number(pat), price: pans }, ...all];
+      } catch { break; }
+    }
     // keep everything from the newest update that is older than we need (the contract looks one back too)
     let keepFrom = 0;
     for (let i = 0; i < all.length; i++) if (all[i].updatedAt < oldestNeeded) keepFrom = i;
     all = all.slice(keepFrom);
-    feedCache[feedAddress] = all;
-    return all;
+    cache[feed] = all;
+    return { updates: all, complete: reachesBack(all, oldestNeeded) };
   }
+
+  return { history, forget: (feed) => { delete cache[feed]; } };
+}
+
+export function makeReader({ pub, usdc, deployments }) {
+  const art = compile();
+  const A = deployments.arena.arena.address;
+  const read = (address, abi, functionName, args = []) => pub.readContract({ address, abi, functionName, args });
+  const feeds = createFeedHistory((address, functionName, args = []) => read(address, art.feed.abi, functionName, args));
 
   // Reading one round at a time (hundreds of requests per pass) trips the public RPC's rate limit once passes come every
   // 3 seconds, so each pass asks Multicall3 (the standard contract at the same address on every chain) for many reads at once.
@@ -61,7 +102,7 @@ export function makeReader({ pub, usdc, deployments }) {
   const batch = (contracts) => pub.multicall({ contracts, allowFailure: false, multicallAddress: MULTICALL3, batchSize: 60_000 });
   const arenaCall = (functionName, args = []) => ({ address: A, abi: art.arena.abi, functionName, args });
 
-  return async function readSnapshot() {
+  async function readSnapshot() {
     const [block, marketCount] = await Promise.all([pub.getBlock(), read(A, art.arena.abi, 'marketCount')]);
     const now = Number(block.timestamp);
     const count = Number(marketCount);
@@ -101,9 +142,12 @@ export function makeReader({ pub, usdc, deployments }) {
     // 3. the price feeds: markets of one coin share a feed, so it is read once, back to the oldest time any of them needs
     const oldest = {};
     for (const m of markets) oldest[m.feed.address] = Math.min(oldest[m.feed.address] ?? Infinity, lockTime(m, m.firstRound));
-    const updatesOf = {};
-    await Promise.all(Object.entries(oldest).map(async ([address, from]) => { updatesOf[address] = await feedUpdates(address, from); }));
-    for (const m of markets) m.feed.updates = updatesOf[m.feed.address];
+    const historyOf = {};
+    await Promise.all(Object.entries(oldest).map(async ([address, from]) => { historyOf[address] = await feeds.history(address, from); }));
+    for (const m of markets) {
+      m.feed.updates = historyOf[m.feed.address].updates;
+      m.feed.complete = historyOf[m.feed.address].complete; // false: the planner does not settle from this history (P2-15)
+    }
 
     const agents = agentsIn.map((a) => {
       const balance = Number(out[at++]);
@@ -117,5 +161,8 @@ export function makeReader({ pub, usdc, deployments }) {
     });
     for (const m of markets) { delete m.indexes; delete m.firstRound; }
     return { now, markets, agents, art };
-  };
+  }
+  // After a settle is refused for a wrong start or end id, the runner calls this so that feed's history is read again from scratch.
+  readSnapshot.forgetFeed = (feed) => feeds.forget(feed);
+  return readSnapshot;
 }

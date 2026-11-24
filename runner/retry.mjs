@@ -13,3 +13,11 @@ export function retryAfterMs(type, failures = 1) {
   if (type === 'settle') return Math.min(SETTLE_RETRY_FIRST_MS * 2 ** Math.max(0, failures - 1), SETTLE_RETRY_MAX_MS);
   return 5 * 60_000;
 }
+
+/**
+ * Did the contract refuse a settle because a start or end id was wrong? Then the runner's remembered feed history may be
+ * missing an update, so it is read again from scratch before the next try (audit part 2, P2-15).
+ */
+export function wrongSettleIds(e) {
+  return /InvalidStartRound|InvalidEndRound/.test(`${e?.shortMessage ?? ''} ${e?.message ?? ''}`);
+}

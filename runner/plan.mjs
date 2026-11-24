@@ -267,10 +267,13 @@ export function planTick(snap, cfg, decided = new Set()) {
       if (cfg.matchedOnly && realMoney(m, j, snap.agents) === 0) continue; // no real call (only a house agent's money): nothing to settle, no gas
       const et = endTime(m, j);
       if (now <= et || now > et + cfg.settleWindow) continue;
-      const ids = r.up === 0 || r.down === 0
+      const oneSided = r.up === 0 || r.down === 0;
+      // A feed history with a gap (a read failed half-way) could give a wrong start or end id: wait for a complete one (P2-15).
+      if (!oneSided && m.feed.complete === false) continue;
+      const ids = oneSided
         ? { startId: 0n, endId: 0n } // one-sided: the contract refunds without looking at ids
         : findSettleIds(updates, lockTime(m, j), et);
-      actions.push({ type: 'settle', market: m.id, marketName: m.name, round: j, ...ids });
+      actions.push({ type: 'settle', market: m.id, marketName: m.name, round: j, feed: m.feed.address, ...ids });
     }
 
     // ---- 2. prices for the round that is running now (round k-1): real market prices pushed to the TEST feed ----
