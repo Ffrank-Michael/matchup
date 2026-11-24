@@ -24,6 +24,7 @@ export function ChartSheet({
   nowMs,
   feedFailed,
   startPrice,
+  startNote = null,
 }: {
   open: boolean;
   onClose: () => void;
@@ -34,6 +35,8 @@ export function ChartSheet({
   nowMs: number | null;
   feedFailed: boolean;
   startPrice: number | null;
+  /** A warning about the start price (it differs from Bitfinex's), or null */
+  startNote?: string | null;
 }) {
   const ref = React.useRef<HTMLDialogElement>(null);
   const [drag, setDrag] = React.useState<{ from: number; dy: number } | null>(null);
@@ -97,7 +100,7 @@ export function ChartSheet({
             </button>
           </div>
           <div className="px-5 pt-1">
-            <PriceChart market={market} price={price} points={points} candles={candles} nowMs={nowMs} feedFailed={feedFailed} startPrice={startPrice} />
+            <PriceChart market={market} price={price} points={points} candles={candles} nowMs={nowMs} feedFailed={feedFailed} startPrice={startPrice} startNote={startNote} />
           </div>
         </div>
       ) : null}

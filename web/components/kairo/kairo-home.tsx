@@ -21,6 +21,8 @@ import { noteOf, useAgentNotes } from "@/lib/use-agent-notes";
 import { useGuideCalls } from "@/lib/use-guide-calls";
 import { useNowSeconds } from "@/lib/use-now";
 import { useStartPrice } from "@/lib/use-start-price";
+import { START_DIFFERS, startsDiffer } from "@/lib/chain-start";
+import { useChainStart } from "@/onchain/useChainStart";
 import {
   useAgentStats,
   useAllRounds,
@@ -124,20 +126,21 @@ export function KairoHome() {
     }
     return withGuideCalls(out, guide);
   }, [chainAgentLive, notes, openRound, guide]);
-  // The contract records a round's start price when it settles it; while the round runs the site finds the same trade the runner uses.
+  // The start price that counts is the first relay update at or after the lock (P2-05): read from the chain as soon as it is
+  // there. The contract also records it when it settles the round. The site's own Bitfinex lookup is only a cross-check.
   const runningRound = selectedChain
     ? roundsByMarket?.[market.id]?.find(
         (x) => x.roundIndex === selectedChain.nextRound - 1,
       )
     : undefined;
-  const startPrice = useStartPrice(
-    market.key,
-    runningRound?.lockTimeSec ?? null,
-    now,
+  const settledStart =
     runningRound && runningRound.startPrice !== null
       ? runningRound.startPrice / 10 ** market.decimals // 8 decimals for a coin, 18 for coin vs coin
-      : null,
-  );
+      : null;
+  const bitfinexStart = useStartPrice(market.key, runningRound?.lockTimeSec ?? null, now, settledStart);
+  const chainStart = useChainStart(market.feed, runningRound?.lockTimeSec ?? null, now);
+  const startPrice = settledStart ?? chainStart;
+  const startNote = startsDiffer(chainStart, bitfinexStart) ? START_DIFFERS : null;
   // The money on the round that can be called now (the contract's next round).
   const nextRound = selectedChain
     ? roundsByMarket?.[market.id]?.find(
@@ -348,6 +351,7 @@ export function KairoHome() {
           nowMs={nowMs}
           feedFailed={feedFailed}
           startPrice={startPrice}
+          startNote={startNote}
         />
 
         <footer className="mt-4 px-1 text-[11px] text-muted-foreground">

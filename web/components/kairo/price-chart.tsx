@@ -25,6 +25,7 @@ export function PriceChart({
   nowMs,
   feedFailed,
   startPrice,
+  startNote = null,
   className,
 }: {
   market: Market;
@@ -36,8 +37,10 @@ export function PriceChart({
   candles: Candle[] | null;
   nowMs: number | null;
   feedFailed: boolean;
-  /** This round's start price once the contract has recorded it; null before */
+  /** This round's start price: the first relay update at or after the lock, from the chain; null before there is one */
   startPrice: number | null;
+  /** A warning about the start price (it differs from Bitfinex's), or null */
+  startNote?: string | null;
   className?: string;
 }) {
   const [mode, setMode] = React.useState<Mode>("line");
@@ -94,9 +97,10 @@ export function PriceChart({
         <span className="flex items-center gap-2">
           <span className="h-0 w-5 border-t-2 border-dashed border-muted-foreground" aria-hidden />
           Start price
-          {startPrice !== null ? <span className="font-mono text-foreground">{formatPrice(market, startPrice)}</span> : <span className="text-[11px]">after the round starts</span>}
+          {startPrice !== null ? <span className="font-mono text-foreground">{formatPrice(market, startPrice)}</span> : <span className="text-[11px]">once it is on chain, after the round starts</span>}
         </span>
       </div>
+      {startNote ? <p role="note" className="mt-2 text-[12px] font-semibold">{startNote}</p> : null}
 
       <div className="relative mt-4" style={{ height: 240 }}>
         {hasData ? (

@@ -19,6 +19,8 @@ import { noteOf, useAgentNotes } from "@/lib/use-agent-notes";
 import { useBackedAgents } from "@/lib/backed";
 import { refundReasonText } from "@/lib/refund-reason";
 import { useStartPrice } from "@/lib/use-start-price";
+import { START_DIFFERS, START_NOT_ON_CHAIN, startsDiffer } from "@/lib/chain-start";
+import { useChainStart } from "@/onchain/useChainStart";
 import { cn } from "@/lib/utils";
 import { winningSide } from "@/lib/winning";
 import {
@@ -260,13 +262,13 @@ export function WatchSheet({
     history?.callTx ?? (mineCalls.length ? mineCalls[0].txHash : null);
 
   // ── the round's story
-  // the contract records the start price when it settles the round; until then the site finds the same trade the runner uses
-  const startPrice = useStartPrice(
-    market?.key ?? null,
-    lock,
-    nowSec,
-    chainPriceOf(market, round?.startPrice ?? null),
-  );
+  // the start price that counts: the first relay update at or after the lock, read from the chain as soon as it is there (P2-05);
+  // the contract also records it at settle. The site's own Bitfinex lookup is only a cross-check.
+  const settledStart = chainPriceOf(market, round?.startPrice ?? null);
+  const bitfinexStart = useStartPrice(market?.key ?? null, lock, nowSec, settledStart);
+  const chainStart = useChainStart(market?.feed ?? null, lock, nowSec);
+  const startPrice = settledStart ?? chainStart;
+  const startNote = startsDiffer(chainStart, bitfinexStart) ? START_DIFFERS : null;
   const endPrice = chainPriceOf(market, round?.endPrice ?? null);
   const fmt = (v: number) => (market ? formatPrice(market, v) : formatUsd(v));
   // what the chain recorded: the prices (with the transactions that recorded them) and, for a refund, the reason
@@ -570,7 +572,7 @@ export function WatchSheet({
                   <div className="flex items-end justify-between gap-3">
                     <p className="text-[30px] font-bold leading-tight tracking-[-0.03em]">
                       {lead === null
-                        ? "Waiting for the start price"
+                        ? START_NOT_ON_CHAIN
                         : lead === "LEVEL"
                           ? "Level with the start price"
                           : mySide
@@ -599,6 +601,7 @@ export function WatchSheet({
                         : "▼ The price is below the start price, so DOWN is ahead."}
                     </p>
                   ) : null}
+                  {startNote ? <p role="note" className="mt-2 text-[12px] font-semibold">{startNote}</p> : null}
                 </div>
               )}
 
