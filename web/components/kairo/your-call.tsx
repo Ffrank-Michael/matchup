@@ -14,6 +14,7 @@ import { AgentAvatar } from "./agent-avatar";
 import { INK, Tile } from "./tile";
 import { usePlayer } from "@/onchain/usePlayer";
 import { GOOGLE_STATUS_TEXT } from "@/lib/circle-calls";
+import { THIN_MARKET_NOTE, usesThinMarket } from "@/lib/price-rule";
 
 export type Side = "UP" | "DOWN";
 
@@ -337,6 +338,7 @@ export function YourCall({
       ) : null}
 
       {market.kind === "ratio" ? <RatioNotice market={market} /> : null}
+      {usesThinMarket(market.key) ? <ThinMarketNotice /> : null}
 
       {/* the rule, in one line */}
       <p className="mt-4 text-center text-[11px] leading-snug opacity-80">
@@ -353,6 +355,15 @@ export function YourCall({
  * Coin vs coin, said plainly next to the buttons: what wins, and that the prices are relayed (the trust the market rests on).
  * The same words are on the How it works page.
  */
+/** SOL markets (SOL/USD and SOL vs BTC): the price is a single trade from a thin market (docs/RUNBOOK.md, "Known limits"). */
+function ThinMarketNotice() {
+  return (
+    <p role="note" data-testid="thin-market-note" className="mt-4 rounded-2xl border-2 px-3.5 py-3 text-[12px] leading-snug" style={{ borderColor: "color-mix(in oklch, black 30%, transparent)" }}>
+      {THIN_MARKET_NOTE}
+    </p>
+  );
+}
+
 function RatioNotice({ market }: { market: Market }) {
   const [a, b] = market.pair.split("/");
   return (

@@ -37,6 +37,17 @@ export const END_RULE =
 export const TOO_FEW_RULE =
   "If BTC or ETH has fewer than 3 trades in one of these windows, there is no price and everyone gets their money back.";
 
+/**
+ * Markets whose price uses SOL, which keeps the single-trade rule because Bitfinex SOL/USD is too thin for an average
+ * (docs/RUNBOOK.md, "Known limits"). Every one of them shows THIN_MARKET_NOTE next to its call buttons.
+ */
+export const THIN_MARKET_KEYS: readonly string[] = ["SOL", "SOLBTC"];
+export const usesThinMarket = (key: string) => THIN_MARKET_KEYS.includes(key);
+
+/** The notice on SOL markets, in plain words. */
+export const THIN_MARKET_NOTE =
+  "SOL prices come from a thin market. Bitfinex's SOL/USD often goes a minute or more without a trade, so a SOL price is a single trade, not an average: the first trade after calling closes for the start, and the last trade about one minute before the end for the end. One trade can move it more than an average of many trades would.";
+
 /** Shown on a live round once its end price is being taken. */
 export const END_BEING_TAKEN = "The end price is being taken now. Moves from here to the end do not count.";
 
