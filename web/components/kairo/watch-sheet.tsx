@@ -1,5 +1,6 @@
 "use client";
 
+import { END_BEING_TAKEN, endBeingTaken } from "@/lib/price-rule";
 import * as React from "react";
 
 import {
@@ -589,7 +590,9 @@ export function WatchSheet({
                       </p>
                     </div>
                   </div>
-                  {lead && lead !== "LEVEL" ? (
+                  {nowSec !== null && end !== null && endBeingTaken(nowSec, end) ? (
+                    <p className="mt-2 text-[13px] font-semibold">{END_BEING_TAKEN}</p>
+                  ) : lead && lead !== "LEVEL" ? (
                     <p className="mt-2 text-[13px] font-medium opacity-80">
                       {lead === "UP"
                         ? "▲ The price is above the start price, so UP is ahead."

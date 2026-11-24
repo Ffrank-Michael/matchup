@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test onchain/payout.test.ts lib/guide-merge.test.ts lib/circle-api.test.ts lib/circle-wallet-pick.test.ts onchain/resultPolling.test.ts lib/circle-send.test.ts lib/circle-calls.test.ts lib/one-sided.test.ts lib/ratio.test.ts"
+    "test": "node --test onchain/payout.test.ts lib/guide-merge.test.ts lib/circle-api.test.ts lib/circle-wallet-pick.test.ts onchain/resultPolling.test.ts lib/circle-send.test.ts lib/circle-calls.test.ts lib/one-sided.test.ts lib/ratio.test.ts lib/price-rule.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

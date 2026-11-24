@@ -1,3 +1,4 @@
+import { END_RULE, START_RULE } from "@/lib/price-rule";
 import type { Metadata } from "next";
 import Link from "next/link";
 import type * as React from "react";
@@ -29,10 +30,8 @@ const STEPS: ReadonlyArray<{ title: string; body: React.ReactNode }> = [
       <>
         <div className="mt-2">
           <ul className="list-disc space-y-1 pl-5">
-            <li>The first price after calling closes is the start price.</li>
-            <li>
-              When the round ends, the price at that moment is the end price.
-            </li>
+            <li>{START_RULE}</li>
+            <li>{END_RULE}</li>
             <li>
               End higher than start: UP wins. Lower: DOWN wins. Same price:
               everyone gets their money back.
@@ -46,8 +45,8 @@ const STEPS: ReadonlyArray<{ title: string; body: React.ReactNode }> = [
         <div className="mt-2">
           <span className="font-semibold text-foreground">Example:</span>{" "}
           Calling closes at 12:00. Bitcoin&apos;s first price after that is
-          $80,000, the start price. At 12:05 it&apos;s $80,100, the end price.
-          It went up, so UP wins.
+          $80,000, the start price. The round ends at 12:05; at about 12:04 it&apos;s
+          $80,100, the end price. It went up, so UP wins, whatever happens in the last minute.
         </div>
       </>
     ),
@@ -123,7 +122,8 @@ export default function HowItWorks() {
             <li>
               The price of a round is the ratio of the two coins: {LIVE_MATCHUPS[0].a}&apos;s dollar price divided by{" "}
               {LIVE_MATCHUPS[0].b}&apos;s (how many {LIVE_MATCHUPS[0].b} one {LIVE_MATCHUPS[0].a} is worth). The start ratio uses
-              each coin&apos;s first trade after calling closes; the end ratio uses each coin&apos;s last trade before the end.
+              each coin&apos;s first trade after calling closes; the end ratio uses each coin&apos;s last trade about one minute
+              before the end (the last minute does not count).
             </li>
             <li>
               Ratio up at the end: {LIVE_MATCHUPS[0].a} wins. Ratio down: {LIVE_MATCHUPS[0].b} wins. Exactly the same ratio
