@@ -120,6 +120,16 @@ export const RATIO_MARKETS = [
   { pair: 'ethbtc', round: 3600, offset: 50 },
   { pair: 'solbtc', round: 3600, offset: 150 },
 ];
+// Each Chainlink leg may be at most this old in the RatioGuard (its own check, tighter than the relay's 26 h): the feeds on Arc
+// update on a deviation threshold or after 24 hours (docs/SUBMISSION.md), so a healthy leg is never older than 24 h; 1 h of margin.
+export const RATIO_LEG_MAX_AGE_SECONDS = 25 * 3600;
+/** What each leg's description() must say; the RatioGuard refuses other feeds at deploy, so the two cannot be swapped. */
+export const ratioLegLabel = (coin, setName) => (setName === 'mainnet' ? COINS[coin].label : standInDescription(coin));
+/** The RatioGuard constructor arguments for a pair, given the two leg feed addresses (top first). */
+export function ratioGuardArgs(key, topFeed, bottomFeed, setName) {
+  const p = RATIO_PAIRS[key];
+  return [topFeed, bottomFeed, RATIO_LEG_MAX_AGE_SECONDS, RATIO_LEG_MAX_AGE_SECONDS, ratioLegLabel(p.top, setName), ratioLegLabel(p.bottom, setName), ratioGuardDescription(key)];
+}
 export const ratioBandBps = (key) => COINS[RATIO_PAIRS[key].top].bandBps + COINS[RATIO_PAIRS[key].bottom].bandBps;
 export const ratioMarketName = (m) => `${RATIO_PAIRS[m.pair].pair} ${m.round / 3600}h`;
 export const ratioGuardDescription = (key) => {

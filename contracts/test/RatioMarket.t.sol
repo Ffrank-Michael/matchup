@@ -51,6 +51,7 @@ contract RatioMarketTest is Test {
     uint128 constant MIN    = 500_000;   // $0.50
     uint16  constant BAND   = 250;       // 2.5%
     uint80  constant P1     = uint80(1) << 64; // phase 1 of the relay's round ids
+    uint32  constant AGE    = 25 hours;  // each Chainlink leg: 24 h heartbeat + 1 h
 
     function setUp() public {
         vm.warp(10);
@@ -60,7 +61,7 @@ contract RatioMarketTest is Test {
         btcUsd = new MockPriceFeed(owner, 8, "TEST PRICES - NOT REAL DATA / Chainlink stand-in BTC/USD");
         ethUsd.setPrice(3_000e8);
         btcUsd.setPrice(100_000e8);
-        guard = new RatioGuard(ethUsd, btcUsd, "Matchup ratio guard ETH / BTC");
+        guard = new RatioGuard(ethUsd, btcUsd, AGE, AGE, ethUsd.description(), btcUsd.description(), "Matchup ratio guard ETH / BTC");
         relay = new GuardedRelayFeed(owner, pusher, guard, BAND, "Matchup relay ETH / BTC (TESTNET REHEARSAL)");
         arena = new PredictionArena(address(usdc), owner);
         mid = arena.marketCount();
@@ -279,13 +280,16 @@ contract RatioMarketTest is Test {
         relay.setPrice(3e16);
     }
 
-    /// A stale Chainlink feed (BTC not updated for over 26 hours) stops the relay; ETH alone being fresh is not enough.
+    /// A stale Chainlink leg (BTC not updated for over 25 hours, its own limit in the guard) stops the relay;
+    /// ETH alone being fresh is not enough.
     function test_staleChainlink_pushRefused() public {
-        vm.warp(block.timestamp + 26 hours + 1);
+        vm.warp(10 + AGE);
         vm.prank(owner);
         ethUsd.setPrice(3_000e8); // fresh ETH
+        _push(3e16);              // BTC exactly 25 h old: accepted
+        vm.warp(10 + AGE + 1);
         vm.prank(pusher);
-        vm.expectRevert(abi.encodeWithSelector(GuardedRelayFeed.GuardStale.selector, uint256(10), uint256(26 hours)));
+        vm.expectRevert(GuardedRelayFeed.GuardUnavailable.selector);
         relay.setPrice(3e16);
     }
 

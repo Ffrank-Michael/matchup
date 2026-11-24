@@ -18,7 +18,7 @@ import path from 'node:path';
 import { formatUnits, getAddress, zeroAddress } from 'viem';
 import { setup, ROOT, usdcBalance } from './lib.mjs';
 import { compile, normalise } from './compile.mjs';
-import { MIN_STAKE, MAX_GUARD_AGE_SECONDS, standInDescription, RATIO_PAIRS, RATIO_MARKETS, RATIO_DECIMALS, ratioBandBps, ratioMarketName, ratioGuardDescription, ratioRelayDescription, validateRatioMarkets } from './markets.mjs';
+import { MIN_STAKE, MAX_GUARD_AGE_SECONDS, standInDescription, RATIO_PAIRS, RATIO_MARKETS, RATIO_DECIMALS, ratioBandBps, ratioMarketName, ratioGuardDescription, ratioRelayDescription, validateRatioMarkets, ratioGuardArgs, RATIO_LEG_MAX_AGE_SECONDS } from './markets.mjs';
 import { createExchangePrices } from '../runner/exchangePrices.mjs';
 
 const args = process.argv.slice(2);
@@ -102,7 +102,7 @@ async function main() {
   for (const k of PAIR_KEYS) {
     if (st.ratio.guards[k]) continue;
     const p = RATIO_PAIRS[k];
-    const { hash, rc } = await send(`Deploy RatioGuard ${p.pair}`, wallet.deployContract({ abi: art.ratioGuard.abi, bytecode: art.ratioGuard.bytecode, args: [st.guards[p.top].address, st.guards[p.bottom].address, ratioGuardDescription(k)] }));
+    const { hash, rc } = await send(`Deploy RatioGuard ${p.pair}`, wallet.deployContract({ abi: art.ratioGuard.abi, bytecode: art.ratioGuard.bytecode, args: ratioGuardArgs(k, st.guards[p.top].address, st.guards[p.bottom].address, st.set) }));
     st.ratio.guards[k] = { address: rc.contractAddress, tx: hash, block: Number(rc.blockNumber), top: st.guards[p.top].address, bottom: st.guards[p.bottom].address };
     saveState(st);
     console.log(`  ${rc.contractAddress}`);
@@ -176,6 +176,10 @@ async function verify(art, st) {
     check(Number(await read(G, art.ratioGuard.abi, 'decimals')) === RATIO_DECIMALS, `${p.pair} guard has ${RATIO_DECIMALS} decimals`);
     check((await read(G, art.ratioGuard.abi, 'description')) === ratioGuardDescription(k), `${p.pair} guard says "${ratioGuardDescription(k)}"`);
     check(await sameCode(G, art.ratioGuard), `${p.pair} guard code on chain matches the repo`);
+    try { // a RatioGuard deployed before the audit fixes (version 1) has no age limits: it must be redeployed
+      const ages = await Promise.all([read(G, art.ratioGuard.abi, 'numeratorMaxAge'), read(G, art.ratioGuard.abi, 'denominatorMaxAge')]);
+      check(ages.every((x) => Number(x) === RATIO_LEG_MAX_AGE_SECONDS), `${p.pair} guard: each leg at most ${RATIO_LEG_MAX_AGE_SECONDS / 3600} h old`);
+    } catch { check(false, `${p.pair} guard has per-leg age limits (a RatioGuard version 1 does not: redeploy it)`); }
     for (const c of [p.top, p.bottom]) check((await read(st.guards[c].address, art.feed.abi, 'description')) === standInDescription(c), `${c.toUpperCase()} stand-in is labelled "${standInDescription(c)}"`);
     try {
       const [, answer, , updatedAt] = await read(G, art.ratioGuard.abi, 'latestRoundData');

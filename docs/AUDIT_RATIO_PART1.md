@@ -40,6 +40,20 @@ Info (no direct harm: documentation, hardening, test gaps).
 | R-10 | Info | The arena skips the predecessor check for round id 1 in phase 0 |
 | R-11 | Info | Test gaps in the ratio tests |
 
+## Fixes on the `audit` branch
+
+Made after this report, without changing `GuardedRelayFeed` or `PredictionArena`:
+
+| # | What changed | Status |
+|---|---|---|
+| R-04 | `RatioGuard` v2 has an age limit per leg (`numeratorMaxAge`, `denominatorMaxAge`, 1 s to 26 h, `StaleFeed` error). The deploy config sets 25 h for both legs (Chainlink's 24 h heartbeat on Arc plus 1 h). | Partly fixed. The mechanism is there, but with a 24 h heartbeat the limit can only be 1 h tighter than the relay's 26 h; a healthy deviation-based feed that is 24 h old has not moved past its threshold, so a much tighter limit would refuse good feeds. |
+| R-06 | `RatioGuard` v2 reads each leg's `decimals()` on every read and reverts `DecimalsChanged` if it differs from deploy time (`FeedUnavailable` if it reverts). | Fixed. |
+| R-07 | Not changed in code: the comment is in `PredictionArena.sol`, which is deployed on mainnet with verified source; a comment edit would make the repo differ from the verified source. The correct bound is recorded in R-07 below. | Documented only. |
+| R-08 | `RatioGuard` header reworded: no round on such a market can settle UP or DOWN; every round ends as a refund. | Fixed. |
+| R-09 | `RatioGuard` v2's constructor takes the expected `description()` of each leg (e.g. `"ETH / USD"`, `"BTC / USD"`) and reverts `WrongFeed` if a feed says something else, and `BadLabels` if the two labels are empty or equal. This refuses swapped feeds, a wrong feed, and two addresses of the same feed. It is checked only at deploy, so a later description change on Chainlink's side cannot break a deployed guard. | Fixed (as far as a contract can: the deployer still supplies the labels, from `ratioGuardArgs` in `scripts/markets.mjs`). |
+
+`version()` of the new guard is 2. The testnet guards deployed on 24 Nov are version 1 and must be redeployed.
+
 ## Findings
 
 ### R-01. High (by design, acknowledged): the pusher decides almost every ratio round

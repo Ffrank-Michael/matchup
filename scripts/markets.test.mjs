@@ -103,7 +103,7 @@ test('judgeGuard: exactly 26 hours old is fine (as in the relay), one second mor
 });
 
 // ---------------------------------------------------------------- coin vs coin (scripts/deploy-ratio.mjs)
-import { RATIO_PAIRS, RATIO_MARKETS, RATIO_DECIMALS, ratioBandBps, ratioMarketName, ratioGuardDescription, ratioRelayDescription, validateRatioMarkets } from './markets.mjs';
+import { RATIO_PAIRS, RATIO_MARKETS, RATIO_DECIMALS, RATIO_LEG_MAX_AGE_SECONDS, ratioBandBps, ratioMarketName, ratioGuardDescription, ratioRelayDescription, ratioLegLabel, ratioGuardArgs, validateRatioMarkets } from './markets.mjs';
 import { RATIO_PAIRS as RUNNER_PAIRS } from '../runner/pairs.mjs';
 
 const existing = SETS.rehearsal.markets.map((m, id) => ({ id, name: marketName(m), round: m.round, offset: m.offset }));
@@ -140,6 +140,17 @@ test('coin vs coin: RatioGuard compiles with the deploy script\'s compiler', () 
   const art = compile();
   assert.ok(art.ratioGuard.bytecode.length > 2);
   const fns = art.ratioGuard.abi.filter((x) => x.type === 'function').map((x) => x.name).sort();
-  assert.deepEqual(fns, ['MAX_FEED_DECIMALS', 'RATIO_DECIMALS', 'decimals', 'denominator', 'denominatorDecimals', 'description', 'getRoundData', 'latestRoundData', 'numerator', 'numeratorDecimals', 'version']);
+  assert.deepEqual(fns, ['MAX_FEED_AGE', 'MAX_FEED_DECIMALS', 'RATIO_DECIMALS', 'decimals', 'denominator', 'denominatorDecimals', 'denominatorMaxAge', 'description', 'getRoundData', 'latestRoundData', 'numerator', 'numeratorDecimals', 'numeratorMaxAge', 'version']);
   assert.ok(!fns.some((n) => /owner|set|withdraw/i.test(n)), 'no owner, no setters');
+});
+
+test('coin vs coin: RatioGuard arguments (each leg at most 25 h old, expected labels, top first)', () => {
+  assert.equal(RATIO_LEG_MAX_AGE_SECONDS, 25 * 3600);
+  assert.ok(RATIO_LEG_MAX_AGE_SECONDS > 24 * 3600, 'above the 24 h Chainlink heartbeat, so a healthy feed is never refused');
+  assert.ok(RATIO_LEG_MAX_AGE_SECONDS <= MAX_GUARD_AGE_SECONDS, 'not above the relay limit (the contract refuses more)');
+  assert.equal(ratioLegLabel('eth', 'mainnet'), 'ETH / USD');
+  assert.equal(ratioLegLabel('btc', 'mainnet'), 'BTC / USD');
+  assert.equal(ratioLegLabel('btc', 'rehearsal'), 'TEST PRICES - NOT REAL DATA / Chainlink stand-in BTC/USD');
+  assert.deepEqual(ratioGuardArgs('solbtc', '0xsol', '0xbtc', 'mainnet'), ['0xsol', '0xbtc', 90000, 90000, 'SOL / USD', 'BTC / USD', ratioGuardDescription('solbtc')]);
+  assert.deepEqual(ratioGuardArgs('ethbtc', '0xe', '0xb', 'rehearsal').slice(4, 6), ['TEST PRICES - NOT REAL DATA / Chainlink stand-in ETH/USD', 'TEST PRICES - NOT REAL DATA / Chainlink stand-in BTC/USD']);
 });

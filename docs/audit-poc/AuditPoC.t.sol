@@ -8,6 +8,9 @@ pragma solidity ^0.8.24;
 //  mutation runs do not pick them up. Each test name starts with the
 //  finding it belongs to (F1 = R-01, F3 = R-03, F4 = R-04, F5 = R-05,
 //  F6 = R-02, R06, R08) or with OK_ for a check that came out fine.
+//  F4 and R06 show the behaviour AFTER the RatioGuard v2 fixes (each
+//  leg's own age limit, decimals checked on every read); the rest
+//  are unchanged, because they are in the unchanged relay or arena.
 //
 //  Run them from the repo root:
 //      FOUNDRY_TEST=docs/audit-poc forge test --match-contract AuditPoC -vv
@@ -50,7 +53,7 @@ contract AuditPoC is Test {
         btcUsd = new MockPriceFeed(owner, 8, "TEST PRICES - NOT REAL DATA / Chainlink stand-in BTC/USD");
         ethUsd.setPrice(3_000e8);
         btcUsd.setPrice(100_000e8);
-        guard = new RatioGuard(ethUsd, btcUsd, "Matchup ratio guard ETH / BTC");
+        guard = new RatioGuard(ethUsd, btcUsd, 25 hours, 25 hours, ethUsd.description(), btcUsd.description(), "Matchup ratio guard ETH / BTC");
         relay = new GuardedRelayFeed(owner, pusher, guard, BAND, "Matchup relay ETH / BTC");
         arena = new PredictionArena(address(usdc), owner);
         mid = arena.marketCount();
@@ -138,11 +141,16 @@ contract AuditPoC is Test {
     }
 
     // F4: a Chainlink leg frozen for 25 h still centres the band: pushes far from the live market are accepted.
+    // After the fix (RatioGuard v2): each leg has its own limit, 25 h here (24 h heartbeat + 1 h), checked by the guard.
+    // Up to the limit the band is still centred on the old ratio; one second past it every push is refused.
     function test_F4_staleGuardStillCentresBand() public {
         uint256 t = block.timestamp;
-        vm.warp(t + 25 hours);           // no Chainlink update for 25 h (real ratio may have moved 5%+)
-        _push(pusher, 3e16 * 10_250 / 10_000);   // accepted: band around a 25-hour-old ratio
-        _push(pusher, 3e16 * 9_750 / 10_000);    // accepted too
+        vm.warp(t + 25 hours);           // no Chainlink update for exactly 25 h: still accepted
+        _push(pusher, 3e16 * 10_250 / 10_000);
+        vm.warp(t + 25 hours + 1);       // one second more: the guard refuses, so the relay does
+        vm.prank(pusher);
+        vm.expectRevert(GuardedRelayFeed.GuardUnavailable.selector);
+        relay.setPrice(3e16);
     }
 
     // F5: a push signed for the end of round 1 that lands one block late becomes the start of round 2.
@@ -206,17 +214,18 @@ contract AuditPoC is Test {
     }
 
     // R-06: a Chainlink proxy whose decimals change after the RatioGuard was deployed (cached decimals).
+    // After the fix (RatioGuard v2): the guard re-reads decimals and refuses with DecimalsChanged instead of a wrong ratio.
     function test_R06_decimalsChange_ratioOff_pushesRefused() public {
-        DecFeed e = new DecFeed(8, 3_000e8);
-        DecFeed b = new DecFeed(8, 100_000e8);
-        RatioGuard g = new RatioGuard(e, b, "dec test");
+        DecFeed e = new DecFeed(8, 3_000e8, "E");
+        DecFeed b = new DecFeed(8, 100_000e8, "B");
+        RatioGuard g = new RatioGuard(e, b, 25 hours, 25 hours, "E", "B", "dec test");
         GuardedRelayFeed r = new GuardedRelayFeed(owner, pusher, g, BAND, "Matchup relay dec test");
         vm.prank(pusher); r.setPrice(3e16);
         e.set(18, 3_000e18);          // proxy repointed to an 18-decimal aggregator, same $3,000
-        (, int256 a, , , ) = g.latestRoundData();
-        assertEq(a, 3e26, "ratio now 1e10 too large, no error from the guard");
+        vm.expectRevert(abi.encodeWithSelector(RatioGuard.DecimalsChanged.selector, address(e), uint8(8), uint8(18)));
+        g.latestRoundData();
         vm.prank(pusher);
-        vm.expectRevert();            // OutsideBand: honest 0.03 is refused, rounds refund
+        vm.expectRevert(GuardedRelayFeed.GuardUnavailable.selector); // a clear refusal; rounds refund
         r.setPrice(3e16);
     }
 
@@ -260,11 +269,11 @@ contract AuditPoC is Test {
 
 /// A Chainlink-shaped feed whose decimals can change (R-06).
 contract DecFeed is AggregatorV3Interface {
-    uint8 public dec; int256 public ans;
-    constructor(uint8 d, int256 a) { dec = d; ans = a; }
+    uint8 public dec; int256 public ans; string public label;
+    constructor(uint8 d, int256 a, string memory l) { dec = d; ans = a; label = l; }
     function set(uint8 d, int256 a) external { dec = d; ans = a; }
     function decimals() external view override returns (uint8) { return dec; }
-    function description() external pure override returns (string memory) { return "dec"; }
+    function description() external view override returns (string memory) { return label; }
     function version() external pure override returns (uint256) { return 1; }
     function getRoundData(uint80) external pure override returns (uint80, int256, uint256, uint256, uint80) { revert(); }
     function latestRoundData() external view override returns (uint80, int256, uint256, uint256, uint80) {

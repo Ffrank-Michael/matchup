@@ -8,7 +8,7 @@ What gets deployed, per pair (the same as the testnet rehearsal, `scripts/deploy
 
 | Piece | Contract | Settings |
 |---|---|---|
-| Guard | `RatioGuard` (new) | top = Chainlink ETH/USD or SOL/USD proxy, bottom = Chainlink BTC/USD proxy (addresses in `scripts/markets.mjs`, `CHAINLINK_MAINNET`), 18 decimals |
+| Guard | `RatioGuard` (new, version 2 after the audit) | top = Chainlink ETH/USD or SOL/USD proxy, bottom = Chainlink BTC/USD proxy (addresses in `scripts/markets.mjs`, `CHAINLINK_MAINNET`), 18 decimals; each leg at most 25 h old (`RATIO_LEG_MAX_AGE_SECONDS`), expected leg labels `"ETH / USD"` / `"SOL / USD"` over `"BTC / USD"` (`ratioGuardArgs`), so swapped feeds are refused at deploy |
 | Relay | `GuardedRelayFeed` (unchanged) | owner = the mainnet owner wallet, pusher = the runner wallet (`0x1410…EA3F`), guard = the RatioGuard, band **250 bps (2.5%)**, description from `ratioRelayDescription(key, 'mainnet')` |
 | Market | `createMarket` on the unchanged arena | `"ETH/BTC 1h"` offset 50 s, `"SOL/BTC 1h"` offset 150 s, 3600 s rounds, min stake 0.50 USDC, feedB = none. They become market ids 12 and 13 |
 
@@ -18,7 +18,10 @@ What gets deployed, per pair (the same as the testnet rehearsal, `scripts/deploy
       17–24 Nov 2026) means the runner can choose the result of almost any round. The call panel and How it works say so
       (`RatioNotice` in `web/components/kairo/your-call.tsx`, "Coin vs coin" in `web/app/how-it-works/page.tsx`). Owner decision: go ahead or not.
 - [ ] **Review of `contracts/RatioGuard.sol`** (Arc Studio audit or a second reviewer). It is small, has no owner and no
-      storage beyond immutables, but every push depends on it.
+      storage beyond immutables, but every push depends on it. Part 1 is in `docs/AUDIT_RATIO_PART1.md`; the guard was changed
+      after it (version 2: per-leg age limit, decimals checked on every read, expected leg labels), so a review must cover version 2.
+- [ ] **The testnet guards of 24 Nov are version 1.** `node scripts/deploy-ratio.mjs --verify-only` now reports their code and
+      age limits as FAIL. Redeploy them (with the fresh v2 testnet arena below) before the end-to-end testnet round.
 - [ ] **Mutation check** on RatioGuard (the 5 deliberate breaks run on 24 Nov were all caught; add them to `ci/mutations.json`
       so CI repeats them).
 - [ ] **Measure the Bitfinex-vs-Chainlink ratio gap for a week** (PLAN_V3 R1). If it ever gets near 2.5%, pushes would be refused and
