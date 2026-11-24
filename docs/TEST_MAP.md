@@ -4,7 +4,7 @@ Rule numbers match `docs/RULES.md`. Test names are exact; search for them in `co
 Files: `PredictionArena.t.sol` (markets, calling), `Settle.t.sol` (feed + settle), `Claim.t.sol` (payouts),
 `ClaimInvariant.t.sol` (random money checks), `Rules.t.sol` (gap tests added in step 7).
 
-Every deliberate-break check (`ci/mutations.json`, 41 breaks) is caught by these tests.
+`ci/mutations.json` holds 113 deliberate breaks: 95 in the arena and the relay, and 18 in RatioGuard (`G01`-`G18`, group `ratio`). `.github/workflows/mutation.yml` runs them all; a break is CAUGHT when at least one test fails.
 
 ## A. Markets and timing
 | Rule | Covered by |
