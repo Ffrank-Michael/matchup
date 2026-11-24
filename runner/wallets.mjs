@@ -8,7 +8,7 @@ import { displayName } from '../agents/index.mjs';
 import { createExchangePrices } from './exchangePrices.mjs';
 import { appendPriceLog, makePriceLogEntry } from './priceLog.mjs';
 import { pairOf, isRatioPair, priceText } from './pairs.mjs';
-import { refuseLateEnd, markLate } from './mainnet.mjs';
+import { refuseLateEnd, markLate, createStartClock } from './mainnet.mjs';
 
 const usdcText = (u) => '$' + (u / 1e6).toFixed(2);
 
@@ -48,6 +48,7 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
     return addr ? [[addr, q.price]] : [];
   };
 
+  const clock = createStartClock(); // start prices: the chain's clock against Bitfinex's (P2-14)
   let circle;
   const circleClient = () => (circle ||= initiateDeveloperControlledWalletsClient({ apiKey: env.CIRCLE_API_KEY, entitySecret: env.CIRCLE_ENTITY_SECRET }));
 
@@ -85,7 +86,10 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
     }
     switch (a.type) {
       case 'pushPrice': {
-        const q = await prices.quote(a.marketName, { firstTradeAfter: a.firstTradeAfter }); // throws if the API fails or there is no trade after the lock yet: then nothing is pushed
+        const isStart = a.firstTradeAfter !== undefined;
+        const chainNow = isStart ? Number((await pub.getBlock()).timestamp) : null;
+        const q = await prices.quote(a.marketName, { firstTradeAfter: isStart ? clock.startAfter(a.firstTradeAfter) : undefined }); // throws if the API fails or there is no trade after the lock yet: then nothing is pushed
+        if (isStart) clock.check(a.firstTradeAfter, q, chainNow);
         const feed = feedFor(a);
         await refuseLateEnd(pub, a);
         for (const [standIn, price] of standInPushes(a, q)) await deployerSend(standIn, feedAbi, 'setPrice', [price]);

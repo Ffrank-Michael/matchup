@@ -101,8 +101,13 @@ export function makeMainnetExecutor({ live, pub, wallet, arena, arenaAbi, relayA
   }
 
   /** Asks Bitfinex for the price and checks it against Chainlink. Throws (so nothing is sent) when either fails. */
+  const clock = createStartClock();
   async function checkedQuote(a) {
-    const q = await prices.quote(a.marketName, { firstTradeAfter: a.firstTradeAfter }); // throws when the API fails or there is no trade after the lock yet
+    // a start price: if the chain's clock runs behind Bitfinex's, calls closed later in real time, so the start must be later too (P2-14)
+    const firstTradeAfter = a.firstTradeAfter === undefined ? undefined : clock.startAfter(a.firstTradeAfter);
+    const chainNow = a.firstTradeAfter === undefined ? null : Number((await pub.getBlock()).timestamp);
+    const q = await prices.quote(a.marketName, { firstTradeAfter }); // throws when the API fails or there is no trade after the lock yet
+    if (chainNow !== null) clock.check(a.firstTradeAfter, q, chainNow);
     const r = await relayOf(a.feed);
     const [, answer, , updatedAt] = await read(r.guard, guardAbi, 'latestRoundData');
     const res = checkAgainstGuard({ price: q.price, guardAnswer: answer, guardUpdatedAt: updatedAt, bandBps: r.bandBps, maxAgeSeconds: r.maxAge, now: nowSec() });
@@ -151,6 +156,32 @@ export async function refuseLateEnd(pub, a, endCutoff = CFG.endCutoff) {
   if (!a.endsAt) return;
   const chainNow = Number((await pub.getBlock()).timestamp);
   if (chainNow >= a.endsAt - endCutoff) throw new Error(`end price not sent: only ${a.endsAt - chainNow} s left before the round ends (the limit is ${endCutoff} s), so it could land after the end`);
+}
+
+/**
+ * The chain's clock against Bitfinex's, for START prices (audit part 2, P2-14). Calls close when the BLOCK time reaches the lock;
+ * the start price is a Bitfinex trade at least startAfter seconds after the lock in BITFINEX time. If the chain runs behind real
+ * time by more than that margin, calls are still open in real time when that trade happens, and a fast player could see it.
+ * So the gap is measured on every start quote (Bitfinex's Date header against the latest block time) and:
+ *   - the start trades must be at least startAfter seconds after the lock PLUS the gap, else nothing is sent (and the next try
+ *     asks Bitfinex from that later moment);
+ *   - a gap above maxGapSec means a clock is broken: nothing is sent.
+ */
+export function createStartClock({ maxGapSec = 30 } = {}) {
+  let lag = 0; // seconds the chain is behind Bitfinex, from the last start quote (never negative: a chain ahead closes calls early, which is safe)
+  return {
+    /** firstTradeAfter for the next start quote: the planner's lock + startAfter, moved on by the last measured gap. */
+    startAfter: (planned) => planned + lag,
+    /** Measures the gap from this quote and refuses the quote when its trades are not late enough. Throws to stop the push. */
+    check(planned, q, chainNow) {
+      const gap = Math.max(0, Number(q.quotedAt) - chainNow);
+      lag = gap;
+      if (gap > maxGapSec) throw new Error(`start price not sent: the chain's clock is ${gap} s behind Bitfinex's (more than ${maxGapSec} s); check the node and the clocks`);
+      const trades = Array.isArray(q.legs) && q.legs.length ? q.legs.map((l) => Number(l.tradeAt)) : [Number(q.tradeAt)];
+      const earliest = Math.min(...trades);
+      if (earliest < planned + gap) throw new Error(`start price not sent: the chain is ${gap} s behind Bitfinex, so calling closed later than the lock in real time; the start trade must be at least ${planned + gap - earliest} s later. Will try again`);
+    },
+  };
 }
 
 /** A price log entry whose end price still landed after the end (should not happen any more) says so. */

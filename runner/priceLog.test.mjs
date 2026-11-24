@@ -28,7 +28,8 @@ function fakeChain({ fail } = {}) {
     wallet: { writeContract: async (x) => { sent.push(x); return '0xhash' + sent.length; } },
     pub: {
       waitForTransactionReceipt: async () => ({ status: 'success', blockNumber: 777n }),
-      getBlock: async ({ blockNumber }) => {
+      getBlock: async ({ blockNumber } = {}) => {
+        if (blockNumber === undefined) return { timestamp: BigInt(QUOTE.quotedAt) }; // the latest block (the start-price clock check, P2-14): in step with Bitfinex
         if (fail) throw new Error('rpc down');
         assert.equal(blockNumber, 777n);
         return { timestamp: 1_800_000_075n };

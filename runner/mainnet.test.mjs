@@ -12,7 +12,7 @@ import { holdsOwnerKey } from './ownerKey.mjs';
 import { ROOT } from '../scripts/lib.mjs';
 import {
   SEND_FLAG, MAINNET_CHAIN_ID, RUNNER_ENV_NAMES, readRunnerEnv, parseArgs, parseRunnerConfig, checkAgainstGuard,
-  makeMainnetExecutor, describe, chainProblem, preflight,
+  makeMainnetExecutor, describe, chainProblem, preflight, createStartClock,
 } from './mainnet.mjs';
 
 const KEY = '0x' + 'ab'.repeat(32);
@@ -369,4 +369,60 @@ MAINNET_DEPLOYER_PRIVATE_KEY=${DEPLOYER_KEY}
   assert.equal(holdsOwnerKey('# MAINNET_DEPLOYER_PRIVATE_KEY=0xabc'), false);
   assert.equal(holdsOwnerKey(`MAINNET_RUNNER_PRIVATE_KEY=${KEY}
 DEPLOYER_PRIVATE_KEY=${DEPLOYER_KEY}`), false);
+});
+
+// ---------------------------------------------------------------- P2-14: the chain's clock against Bitfinex's for start prices
+
+test('start clock: in step (gap 0) a trade 2 s after the lock is fine', () => {
+  const c = createStartClock();
+  c.check(NOW + 2, { quotedAt: NOW + 10, tradeAt: NOW + 2 }, NOW + 10);
+  assert.equal(c.startAfter(NOW + 2), NOW + 2);
+});
+
+test('start clock: a chain 5 s behind refuses a trade from before calling really closed, and asks later next time', () => {
+  const c = createStartClock();
+  // lock at NOW, startAfter 2: planned NOW + 2. The chain says NOW + 10 while Bitfinex says NOW + 15.
+  assert.throws(() => c.check(NOW + 2, { quotedAt: NOW + 15, tradeAt: NOW + 3 }, NOW + 10), /chain is 5 s behind Bitfinex.*at least 4 s later/);
+  assert.equal(c.startAfter(NOW + 2), NOW + 7, 'the next quote asks for trades from 5 s later');
+  c.check(NOW + 2, { quotedAt: NOW + 20, tradeAt: NOW + 7 }, NOW + 15); // late enough now
+});
+
+test('start clock: for a coin-vs-coin price BOTH trades must be late enough', () => {
+  const c = createStartClock();
+  const q = { quotedAt: NOW + 15, tradeAt: NOW + 9, legs: [{ tradeAt: NOW + 9 }, { tradeAt: NOW + 4 }] };
+  assert.throws(() => c.check(NOW + 2, q, NOW + 10), /must be at least 3 s later/);
+});
+
+test('start clock: a chain AHEAD of real time is safe (calls closed early): no shift', () => {
+  const c = createStartClock();
+  c.check(NOW + 2, { quotedAt: NOW + 5, tradeAt: NOW + 2 }, NOW + 9);
+  assert.equal(c.startAfter(NOW + 2), NOW + 2);
+});
+
+test('start clock: a gap of more than 30 s means a broken clock: nothing is sent', () => {
+  assert.throws(() => createStartClock().check(NOW + 2, { quotedAt: NOW + 100, tradeAt: NOW + 90 }, NOW + 50), /50 s behind Bitfinex's \(more than 30 s\)/);
+});
+
+test('executor (P2-14): a start price is checked against the chain clock before it is sent', async () => {
+  const sent = [];
+  const asked = [];
+  const pub = {
+    readContract: async ({ address, functionName }) => {
+      if (functionName === 'guard') return GUARD;
+      if (functionName === 'bandBps') return 100;
+      if (functionName === 'MAX_GUARD_AGE') return BigInt(26 * 3600);
+      if (functionName === 'latestRoundData' && address === GUARD) return [1n, 10_000_00000000n, 0n, BigInt(NOW - 30), 1n];
+      throw new Error('unexpected read ' + functionName);
+    },
+    waitForTransactionReceipt: async () => ({ status: 'success', blockNumber: 7n }),
+    getBlock: async () => ({ timestamp: BigInt(NOW - 6) }), // the chain is 6 s behind Bitfinex
+  };
+  const prices = { quote: async (_m, { firstTradeAfter }) => { asked.push(firstTradeAfter); return { price: 10_000_00000000n, usd: 10_000, quotedAt: NOW, tradeAt: Math.max(firstTradeAfter, NOW - 8), source: 'Bitfinex' }; } };
+  const execute = makeMainnetExecutor({ live: true, pub, wallet: { writeContract: async (r) => { sent.push(r); return '0x' + 'ee'.repeat(32); } }, arena: ARENA, arenaAbi: [], relayAbi: [], guardAbi: [], prices, explorer: 'x', chainId: 5042, logPush: () => {}, nowSec: () => NOW });
+  const start = { type: 'pushPrice', market: 0, marketName: 'BTC/USD 5m', round: 4, feed: FEED, why: 'start price', firstTradeAfter: NOW - 10 };
+  await assert.rejects(execute(start), /6 s behind Bitfinex/);
+  assert.equal(sent.length, 0);
+  await execute(start); // the second try asks Bitfinex from 6 s later and gets a late-enough trade
+  assert.deepEqual(asked, [NOW - 10, NOW - 4]);
+  assert.equal(sent.length, 1);
 });
