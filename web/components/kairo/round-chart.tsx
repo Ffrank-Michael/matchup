@@ -24,6 +24,7 @@ export function RoundChart({
   startPrice,
   endPrice,
   myCall,
+  formatValue = formatUsd,
   className,
 }: {
   /** The round's lock and end, in ms */
@@ -39,6 +40,8 @@ export function RoundChart({
   endPrice: number | null;
   /** The viewer's call in this round, drawn as a tag on the start line */
   myCall: { side: "UP" | "DOWN"; label: string } | null;
+  /** How a price is written on the start and end lines (dollars by default; "0.0339 BTC" for coin vs coin) */
+  formatValue?: (value: number) => string;
   className?: string;
 }) {
   const uid = React.useId().replace(/:/g, "");
@@ -242,7 +245,7 @@ export function RoundChart({
               opacity={0.75}
               className="font-mono"
             >
-              start {formatUsd(startPrice)}
+              start {formatValue(startPrice)}
             </text>
           </>
         ) : null}
@@ -310,7 +313,7 @@ export function RoundChart({
               fill="currentColor"
               className="font-mono"
             >
-              end {formatUsd(endPrice)}
+              end {formatValue(endPrice)}
             </text>
           </g>
         ) : null}

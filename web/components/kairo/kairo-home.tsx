@@ -9,9 +9,10 @@ import { rememberBacked } from "@/lib/backed";
 import {
   COINS,
   DEFAULT_FRAME,
+  FRAMES_OF,
+  LIVE_MATCHUPS,
   marketFor,
   secondsToNextLock,
-  TIME_FRAMES,
   type MarketKey,
 } from "@/lib/markets";
 import { hourPoints, lastPrice, usePriceFeed } from "@/lib/price-feed";
@@ -134,7 +135,7 @@ export function KairoHome() {
     runningRound?.lockTimeSec ?? null,
     now,
     runningRound && runningRound.startPrice !== null
-      ? runningRound.startPrice / 1e8
+      ? runningRound.startPrice / 10 ** market.decimals // 8 decimals for a coin, 18 for coin vs coin
       : null,
   );
   // The money on the round that can be called now (the contract's next round).
@@ -201,6 +202,34 @@ export function KairoHome() {
             })}
           </div>
 
+          {/* 1b. Coin vs coin (ETH vs BTC, SOL vs BTC): only when the deployment has such markets. 1-hour rounds only. */}
+          {LIVE_MATCHUPS.length ? (
+            <div role="group" aria-label="Coin vs coin markets" className="flex flex-col gap-1.5">
+              <p className="px-1 text-[12px] font-semibold text-muted-foreground">
+                Coin vs coin · which coin does better over the hour · prices relayed from Bitfinex
+              </p>
+              <div className="grid grid-cols-2 gap-2 lg:gap-3">
+                {LIVE_MATCHUPS.map((p, i) => {
+                  const m = marketFor(p.key, frame);
+                  return (
+                    <MarketCard
+                      key={p.key}
+                      market={m}
+                      price={priceOf(p.key)}
+                      points={pointsOf(p.key)}
+                      nowMs={nowMs}
+                      feedFailed={feedFailed}
+                      selected={p.key === selected}
+                      onSelect={() => setSelected(p.key)}
+                      onOpenChart={() => setChartOpen(true)}
+                      index={COINS.length + i}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           {/* 2 to 6. The same tiles on phone and laptop, only arranged differently.
             Phone: one column in this order: agents, your call, live calls, your calls, leaderboard (the order classes).
             Laptop: two independent columns, each from the top at its natural height (nothing stretches, nothing sticks):
@@ -233,7 +262,7 @@ export function KairoHome() {
             </div>
             <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-3">
             <YourCall
-              frames={TIME_FRAMES}
+              frames={FRAMES_OF[market.key]}
               frame={market.roundSeconds}
               onFrame={setFrame}
               market={market}

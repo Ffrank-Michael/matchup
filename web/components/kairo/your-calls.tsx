@@ -191,7 +191,7 @@ export function YourCalls({
                           color: INK,
                         }}
                       >
-                        {side === "UP" ? "▲ UP" : "▼ DOWN"}
+                        {side === "UP" ? `▲ ${market?.sides.UP ?? "UP"}` : `▼ ${market?.sides.DOWN ?? "DOWN"}`}
                       </span>
                       <span className="font-mono tabular-nums">
                         {usdc(mine)}

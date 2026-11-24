@@ -1,6 +1,6 @@
 "use client";
 
-import { formatUsd, type MarketKey } from "@/lib/markets";
+import { formatPrice, isMatchupKey, MARKETS, type MarketKey } from "@/lib/markets";
 import { useTradeTime } from "@/lib/use-trade-time";
 import { txLink, type PricePush } from "@/onchain";
 
@@ -13,14 +13,22 @@ const clock = (unixSec: number) => new Date(unixSec * 1000).toLocaleTimeString([
  * round result card; without it (inside that card) it is "View on blockchain" and goes to the transaction that recorded the
  * price. It also shows when the price landed on the chain and the time of the Bitfinex trade behind it.
  */
+/** A recorded price written the way its market writes prices (dollars, or "0.0339 BTC" for coin vs coin). */
+const byMarket = (marketId: number, v: number) => {
+  const m = MARKETS.find((x) => x.id === marketId);
+  return m ? formatPrice(m, v) : formatPrice({ kind: "coin", key: "BTC" }, v);
+};
+const kindOf = (key: MarketKey) => ({ key, kind: isMatchupKey(key) ? ("ratio" as const) : ("coin" as const) });
+
 export function PriceProof({ coin, price, push, detail = true, round }: { coin: MarketKey; price: number | null; push: PricePush | null; detail?: boolean; round?: RoundRef }) {
   const openCard = useOpenRoundCard();
-  const tradeAt = useTradeTime(coin, push ? push.price : null, push ? push.time : null);
+  // a coin-vs-coin price is made of two trades, so there is no single trade time to look up (the runner's price log has both)
+  const tradeAt = useTradeTime(isMatchupKey(coin) ? null : coin, push ? push.price : null, push ? push.time : null);
   if (price === null) return <span className="text-muted-foreground">…</span>;
   return (
     <span className="inline-flex flex-col items-end">
       <span className="font-mono tabular-nums">
-        {formatUsd(price)}
+        {formatPrice(kindOf(coin), price)}
         {push ? (
           <>
             {" "}
@@ -55,11 +63,11 @@ export function StartEnd({ start, end, round, className }: { start: number | nul
   return (
     <span className={className}>
       <span className="whitespace-nowrap">
-        Start <span className="font-mono tabular-nums text-foreground">{start !== null ? formatUsd(start) : "…"}</span>
+        Start <span className="font-mono tabular-nums text-foreground">{start !== null ? byMarket(round.marketId, start) : "…"}</span>
       </span>{" "}
       <span aria-hidden>→</span>{" "}
       <span className="whitespace-nowrap">
-        End <span className="font-mono tabular-nums text-foreground">{end !== null ? formatUsd(end) : "…"}</span>
+        End <span className="font-mono tabular-nums text-foreground">{end !== null ? byMarket(round.marketId, end) : "…"}</span>
       </span>
       {openCard ? (
         <>

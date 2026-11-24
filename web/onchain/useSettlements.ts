@@ -16,6 +16,7 @@ import { ARENA_ADDRESSES } from "./addresses";
 import { NETWORK } from "./env";
 import { addressTopic, explorerLogs, numberTopic } from "./explorerLogs";
 import { CALL_PLACED, CLAIMED, PRICE_RELAYED, ROUND_SETTLED, settlementKey, useChainLog, type ChainLog, type PricePush, type Settlement } from "./useChainLog";
+import { chainPrice, feedDecimals } from "@/lib/markets";
 
 export type { PricePush, Settlement } from "./useChainLog";
 export { pushKey, settlementKey } from "./useChainLog";
@@ -45,7 +46,7 @@ export function useSettlementFor(marketId: number | null, roundIndex: number | n
       if (!logs.length) return null;
       const l = logs[logs.length - 1];
       const [state, startRoundId, endRoundId, sp, ep, reason] = decodeAbiParameters(parseAbiParameters("uint8,uint80,uint80,int256,int256,uint8"), l.data);
-      return { marketId, roundIndex, state, startRoundId, endRoundId, startPrice: sp > 0n ? Number(sp) / 1e8 : null, endPrice: ep > 0n ? Number(ep) / 1e8 : null, reason, tx: l.txHash };
+      return { marketId, roundIndex, state, startRoundId, endRoundId, startPrice: sp > 0n ? chainPrice(marketId, sp) : null, endPrice: ep > 0n ? chainPrice(marketId, ep) : null, reason, tx: l.txHash }; // 18 decimals for coin vs coin
     },
     enabled: !!arena && key !== null && log !== null && inLog === null,
     staleTime: 60_000,
@@ -64,7 +65,7 @@ export function usePricePush(feed: string | null, roundId: bigint | null, recent
       const logs = await explorerLogs({ address: feed as string, topics: [PRICE_RELAYED, numberTopic(roundId as bigint)], fromBlock: 0 });
       if (!logs.length) return null;
       const [answer, , updatedAt] = decodeAbiParameters(parseAbiParameters("int256,int256,uint256"), logs[0].data);
-      return { roundId: roundId as bigint, price: Number(answer) / 1e8, time: Number(updatedAt), tx: logs[0].txHash };
+      return { roundId: roundId as bigint, price: Number(answer) / 10 ** feedDecimals(feed as string), time: Number(updatedAt), tx: logs[0].txHash };
     },
     enabled: key !== null && recent !== null && inLog === null,
     staleTime: Infinity,

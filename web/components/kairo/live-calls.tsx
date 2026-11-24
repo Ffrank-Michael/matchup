@@ -69,7 +69,7 @@ export function LiveCalls({
 
   return (
     <Tile
-      title={`Live calls · ${market.name}`}
+      title={`Live calls · ${market.kind === "ratio" ? `${market.label} ${market.name.split(" ")[1] ?? ""}`.trim() : market.name}`}
       index={index}
       className={className}
     >
@@ -193,7 +193,7 @@ export function LiveCalls({
                                 color: INK,
                               }}
                             >
-                              {c.side === "UP" ? "▲ UP" : "▼ DOWN"}
+                              {c.side === "UP" ? `▲ ${market.sides.UP}` : `▼ ${market.sides.DOWN}`}
                             </span>
                             <span className="font-mono tabular-nums">
                               {usdc(c.amount)}

@@ -1,4 +1,4 @@
-import { formatUsd, type Market } from "@/lib/markets";
+import { formatPrice, type Market } from "@/lib/markets";
 import { HOUR, type Point } from "@/lib/price-feed";
 import { cn } from "@/lib/utils";
 
@@ -85,12 +85,12 @@ export function MarketCard({
         )}
       >
         <span className="flex items-baseline gap-2">
-          <span className="text-[13px] font-semibold tracking-tight lg:text-[15px]">{market.key}</span>
+          <span className="text-[13px] font-semibold tracking-tight lg:text-[15px]">{market.label}</span>
           <span className="hidden text-[12px] text-muted-foreground lg:inline">{market.pair}</span>
         </span>
 
         <span className="mt-1.5 block min-w-0 truncate font-mono text-[13px] font-semibold leading-none tracking-[-0.04em] tabular-nums sm:text-[17px] lg:mt-3 lg:text-[30px]">
-          {price !== null ? formatUsd(price) : feedFailed ? <span className="text-[11px] font-medium tracking-normal text-muted-foreground lg:text-[14px]">unavailable</span> : <span className="text-muted-foreground">…</span>}
+          {price !== null ? formatPrice(market, price) : feedFailed ? <span className="text-[11px] font-medium tracking-normal text-muted-foreground lg:text-[14px]">unavailable</span> : <span className="text-muted-foreground">…</span>}
         </span>
 
         <span className="mt-2 block lg:mt-3">{spark}</span>

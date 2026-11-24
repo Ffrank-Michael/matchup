@@ -2,7 +2,8 @@
 
 import * as React from "react";
 
-import { COINS, type MarketKey } from "@/lib/markets";
+import { COINS, MATCHUPS, type CoinKey, type MarketKey } from "@/lib/markets";
+import { ratioCandles } from "@/lib/ratio";
 
 // The ONE source of prices on the site: Bitfinex's free public websocket (no key).
 //   wss://api-pub.bitfinex.com/ws/2   channel "candles", key "trade:1m:tBTCUSD" (and ETH, SOL)
@@ -29,17 +30,25 @@ export type FeedStatus = "connecting" | "live" | "reconnecting";
 
 export type FeedState = {
   status: FeedStatus;
-  /** 1-minute candles per market, oldest first. null until Bitfinex has sent them. */
+  /** 1-minute candles per market, oldest first. null until Bitfinex has sent them. The coin-vs-coin pairs (ETHBTC, SOLBTC) are
+   *  worked out from the two coins' own candles (see ratioCandles), so they need no channel of their own. */
   candles: Record<MarketKey, Candle[] | null>;
 };
 
 const URL = "wss://api-pub.bitfinex.com/ws/2";
-const SYMBOL: Record<MarketKey, string> = { BTC: "tBTCUSD", ETH: "tETHUSD", SOL: "tSOLUSD" };
+const SYMBOL: Record<CoinKey, string> = { BTC: "tBTCUSD", ETH: "tETHUSD", SOL: "tSOLUSD" };
 const KEEP = 240;
 const SILENT_MS = 25_000; // Bitfinex sends a heartbeat every ~15 s; longer silence means a dead connection
 const STOP_DELAY_MS = 3_000; // keep the connection a moment after the last listener leaves (page changes, StrictMode)
 
-const EMPTY: FeedState = { status: "connecting", candles: { BTC: null, ETH: null, SOL: null } };
+const EMPTY: FeedState = { status: "connecting", candles: { BTC: null, ETH: null, SOL: null, ETHBTC: null, SOLBTC: null } };
+
+/** The coins' candles plus every coin-vs-coin pair worked out from them. */
+function withPairs(coins: Record<MarketKey, Candle[] | null>): Record<MarketKey, Candle[] | null> {
+  const out = { ...coins };
+  for (const p of MATCHUPS) out[p.key] = ratioCandles(coins[p.a], coins[p.b]);
+  return out;
+}
 
 let state: FeedState = EMPTY;
 const listeners = new Set<() => void>();
@@ -52,7 +61,7 @@ let watchdog: ReturnType<typeof setInterval> | undefined;
 let stopTimer: ReturnType<typeof setTimeout> | undefined;
 
 function set(next: FeedState) {
-  state = next;
+  state = { ...next, candles: withPairs(next.candles) };
   listeners.forEach((l) => l());
 }
 
@@ -68,7 +77,7 @@ function connect() {
   if (!running) return;
   const socket = new WebSocket(URL);
   ws = socket;
-  const channels = new Map<number, MarketKey>();
+  const channels = new Map<number, CoinKey>();
 
   socket.onopen = () => {
     lastMessageAt = Date.now();

@@ -3,7 +3,9 @@
 import * as React from "react";
 
 import {
+  chainPrice,
   formatCountdown,
+  formatPrice,
   formatUsd,
   frameWords,
   MARKETS,
@@ -52,17 +54,19 @@ const clock = (unixSec: number) =>
     minute: "2-digit",
     hour12: false,
   });
-const price8 = (raw: number | null) => (raw === null ? null : raw / 1e8);
+/** A price the contract recorded, with the market's own decimals (8 for a coin, 18 for coin vs coin). */
+const chainPriceOf = (market: Market | undefined, raw: number | null) => (raw === null ? null : market ? chainPrice(market.id, raw) : raw / 1e8);
 const sideColour = (side: "UP" | "DOWN") =>
   side === "UP" ? "var(--color-up)" : "var(--color-down)";
 
-function SidePill({ side }: { side: "UP" | "DOWN" }) {
+/** A side as a coloured pill. words: the market's own names for the sides ("ETH wins" / "BTC wins" for coin vs coin). */
+function SidePill({ side, words }: { side: "UP" | "DOWN"; words?: { UP: string; DOWN: string } }) {
   return (
     <span
       className="rounded-full px-2.5 py-0.5 text-[12px] font-bold"
       style={{ background: sideColour(side), color: INK }}
     >
-      {side === "UP" ? "▲ UP" : "▼ DOWN"}
+      {side === "UP" ? `▲ ${words?.UP ?? "UP"}` : `▼ ${words?.DOWN ?? "DOWN"}`}
     </span>
   );
 }
@@ -260,9 +264,10 @@ export function WatchSheet({
     market?.key ?? null,
     lock,
     nowSec,
-    price8(round?.startPrice ?? null),
+    chainPriceOf(market, round?.startPrice ?? null),
   );
-  const endPrice = price8(round?.endPrice ?? null);
+  const endPrice = chainPriceOf(market, round?.endPrice ?? null);
+  const fmt = (v: number) => (market ? formatPrice(market, v) : formatUsd(v));
   // what the chain recorded: the prices (with the transactions that recorded them) and, for a refund, the reason
   const { settlement } = useSettlementFor(
     open && w ? w.marketId : null,
@@ -363,7 +368,7 @@ export function WatchSheet({
     setDrag(null);
   };
 
-  const myLabel = mySide ? `Your call: ${mySide} ${usdc(myAmount)}` : null;
+  const myLabel = mySide ? `Your call: ${market ? market.sides[mySide] : mySide} ${usdc(myAmount)}` : null;
   const frame = market ? frameWords(market.roundSeconds) : "";
 
   return (
@@ -502,12 +507,12 @@ export function WatchSheet({
                   <p className="text-[13px] font-semibold opacity-80">
                     {refunded
                       ? `Round refunded · ${refundReasonText(settlement?.reason)}`
-                      : `Ended ${winner}${mySide ? (won ? " ✓" : "") : ""}`}
+                      : `Ended ${winner && market ? market.sides[winner] : winner}${mySide ? (won ? " ✓" : "") : ""}`}
                   </p>
                   <p className="mt-1 text-[28px] font-bold leading-tight tracking-[-0.03em]">
                     {mySide === null
                       ? settled
-                        ? `Start ${formatUsd(startPrice ?? 0)} → End ${formatUsd(endPrice ?? 0)}`
+                        ? `Start ${fmt(startPrice ?? 0)} → End ${fmt(endPrice ?? 0)}`
                         : "No one's money was lost"
                       : refunded
                         ? `You get your ${usdc(myAmount)} back`
@@ -519,8 +524,8 @@ export function WatchSheet({
                   </p>
                   {mySide !== null && settled ? (
                     <p className="mt-1 text-[13px] font-medium opacity-80">
-                      Start {formatUsd(startPrice ?? 0)} → End{" "}
-                      {formatUsd(endPrice ?? 0)}
+                      Start {fmt(startPrice ?? 0)} → End{" "}
+                      {fmt(endPrice ?? 0)}
                     </p>
                   ) : null}
                 </div>
@@ -536,7 +541,7 @@ export function WatchSheet({
                   </p>
                   <p className="mt-2 text-[13px] text-muted-foreground">
                     {mySide
-                      ? `You called ${mySide} for this round. The chart starts when it does.`
+                      ? `You called ${market ? market.sides[mySide] : mySide} for this round. The chart starts when it does.`
                       : "The chart starts when the round does."}
                   </p>
                 </div>
@@ -609,6 +614,7 @@ export function WatchSheet({
                       )}
                       startPrice={startPrice}
                       endPrice={endPrice}
+                      formatValue={fmt}
                       myCall={
                         mySide && myLabel
                           ? { side: mySide, label: myLabel }
@@ -643,7 +649,7 @@ export function WatchSheet({
                   <Row label="Time frame">{frame}</Row>
                   <Row label="Your call">
                     <span className="inline-flex items-center gap-2">
-                      <SidePill side={mySide} /> {usdc(myAmount)}
+                      <SidePill side={mySide} words={market?.sides} /> {usdc(myAmount)}
                     </span>
                   </Row>
                   {backedAgent ? (
@@ -665,7 +671,7 @@ export function WatchSheet({
                         }}
                       />
                     ) : startPrice !== null ? (
-                      formatUsd(startPrice)
+                      fmt(startPrice)
                     ) : before ? (
                       "At the start of the round"
                     ) : (
@@ -690,7 +696,7 @@ export function WatchSheet({
                         }}
                       />
                     ) : shownPrice !== null ? (
-                      formatUsd(shownPrice)
+                      fmt(shownPrice)
                     ) : (
                       "…"
                     )}
@@ -892,7 +898,7 @@ export function WatchSheet({
                           </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-2">
-                          <SidePill side={p.side} />
+                          <SidePill side={p.side} words={market?.sides} />
                           <span className="w-16 text-right font-mono tabular-nums">
                             {usdc(p.amount)}
                           </span>

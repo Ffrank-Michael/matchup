@@ -17,6 +17,7 @@ import { MARKETS } from "@/lib/markets";
 
 import { ARENA_ADDRESSES } from "./addresses";
 import { NETWORK } from "./env";
+import { chainPrice, feedDecimals } from "@/lib/markets";
 
 const GRID = 4_000;
 const CHUNKS = 3;
@@ -122,12 +123,12 @@ export function useChainLog(): ChainLog | null {
         const block = Number(l.blockNumber);
         if (t0 === ROUND_SETTLED) {
           const [state, startRoundId, endRoundId, sp, ep, reason] = decodeAbiParameters(parseAbiParameters("uint8,uint80,uint80,int256,int256,uint8"), l.data);
-          const s: Settlement = { marketId: topicNum(l.topics[1]), roundIndex: topicNum(l.topics[2]), state, startRoundId, endRoundId, startPrice: sp > 0n ? Number(sp) / 1e8 : null, endPrice: ep > 0n ? Number(ep) / 1e8 : null, reason, tx };
+          const s: Settlement = { marketId: topicNum(l.topics[1]), roundIndex: topicNum(l.topics[2]), state, startRoundId, endRoundId, startPrice: sp > 0n ? chainPrice(topicNum(l.topics[1]), sp) : null, endPrice: ep > 0n ? chainPrice(topicNum(l.topics[1]), ep) : null, reason, tx }; // 18 decimals for coin vs coin
           out.settlements.set(settlementKey(s.marketId, s.roundIndex), s);
         } else if (t0 === PRICE_RELAYED) {
           const [answer, , updatedAt] = decodeAbiParameters(parseAbiParameters("int256,int256,uint256"), l.data);
           const roundId = BigInt(l.topics[1] as string);
-          out.pushes.set(pushKey(l.address, roundId), { roundId, price: Number(answer) / 1e8, time: Number(updatedAt), tx });
+          out.pushes.set(pushKey(l.address, roundId), { roundId, price: Number(answer) / 10 ** feedDecimals(l.address), time: Number(updatedAt), tx });
         } else if (t0 === CALL_PLACED) {
           const [up, amount] = decodeAbiParameters(parseAbiParameters("bool,uint256"), l.data);
           out.calls.push({ marketId: topicNum(l.topics[1]), roundIndex: topicNum(l.topics[2]), player: topicAddr(l.topics[3]), side: up ? "UP" : "DOWN", amount, tx, block });

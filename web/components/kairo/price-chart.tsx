@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { formatUsd, type Market } from "@/lib/markets";
+import { formatPrice, type Market } from "@/lib/markets";
 import { HOUR, type Candle, type Point } from "@/lib/price-feed";
 import { cn } from "@/lib/utils";
 import { WINNING_TEXT, winningSide } from "@/lib/winning";
@@ -55,7 +55,7 @@ export function PriceChart({
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
         <div>
           <p className="font-mono text-[26px] font-semibold leading-none tracking-[-0.03em] tabular-nums">
-            {hover ? formatUsd(hover.price) : price !== null ? formatUsd(price) : <span className="text-muted-foreground">{feedFailed ? "price unavailable" : "…"}</span>}
+            {hover ? formatPrice(market, hover.price) : price !== null ? formatPrice(market, price) : <span className="text-muted-foreground">{feedFailed ? "price unavailable" : "…"}</span>}
           </p>
           <p className="mt-1.5 font-mono text-[11px] text-muted-foreground" aria-live="polite">
             {hover ? new Date(hover.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: showCandles ? undefined : "2-digit" }) : ready ? "Bitfinex last trade · last hour" : " "}
@@ -94,7 +94,7 @@ export function PriceChart({
         <span className="flex items-center gap-2">
           <span className="h-0 w-5 border-t-2 border-dashed border-muted-foreground" aria-hidden />
           Start price
-          {startPrice !== null ? <span className="font-mono text-foreground">{formatUsd(startPrice)}</span> : <span className="text-[11px]">after the round starts</span>}
+          {startPrice !== null ? <span className="font-mono text-foreground">{formatPrice(market, startPrice)}</span> : <span className="text-[11px]">after the round starts</span>}
         </span>
       </div>
 

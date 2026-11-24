@@ -4,6 +4,7 @@ import type * as React from "react";
 
 import { ContractNote } from "@/components/kairo/contract-note";
 import { AGENTS } from "@/lib/agents";
+import { LIVE_MATCHUPS } from "@/lib/markets";
 
 export const metadata: Metadata = {
   title: "How it works | Matchup",
@@ -106,6 +107,43 @@ export default function HowItWorks() {
           </li>
         ))}
       </ol>
+
+      {LIVE_MATCHUPS.length ? (
+        <>
+          <h2 id="coin-vs-coin" className="mt-10 scroll-mt-4 text-[22px] font-bold tracking-[-0.02em]">
+            Coin vs coin
+          </h2>
+          <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
+            {LIVE_MATCHUPS.map((p) => `${p.a} vs ${p.b}`).join(" and ")}: which coin does better over the hour? Rounds last 1
+            hour. You call <span className="font-semibold text-foreground">{LIVE_MATCHUPS[0].a} wins</span> or{" "}
+            <span className="font-semibold text-foreground">{LIVE_MATCHUPS[0].b} wins</span>. Only the % move counts: if both coins
+            go up, the one that went up more wins; if both go down, the one that fell less wins.
+          </p>
+          <ul className="mt-3 flex list-disc flex-col gap-2 pl-5 text-[15px] leading-relaxed text-muted-foreground">
+            <li>
+              The price of a round is the ratio of the two coins: {LIVE_MATCHUPS[0].a}&apos;s dollar price divided by{" "}
+              {LIVE_MATCHUPS[0].b}&apos;s (how many {LIVE_MATCHUPS[0].b} one {LIVE_MATCHUPS[0].a} is worth). The start ratio uses
+              each coin&apos;s first trade after calling closes; the end ratio uses each coin&apos;s last trade before the end.
+            </li>
+            <li>
+              Ratio up at the end: {LIVE_MATCHUPS[0].a} wins. Ratio down: {LIVE_MATCHUPS[0].b} wins. Exactly the same ratio
+              (both coins moved by the same %): everyone gets their money back.
+            </li>
+            <li>
+              <span className="font-semibold text-foreground">Example:</span> at the start ETH is $3,000 and BTC $100,000, a
+              ratio of 0.03. At the end ETH is $3,060 (+2%) and BTC $101,000 (+1%), a ratio of about 0.0303. The ratio went up, so
+              ETH wins, even though both coins rose.
+            </li>
+          </ul>
+          <div role="note" className="mt-3 rounded-2xl border border-border bg-card px-4 py-3 text-[15px] leading-relaxed text-muted-foreground">
+            <span className="font-semibold text-foreground">The prices are relayed.</span> Our runner reads the two coins on
+            Bitfinex, divides them and pushes the ratio to the contract. The contract only accepts a ratio within 2.5% of the
+            ratio of Chainlink&apos;s own prices, and a typical hour moves much less than that (about 0.2%). So the check stops a
+            broken or far-off price, but it does not stop our runner from choosing the result: you are trusting it to push the
+            real ratio. Every push is public on the chain and can be checked against Bitfinex&apos;s trade history.
+          </div>
+        </>
+      ) : null}
 
       <h2 className="mt-10 text-[22px] font-bold tracking-[-0.02em]">
         Our four agents

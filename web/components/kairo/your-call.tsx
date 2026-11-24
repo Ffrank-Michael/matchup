@@ -133,7 +133,7 @@ export function YourCall({
       : backing && !side
         ? `Waiting for ${backing.name}`
         : !side
-        ? "Pick UP or DOWN"
+        ? `Pick ${market.sides.UP} or ${market.sides.DOWN}`
         : amountRaw === null || parsed === null
           ? "Enter an amount"
           : !connected
@@ -143,16 +143,18 @@ export function YourCall({
               : backing
                 ? (
                     <>
-                      <span className="sm:hidden">{`Back ${backing.name} · ${side} · ${dollars(parsed)}`}</span>
-                      <span className="hidden sm:inline">{`Back ${backing.name} · ${side} on ${market.key} · ${frameWords(market.roundSeconds)} · ${dollars(parsed)}`}</span>
+                      <span className="sm:hidden">{`Back ${backing.name} · ${market.sides[side]} · ${dollars(parsed)}`}</span>
+                      <span className="hidden sm:inline">{`Back ${backing.name} · ${market.sides[side]} on ${market.label} · ${frameWords(market.roundSeconds)} · ${dollars(parsed)}`}</span>
                     </>
                   )
-                : `Call ${side} on ${market.key} · ${frameWords(market.roundSeconds)} · ${dollars(parsed)}`;
+                : market.kind === "ratio"
+                  ? `Call ${market.sides[side]} · ${market.label} · ${frameWords(market.roundSeconds)} · ${dollars(parsed)}`
+                  : `Call ${side} on ${market.key} · ${frameWords(market.roundSeconds)} · ${dollars(parsed)}`;
 
   return (
     <Tile
       id="your-call"
-      title={`Your call · ${market.pair}`}
+      title={`Your call · ${market.kind === "ratio" ? market.label : market.pair}`}
       accent
       action={
         <span className="rounded-full border px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider" style={{ borderColor: "color-mix(in oklch, black 35%, transparent)" }}>
@@ -208,12 +210,12 @@ export function YourCall({
         </div>
       </div>
 
-      {/* UP / DOWN */}
+      {/* UP / DOWN (coin vs coin: "ETH wins" / "BTC wins", which are UP / DOWN on the chain) */}
       <div role="group" aria-label="Your call" className="mt-4 grid grid-cols-2 gap-3">
         {(
           [
-            ["UP", "Higher", "var(--color-up)"],
-            ["DOWN", "Lower", "var(--color-down)"],
+            ["UP", market.kind === "ratio" ? `${market.sides.UP.replace(" wins", "")} does better` : "Higher than start price", "var(--color-up)"],
+            ["DOWN", market.kind === "ratio" ? `${market.sides.DOWN.replace(" wins", "")} does better` : "Lower than start price", "var(--color-down)"],
           ] as const
         ).map(([s, hint, colour]) => {
           const on = side === s;
@@ -232,8 +234,8 @@ export function YourCall({
               <span aria-hidden className="text-[20px] leading-none">
                 {s === "UP" ? "▲" : "▼"}
               </span>
-              {s}
-              <span className="text-[11px] font-medium opacity-70">{hint} than start price</span>
+              <span className={market.kind === "ratio" ? "text-[20px] sm:text-[22px]" : undefined}>{market.sides[s]}</span>
+              <span className="text-[11px] font-medium opacity-70">{hint}</span>
             </button>
           );
         })}
@@ -284,7 +286,7 @@ export function YourCall({
       {chain ? (
         <div className="mt-5 rounded-2xl px-3.5 py-3 text-[13px] leading-snug" style={{ background: "color-mix(in oklch, black 10%, transparent)" }}>
           <p className="font-mono font-semibold tabular-nums">
-            ▲ UP {usdc(chain.upTotal)} · ▼ DOWN {usdc(chain.downTotal)}
+            ▲ {market.sides.UP} {usdc(chain.upTotal)} · ▼ {market.sides.DOWN} {usdc(chain.downTotal)}
           </p>
           <p className="mt-1.5">
             {estimate?.kind === "refund" ? (
@@ -334,6 +336,8 @@ export function YourCall({
         </div>
       ) : null}
 
+      {market.kind === "ratio" ? <RatioNotice market={market} /> : null}
+
       {/* the rule, in one line */}
       <p className="mt-4 text-center text-[11px] leading-snug opacity-80">
         2% fee on the matched money · Money back if no one is on the other side ·{" "}
@@ -342,5 +346,25 @@ export function YourCall({
         </Link>
       </p>
     </Tile>
+  );
+}
+
+/**
+ * Coin vs coin, said plainly next to the buttons: what wins, and that the prices are relayed (the trust the market rests on).
+ * The same words are on the How it works page.
+ */
+function RatioNotice({ market }: { market: Market }) {
+  const [a, b] = market.pair.split("/");
+  return (
+    <div role="note" className="mt-4 rounded-2xl border-2 px-3.5 py-3 text-[12px] leading-snug" style={{ borderColor: "color-mix(in oklch, black 30%, transparent)" }}>
+      <p className="font-semibold">
+        {a} wins if {a}&apos;s % move over the hour beats {b}&apos;s. Both can go up or down: only which one does better counts.
+      </p>
+      <p className="mt-1.5">
+        <span className="font-semibold">The prices are relayed.</span> Our runner pushes the {a}/{b} ratio from Bitfinex trades to the
+        chain. The contract only checks it is within 2.5% of Chainlink&apos;s own ratio, and a typical hour moves far less than that,
+        so you are trusting the runner to push the real ratio. Every push is public and can be checked against Bitfinex.
+      </p>
+    </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { formatUsd, frameWords, MARKETS } from "@/lib/markets";
+import { formatPrice, frameWords, MARKETS } from "@/lib/markets";
 import { useBackedAgents } from "@/lib/backed";
 import { whoIs, whoName } from "@/lib/players";
 import { oneSidedNote } from "@/lib/one-sided";
@@ -34,13 +34,14 @@ const clock = (unixSec: number) =>
 const sideColour = (side: "UP" | "DOWN") =>
   side === "UP" ? "var(--color-up)" : "var(--color-down)";
 
-function SidePill({ side }: { side: "UP" | "DOWN" }) {
+/** A side as a coloured pill. words: the market's own names for the sides ("ETH wins" / "BTC wins" for coin vs coin). */
+function SidePill({ side, words }: { side: "UP" | "DOWN"; words?: { UP: string; DOWN: string } }) {
   return (
     <span
       className="rounded-full px-2.5 py-0.5 text-[12px] font-bold"
       style={{ background: sideColour(side), color: INK }}
     >
-      {side === "UP" ? "▲ UP" : "▼ DOWN"}
+      {side === "UP" ? `▲ ${words?.UP ?? "UP"}` : `▼ ${words?.DOWN ?? "DOWN"}`}
     </span>
   );
 }
@@ -286,7 +287,7 @@ function RoundCard({
               >
                 <p className="text-[13px] font-semibold opacity-80">
                   {winner
-                    ? `${winner} won`
+                    ? `${market?.sides[winner] ?? winner} won`
                     : refunded
                       ? `Refunded · ${refundReasonText(settlement?.reason)}`
                       : "Not settled yet"}
@@ -295,7 +296,7 @@ function RoundCard({
                   {settlement &&
                   (settlement.startPrice !== null ||
                     settlement.endPrice !== null)
-                    ? `Start ${settlement.startPrice !== null ? formatUsd(settlement.startPrice) : "none"} → End ${settlement.endPrice !== null ? formatUsd(settlement.endPrice) : "none"}`
+                    ? `Start ${settlement.startPrice !== null ? formatPrice(market, settlement.startPrice) : "none"} → End ${settlement.endPrice !== null ? formatPrice(market, settlement.endPrice) : "none"}`
                     : refunded
                       ? "No prices were recorded"
                       : "Prices are recorded when the round is settled"}
@@ -420,7 +421,7 @@ function RoundCard({
                           </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-2">
-                          <SidePill side={p.side} />
+                          <SidePill side={p.side} words={market?.sides} />
                           <span className="font-mono tabular-nums">
                             {usdc(p.amount)}
                           </span>
