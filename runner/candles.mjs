@@ -5,6 +5,26 @@
 // the three coins cost about six requests a minute. If Bitfinex fails this THROWS and the runner gives the agent no
 // candles; the chart reader then skips the round. It never makes numbers up.
 import { SYMBOLS } from './exchangePrices.mjs';
+import { isRatioPair, legsOf } from './pairs.mjs';
+
+/**
+ * Ratio candles (top / bottom, e.g. ETH/USD / BTC/USD) for the minutes in which BOTH coins traded. Open and close are exact
+ * (top open / bottom open, top close / bottom close). A minute's true high and low of the ratio are not known from two separate
+ * candles (the two highs need not happen at the same moment), so high and low are only the larger and smaller of open and
+ * close: a candle with no wicks, never an invented extreme.
+ */
+export function ratioCandles(top, bottom) {
+  const byTime = new Map(bottom.map((c) => [c.time, c]));
+  const out = [];
+  for (const t of top) {
+    const b = byTime.get(t.time);
+    if (!b || !(b.open > 0) || !(b.close > 0)) continue;
+    const open = t.open / b.open;
+    const close = t.close / b.close;
+    out.push({ time: t.time, open, close, high: Math.max(open, close), low: Math.min(open, close) });
+  }
+  return out;
+}
 
 const BASE = 'https://api-pub.bitfinex.com/v2/candles';
 const MINUTE_MS = 60_000;
@@ -12,8 +32,15 @@ const MINUTE_MS = 60_000;
 export function createCandles({ fetchFn = fetch, nowMs = Date.now, ttlMs = 30_000, count = 120 } = {}) {
   const cache = {}; // pair -> { at, candles }
 
-  /** The last `count` finished 1-minute candles of a coin ("BTC/USD"), oldest first: [{ time, open, close, high, low }]. */
+  /**
+   * The last `count` finished 1-minute candles of a coin ("BTC/USD"), oldest first: [{ time, open, close, high, low }].
+   * A coin-vs-coin pair ("ETH/BTC") gets ratio candles made from the two coins' own candles (see ratioCandles).
+   */
   async function get(pair, { force = false } = {}) {
+    if (isRatioPair(pair)) {
+      const [top, bottom] = legsOf(pair);
+      return ratioCandles(await get(top, { force }), await get(bottom, { force }));
+    }
     const hit = cache[pair];
     if (!force && hit && nowMs() - hit.at < ttlMs) return hit.candles;
     const symbol = SYMBOLS[pair];

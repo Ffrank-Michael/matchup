@@ -35,8 +35,9 @@ export function currentStreak(history) {
   return { side: last, length };
 }
 
+// A coin-vs-coin price (e.g. ETH/BTC about 0.034) is below 1: it keeps 5 significant digits, so a move stays visible.
 export const fmtPrice = (p) =>
-  p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  p < 1 ? String(Number(p.toPrecision(5))) : p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export const fmtUsdc = (units) => '$' + (units / UNITS).toFixed(2);
 

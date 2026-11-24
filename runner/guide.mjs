@@ -33,6 +33,7 @@ import { askGemini, buildGuidePrompt, guideSchema, parseGuide, coinShort, frameL
 import { lockTime } from './plan.mjs';
 import { readPriceLog } from './priceLog.mjs';
 import { SYMBOLS } from './exchangePrices.mjs';
+import { isRatioPair, legsOf, ratio18, toUsd8 } from './pairs.mjs';
 
 export const GUIDE_AGENTS = ['trend-follower', 'contrarian', 'chart-reader', 'coin-flipper'];
 export const GUIDE_AI_AGENTS = ['trend-follower', 'contrarian', 'chart-reader'];
@@ -352,9 +353,10 @@ export function createGuide({
     try {
       for (const e of chainPriceLog()) {
         const m = byId.get(e.marketId);
-        if (!m || !['start', 'end'].includes(e.kind) || !(e.priceUsd > 0)) continue;
+        const value = e.ratio ?? e.priceUsd; // a coin-vs-coin entry logs its ratio, a USD entry its dollar price
+        if (!m || !['start', 'end'].includes(e.kind) || !(value > 0)) continue;
         const lock = lockTime(m, e.round);
-        map.set(`${m.name.split(' ')[0]}:${e.kind === 'start' ? lock : lock + m.roundLength}:${e.kind}`, { usd: e.priceUsd, at: e.lastTradeAt ?? e.recordedAt, from: 'the runner\'s price log' });
+        map.set(`${m.name.split(' ')[0]}:${e.kind === 'start' ? lock : lock + m.roundLength}:${e.kind}`, { usd: value, at: e.lastTradeAt ?? e.recordedAt, from: 'the runner\'s price log' });
       }
     } catch { /* no price log yet */ }
     chainPrices.map = map;
@@ -369,6 +371,13 @@ export function createGuide({
     const key = `${coin}:${time}:${kind}`;
     const onChain = chainPriceMap().get(key);
     if (onChain) return onChain;
+    if (isRatioPair(coin)) { // a coin-vs-coin round is scored on the ratio of the two coins' own trades, the same rule as the runner
+      const [top, bottom] = legsOf(coin);
+      const a = await priceAt(top, time, kind);
+      const b = a ? await priceAt(bottom, time, kind) : null;
+      if (!a || !b) return null;
+      return { usd: Number(ratio18(toUsd8(a.usd), toUsd8(b.usd))) / 1e18, at: Math.max(a.at, b.at), from: a.from === b.from ? a.from : `${a.from} and ${b.from}` };
+    }
     if (fetched.has(key)) return fetched.get(key);
     if ((failedUntil.get(key) ?? 0) > now()) return null;
     const gap = lastFetch + cfg.fetchGapMs - now();

@@ -23,6 +23,7 @@ export const kindOf = (why) => KINDS[why] ?? why;
 
 /** Builds one log entry from a pushed price. All numbers come from the quote and the chain, none are made up. */
 export function makePriceLogEntry({ action, quote, txHash, blockNumber, blockTimestamp, feed, explorer, chainId, nowSec, label = 'TEST PRICES - NOT REAL DATA' }) {
+  const legs = Array.isArray(quote.legs) ? quote.legs : null;
   return {
     v: 1,
     label,
@@ -32,8 +33,11 @@ export function makePriceLogEntry({ action, quote, txHash, blockNumber, blockTim
     round: action.round,
     kind: kindOf(action.why),
     price: String(quote.price),
-    priceUsd: quote.usd,
-    decimals: 8,
+    // a coin-vs-coin market (e.g. ETH/BTC) logs its ratio and BOTH trades it was made from; a USD market logs its dollar price
+    ...(legs
+      ? { ratio: quote.usd, legs: legs.map((l) => ({ pair: l.pair, priceUsd: l.usd, price: String(l.price), lastTradeAt: l.tradeAt ?? null, sourceQuoteAt: l.quotedAt ?? null })) }
+      : { priceUsd: quote.usd }),
+    decimals: quote.decimals ?? 8,
     source: quote.source ?? 'Bitfinex',
     sourceQuoteAt: quote.quotedAt,
     lastTradeAt: quote.tradeAt ?? null, // when the trade that set this price happened (same source, same number the website shows)

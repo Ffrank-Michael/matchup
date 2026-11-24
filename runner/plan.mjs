@@ -29,6 +29,7 @@ import * as chartReader from '../agents/chartReader.mjs';
 import * as coinFlipper from '../agents/coinFlipper.mjs';
 import * as contrarian from '../agents/contrarian.mjs';
 import { findSettleIds } from './settleIds.mjs';
+import { pairOf, priceNumber } from './pairs.mjs';
 import { AI_AGENTS, MIN_CANDLES, COULDNT_DECIDE, candlesFor, frameLabel } from '../agents/ai.mjs';
 import { legalStake, fmtUsdc, opposite } from '../agents/lib.mjs';
 
@@ -76,7 +77,7 @@ function historyFor(m, cfg) {
     if (startId === 0n || endId <= startId) continue; // the feed did not move during that round
     const s = m.feed.updates.find((u) => u.id === startId);
     const e = m.feed.updates.find((u) => u.id === endId);
-    out.push({ startPrice: Number(s.price) / 1e8, endPrice: Number(e.price) / 1e8 });
+    out.push({ startPrice: priceNumber(s.price, pairOf(m.name)), endPrice: priceNumber(e.price, pairOf(m.name)) }); // a coin-vs-coin feed has 18 decimals
   }
   return out;
 }

@@ -11,6 +11,7 @@ import { getAddress, isAddress } from 'viem';
 import { ROOT, parseEnv } from '../scripts/lib.mjs';
 import { createExchangePrices } from './exchangePrices.mjs';
 import { appendPriceLog, makePriceLogEntry } from './priceLog.mjs';
+import { pairOf, priceText } from './pairs.mjs';
 
 export const MAINNET_CHAIN_ID = 5042;
 export const SEND_FLAG = '--i-understand-this-spends-real-usdc';
@@ -68,7 +69,6 @@ export function checkAgainstGuard({ price, guardAnswer, guardUpdatedAt, bandBps,
   return { ok: true, reason: '', deviationBps };
 }
 
-const usd = (p) => '$' + (Number(p) / 1e8).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const quoteText = (q) => (q.quotedAt ? `${q.source ?? 'exchange'} last trade at ${new Date((q.tradeAt ?? q.quotedAt) * 1000).toISOString().slice(11, 19)} UTC` : `${q.source ?? 'exchange'} quote`);
 
 export function describe(a) {
@@ -122,7 +122,8 @@ export function makeMainnetExecutor({ live, pub, wallet, arena, arenaAbi, relayA
       return { tx: hash };
     }
     const { q, guardAnswer, res } = await checkedQuote(a);
-    let note = `${quoteText(q)}: ${usd(q.price)}, Chainlink ${usd(guardAnswer)}, ${(res.deviationBps / 100).toFixed(2)}% apart (limit ${(await relayOf(a.feed)).bandBps / 100}%)`;
+    const pair = pairOf(a.marketName);
+    let note = `${quoteText(q)}: ${priceText(q.price, pair)}, Chainlink ${priceText(guardAnswer, pair)}, ${(res.deviationBps / 100).toFixed(2)}% apart (limit ${(await relayOf(a.feed)).bandBps / 100}%)`;
     if (!live) return { dryRun: true, note: `would push ${note}` };
     const { hash, rc } = await send(a.feed, relayAbi, 'setPrice', [q.price]);
     try { // the price is already on chain; a log problem must be loud but must not look like a failed push

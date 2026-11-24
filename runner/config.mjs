@@ -34,3 +34,9 @@ export const CFG = {
   tickSeconds: 10,       // how often the runner looks at the chain
   fastTickSeconds: 3,    // ... and this often while a start or end price is due (Bitfinex allows one request per 5 s per market; the price module enforces it)
 };
+
+// Coin-vs-coin markets (ETH vs BTC, SOL vs BTC): the pairs, their two USD markets and the 18-decimal ratio maths live in pairs.mjs.
+// They need no setting here: the runner finds their markets and relay feeds on the chain (market names "ETH/BTC 1h", "SOL/BTC 1h"),
+// asks Bitfinex for BOTH coins (each coin's own first trade at least startAfter seconds after the lock for the start price) and
+// divides them. The Bitfinex symbols are the USD ones in exchangePrices.mjs (SYMBOLS); there is no ETH/BTC symbol involved.
+export { RATIO_PAIRS } from './pairs.mjs';

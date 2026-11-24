@@ -7,6 +7,7 @@ import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-
 import { displayName } from '../agents/index.mjs';
 import { createExchangePrices } from './exchangePrices.mjs';
 import { appendPriceLog, makePriceLogEntry } from './priceLog.mjs';
+import { pairOf, isRatioPair, priceText } from './pairs.mjs';
 
 const usdcText = (u) => '$' + (u / 1e6).toFixed(2);
 
@@ -25,13 +26,26 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
   const arena = deployments.arena.arena.address;
   const agentWallets = Object.fromEntries(deployments.circle.agents.map((a) => [a.key, a.walletId]));
   prices ||= createExchangePrices();
-  const usd = (p) => '$' + (Number(p) / 1e8).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const quoteText = (q) => (q.quotedAt ? `${q.source ?? 'exchange'} last trade at ${new Date((q.tradeAt ?? q.quotedAt) * 1000).toISOString().slice(11, 19)} UTC, asked at ${new Date(q.quotedAt * 1000).toISOString().slice(11, 19)} UTC` : `${q.source ?? 'exchange'} quote (no time given)`);
+  const usd = (p, a) => priceText(p, pairOf(a.marketName));
+  const legsText = (q) => (q.legs ? `${q.legs.map((l) => `${l.pair} ${l.usd}`).join(' / ')}, ` : '');
+  const quoteText = (q) => (q.quotedAt ? `${legsText(q)}${q.source ?? 'exchange'} last trade at ${new Date((q.tradeAt ?? q.quotedAt) * 1000).toISOString().slice(11, 19)} UTC, asked at ${new Date(q.quotedAt * 1000).toISOString().slice(11, 19)} UTC` : `${q.source ?? 'exchange'} quote (no time given)`);
   // The feed to push to is the one the market uses (the planner reads it from the chain). In the testnet rehearsal each coin's
   // stand-in for Chainlink (deployments.arena.guards) is pushed the same price first, so the relay's guard never goes stale.
   const feedFor = (a) => a.feed ?? deployments.arena.feeds[['btc', 'eth', 'sol'][a.market]].address;
-  const standInFor = (a) => deployments.arena.guards?.[a.marketName.split(' ')[0].slice(0, 3).toLowerCase()]?.kind === 'test stand-in'
-    ? deployments.arena.guards[a.marketName.split(' ')[0].slice(0, 3).toLowerCase()].address : null;
+  // The stand-in of one USD market ("ETH/USD" -> the eth guard), or null when that coin's guard is real Chainlink.
+  const standInOf = (usdPair) => {
+    const g = deployments.arena.guards?.[usdPair.slice(0, 3).toLowerCase()];
+    return g?.kind === 'test stand-in' ? g.address : null;
+  };
+  // What to push to the stand-ins before the relay, as [address, 8-decimal price]. A USD market: its own coin's stand-in gets the
+  // same price. A coin-vs-coin market (ETH/BTC): BOTH coins' stand-ins get their own coin's price from the same quote, so the
+  // RatioGuard (which divides the two stand-ins) answers the very ratio being pushed. A stand-in never gets a ratio.
+  const standInPushes = (a, q) => {
+    const pair = pairOf(a.marketName);
+    if (isRatioPair(pair)) return (q.legs ?? []).map((l) => [standInOf(l.pair), BigInt(l.price)]).filter(([addr]) => addr);
+    const addr = standInOf(pair);
+    return addr ? [[addr, q.price]] : [];
+  };
 
   let circle;
   const circleClient = () => (circle ||= initiateDeveloperControlledWalletsClient({ apiKey: env.CIRCLE_API_KEY, entitySecret: env.CIRCLE_ENTITY_SECRET }));
@@ -66,16 +80,15 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
     if (!live) {
       if (a.type !== 'pushPrice') return { dryRun: true };
       const q = await prices.quote(a.marketName, { firstTradeAfter: a.firstTradeAfter });
-      return { dryRun: true, note: `would push the real price ${usd(q.price)}, ${quoteText(q)}, to the TEST feed` };
+      return { dryRun: true, note: `would push the real price ${usd(q.price, a)}, ${quoteText(q)}, to the TEST feed` };
     }
     switch (a.type) {
       case 'pushPrice': {
         const q = await prices.quote(a.marketName, { firstTradeAfter: a.firstTradeAfter }); // throws if the API fails or there is no trade after the lock yet: then nothing is pushed
         const feed = feedFor(a);
-        const standIn = standInFor(a);
-        if (standIn) await deployerSend(standIn, feedAbi, 'setPrice', [q.price]);
+        for (const [standIn, price] of standInPushes(a, q)) await deployerSend(standIn, feedAbi, 'setPrice', [price]);
         const { hash, rc } = await deployerSend(feed, relayAbi ?? feedAbi, 'setPrice', [q.price]);
-        let note = `real price ${usd(q.price)}, ${quoteText(q)}, pushed to the TEST feed`;
+        let note = `real price ${usd(q.price, a)}, ${quoteText(q)}, pushed to the TEST feed`;
         try { // the price is already on chain; a log problem must be loud but must not look like a failed push
           const block = await pub.getBlock({ blockNumber: rc.blockNumber });
           if (a.endsAt) { // prove the margin: how long before the round's end did the end price land on chain

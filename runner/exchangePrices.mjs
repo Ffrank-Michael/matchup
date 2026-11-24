@@ -18,6 +18,8 @@
 // If the API fails or looks wrong this THROWS. It never falls back to made-up numbers: the runner then
 // simply pushes nothing, which is what a real feed outage looks like (the contract refunds a round with
 // no usable update).
+import { pairOf, isRatioPair, legsOf, ratio18, toUsd8, RATIO_DECIMALS, USD_DECIMALS } from './pairs.mjs';
+
 export const SOURCE = 'Bitfinex';
 export const SYMBOLS = { 'BTC/USD': 'tBTCUSD', 'ETH/USD': 'tETHUSD', 'SOL/USD': 'tSOLUSD' };
 const BASE = 'https://api-pub.bitfinex.com/v2/trades';
@@ -77,33 +79,64 @@ export function createExchangePrices({
     return quote;
   }
 
+  /** One USD market's checked quote (8-decimal price). firstTradeAfter: use the oldest trade at or after that moment (the START price). */
+  async function usdQuote(pair, firstTradeAfter) {
+    let q;
+    if (firstTradeAfter !== undefined) {
+      q = await ask(pair, `limit=1&sort=1&start=${Math.floor(firstTradeAfter * 1000)}`);
+      if (!q) throw new Error(`no ${pair} trade on Bitfinex yet since ${new Date(firstTradeAfter * 1000).toISOString().slice(11, 19)} UTC; will try again`);
+      if (q.tradeAt < firstTradeAfter) throw new Error(`Bitfinex answered with a ${pair} trade from before the lock; will try again`);
+    } else {
+      q = await load(pair);
+    }
+    jumpCheck(pair, q.usd);
+    return { price: toUsd8(q.usd), decimals: USD_DECIMALS, ...q };
+  }
+
+  /** Refuses a price that moved more than maxJump from the last one handed out for that pair, then remembers it. */
+  function jumpCheck(pair, value) {
+    const before = lastPrice[pair];
+    if (before && Math.abs(value - before) / before > maxJump) {
+      throw new Error(`${pair} moved from ${before} to ${value} (over ${maxJump * 100}%): not trusting it`);
+    }
+    lastPrice[pair] = value;
+  }
+
+  /**
+   * A coin-vs-coin market ("ETH/BTC"): both coins are asked (for the START price each coin's own first trade at or after
+   * firstTradeAfter), and the price is top / bottom with 18 decimals, the same maths as the RatioGuard contract.
+   * Both trades are kept in `legs`, so the price log can show where the ratio came from.
+   */
+  async function ratioQuote(pair, firstTradeAfter) {
+    const [topPair, bottomPair] = legsOf(pair);
+    const top = await usdQuote(topPair, firstTradeAfter);
+    const bottom = await usdQuote(bottomPair, firstTradeAfter);
+    const price = ratio18(top.price, bottom.price);
+    const value = Number(price) / 10 ** RATIO_DECIMALS;
+    jumpCheck(pair, value);
+    const leg = (p, q) => ({ pair: p, usd: q.usd, price: String(q.price), tradeAt: q.tradeAt, quotedAt: q.quotedAt });
+    return {
+      price, usd: value, decimals: RATIO_DECIMALS, source: SOURCE,
+      quotedAt: Math.max(top.quotedAt, bottom.quotedAt),
+      tradeAt: Math.max(top.tradeAt, bottom.tradeAt), // the later of the two trades: the ratio exists from that moment
+      legs: [leg(topPair, top), leg(bottomPair, bottom)],
+    };
+  }
+
   return {
     /**
-     * Current real USD price for a market.
+     * Current real USD price for a market (or, for a coin-vs-coin market such as "ETH/BTC 1h", the ratio of two coins).
      * Returns { price (8-decimal BigInt, ready for the feed), usd, quotedAt (unix seconds, Bitfinex's clock),
      *           tradeAt (unix seconds of the trade the price comes from), source }.
      * firstTradeAfter (unix seconds, optional): use the OLDEST trade whose own time is at or after this moment
      * (the START price). Throws if there is none yet; the cache is not used and the 5 second limit still applies.
      */
     async quote(marketName, { firstTradeAfter } = {}) {
-      const pair = marketName.split(' ')[0]; // "BTC/USD 5m" and "BTC/USD 10m" are the same coin
-      let q;
-      if (firstTradeAfter !== undefined) {
-        q = await ask(pair, `limit=1&sort=1&start=${Math.floor(firstTradeAfter * 1000)}`);
-        if (!q) throw new Error(`no ${pair} trade on Bitfinex yet since ${new Date(firstTradeAfter * 1000).toISOString().slice(11, 19)} UTC; will try again`);
-        if (q.tradeAt < firstTradeAfter) throw new Error(`Bitfinex answered with a ${pair} trade from before the lock; will try again`);
-      } else {
-        q = await load(pair);
-      }
-      const before = lastPrice[pair];
-      if (before && Math.abs(q.usd - before) / before > maxJump) {
-        throw new Error(`${pair} moved from ${before} to ${q.usd} (over ${maxJump * 100}%): not trusting it`);
-      }
-      lastPrice[pair] = q.usd;
-      return { price: BigInt(Math.round(q.usd * 1e8)), ...q };
+      const pair = pairOf(marketName); // "BTC/USD 5m" and "BTC/USD 10m" are the same coin
+      return isRatioPair(pair) ? ratioQuote(pair, firstTradeAfter) : usdQuote(pair, firstTradeAfter);
     },
 
-    /** Same as quote(), but only the 8-decimal price. */
+    /** Same as quote(), but only the price (8 decimals, or 18 for a coin-vs-coin market). */
     async price(marketName, opts) {
       return (await this.quote(marketName, opts)).price;
     },

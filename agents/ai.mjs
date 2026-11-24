@@ -4,6 +4,8 @@
 //
 // Everything here is pure or takes its network function as an argument, so the tests never reach the internet.
 // The API key is sent in a header (never in the web address), and nothing in this file ever prints or returns it.
+import { isRatioPair, RATIO_PAIRS } from '../runner/pairs.mjs';
+
 export const AI_AGENTS = ['trend-follower', 'contrarian', 'chart-reader'];
 export const MIN_CANDLES = 10;     // fewer than this is a data outage: the agents cannot decide
 export const MIN_SENT = 30;        // at least this many one-minute candles go to the model
@@ -59,6 +61,7 @@ export function buildBatchPrompt(req) {
   const lines = candles.map((c) => `${utc(c.time)} ${num(c.open)} ${num(c.high ?? Math.max(c.open, c.close))} ${num(c.low ?? Math.min(c.open, c.close))} ${num(c.close)}`);
   const user = [
     `Coin: ${req.coin}. Current price: ${num(price)}.`,
+    ...ratioNote(req.coin),
     'Time frames to answer (the next round of each is about to take calls):',
     ...req.frames.map((f) => `- ${f.label}: rounds of ${Math.round(f.roundSeconds / 60)} minutes, calling closes in about ${Math.max(0, Math.round(f.secondsToLock))} seconds`),
     `Last ${candles.length} one-minute candles, oldest first, as "time(UTC) open high low close":`,
@@ -282,8 +285,22 @@ const GUIDE_SYSTEM = (agent) => [
   'Reply with JSON only: {"calls":[{"coin":"BTC","frame":"5m","call":"UP"|"DOWN","reason":"..."}, ...]} with exactly one entry for every coin and time frame asked, and nothing else.',
 ].join('\n');
 
-/** "BTC/USD" -> "BTC": how the model and the logs name a coin. */
-export const coinShort = (pair) => String(pair).split('/')[0];
+/** "BTC/USD" -> "BTC": how the model and the logs name a coin. A coin-vs-coin pair keeps its full name ("ETH/BTC"), so it never
+ *  collides with the coin on top of it ("ETH"). */
+export const coinShort = (pair) => (isRatioPair(String(pair)) ? String(pair) : String(pair).split('/')[0]);
+
+/**
+ * The extra lines a coin-vs-coin pair needs in a prompt: what the number is and what UP and DOWN mean there. Empty for a USD coin.
+ * The candles of a ratio have no wicks (high and low are the larger and smaller of open and close: runner/candles.mjs).
+ */
+export function ratioNote(pair) {
+  if (!isRatioPair(String(pair))) return [];
+  const { a, b } = RATIO_PAIRS[pair];
+  return [
+    `${pair} is not a dollar price: it is ${a}/USD divided by ${b}/USD, how many ${b} one ${a} is worth. UP means ${a} beats ${b} over the round (${a}'s % move is bigger than ${b}'s); DOWN means ${b} beats ${a}. Both coins can rise or fall together: only which one does better counts.`,
+    `The candles of ${pair} are made from the two coins' one-minute candles; their high and low are just the larger and smaller of open and close (no wicks).`,
+  ];
+}
 
 /** The model's words for a call must follow the site's wording: call, position, back an agent. */
 export function guideWording(text) {
@@ -307,6 +324,7 @@ export function buildGuidePrompt({ agent, coins }) {
     parts.push(
       '',
       `Coin: ${coinShort(c.coin)}. Current price: ${num(price)}.`,
+      ...ratioNote(c.coin),
       'Time frames to answer (the next round of each is about to take calls):',
       ...c.frames.map((f) => (f.opensIn > 0
         ? `- ${f.label}: the ${Math.round(f.roundSeconds / 60)}-minute round after the next one; calling opens in about ${Math.round(f.opensIn)} seconds and closes in about ${Math.max(0, Math.round(f.secondsToLock))} seconds`
