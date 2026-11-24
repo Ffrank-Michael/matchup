@@ -58,19 +58,29 @@ The last command asks "Are you sure you want to continue connecting?". Compare t
 git clone --branch matched-calls git@github.com:Ffrank-Michael/kairo-markets.git /home/ubuntu/arc-arena
 ```
 
-**6. Copy your settings file from your PC** (PowerShell on your PC, not on the server)
-```
-scp -i <KEY> C:\Users\Frank\Desktop\arc-arena\.env ubuntu@<SERVER_IP>:/home/ubuntu/arc-arena/.env
-```
-The file travels over SSH and never touches chat.
+**6. Make the server's settings file and copy it** (PowerShell on your PC, not on the server)
 
-**7. Lock it down and keep the deployer key off the server** (on the server)
+Never copy your PC's whole `.env`: it holds the mainnet owner key, which must not be on a server (`docs/RUNBOOK.md`, section 1).
+Make a server-only file instead. It holds only the names the runner needs and never the owner key; it prints names, never values:
+```
+node scripts/make-server-env.mjs
+ssh -i <KEY> ubuntu@<SERVER_IP> "umask 077 && touch /home/ubuntu/arc-arena/.env"
+scp -i <KEY> .env.server ubuntu@<SERVER_IP>:/home/ubuntu/arc-arena/.env
+del .env.server
+```
+The `ssh` line creates the target readable only by you before anything is copied into it. The file travels over SSH and never
+touches chat. Do the same every time you change a setting on the PC and copy it again.
+
+**7. Lock it down and check the owner key is not there** (on the server)
 ```
 chmod 600 /home/ubuntu/arc-arena/.env
-sed -i '/^[[:space:]]*MAINNET_DEPLOYER_PRIVATE_KEY[[:space:]]*=/d' /home/ubuntu/arc-arena/.env
 ls -l /home/ubuntu/arc-arena/.env
+grep -c MAINNET_DEPLOYER_PRIVATE_KEY /home/ubuntu/arc-arena/.env
 ```
-The listing must start with `-rw-------` and say `ubuntu ubuntu`. The `sed` line removes the mainnet deployer key if your file has one: the runner never reads it, so it should not sit on a server.
+The listing must start with `-rw-------` and say `ubuntu ubuntu`. The `grep` must print `0`. If it prints anything else, the
+owner key was copied: replace the file with one made by `make-server-env.mjs`, and treat the owner key as exposed (move
+ownership, `docs/RUNBOOK.md` section 1). The setup script below is not `READY` while it is there, and a live mainnet runner
+refuses to start next to it.
 
 **8. Run the setup script** (on the server; a few minutes, the `npm ci` part is slow on 1 GB)
 ```
@@ -127,7 +137,7 @@ sudo systemctl restart kairo-runner
 ```
 (`npm ci` only matters when `package-lock.json` changed; it is safe either way.)
 
-**Change a setting:** edit `/home/ubuntu/arc-arena/.env` (`nano`), keep it `chmod 600`, then `sudo systemctl restart kairo-runner`. Values go in without quotes.
+**Change a setting:** edit `/home/ubuntu/arc-arena/.env` (`nano`), keep it `chmod 600`, then `sudo systemctl restart kairo-runner`. Values go in without quotes. Never paste the mainnet owner key into it.
 
 **If the service will not start:** `systemctl status kairo-runner --no-pager` and `journalctl -u kairo-runner -n 50 --no-pager` say why. After 5 failed starts in 10 minutes systemd stops trying; fix the cause, then `sudo systemctl reset-failed kairo-runner` and start it again.
 

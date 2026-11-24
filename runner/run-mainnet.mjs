@@ -27,6 +27,7 @@ import { createCandles } from './candles.mjs';
 import { createGuide, freshCandles } from './guide.mjs';
 import { SEND_FLAG, MIN_RUNNER_BALANCE, readRunnerEnv, parseArgs, parseRunnerConfig, makeMainnetExecutor, describe, chainProblem, preflight } from './mainnet.mjs';
 import { createPusherWatch } from './pusherWatch.mjs';
+import { holdsOwnerKey, OWNER_KEY_NAME } from './ownerKey.mjs';
 import { notify } from './supervise.mjs';
 
 const stamp = () => new Date().toISOString().slice(11, 19);
@@ -38,7 +39,14 @@ if (argError) stop(argError);
 
 const envFile = path.join(ROOT, '.env');
 if (!fs.existsSync(envFile)) stop('No .env file. Copy .env.example to .env first.');
-const runnerEnv = readRunnerEnv(fs.readFileSync(envFile, 'utf8')); // only the names the runner may hold (mainnet.mjs)
+const envText = fs.readFileSync(envFile, 'utf8');
+// The owner key must never sit next to a live runner (docs/RUNBOOK.md, section 1). A dry run on the PC, where the deploy scripts need it, only warns.
+if (holdsOwnerKey(envText)) {
+  if (LIVE) stop(`this .env holds ${OWNER_KEY_NAME}, the mainnet owner key. A live runner must not run next to it: make the server file with node scripts/make-server-env.mjs (docs/MAINNET_AGENTS.md, step 6).`);
+  console.log('WARNING: this .env holds the mainnet owner key (fine on your PC for the deploy scripts; never on the server). The runner does not read it.');
+}
+const runnerEnv = readRunnerEnv(envText); // only the names the runner may hold (mainnet.mjs)
+
 const cfg = parseRunnerConfig(runnerEnv);
 if (cfg.problems.length) stop(cfg.problems.join('\n      '));
 

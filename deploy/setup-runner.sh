@@ -102,6 +102,8 @@ else
     if has "$name"; then ok "$name is set"; else warn "$name is missing in .env"; env_ok=0; fi
   done
   if has DEPLOYER_PRIVATE_KEY || has RUNNER_PRIVATE_KEY; then ok "a runner key is set"; else warn "neither DEPLOYER_PRIVATE_KEY nor RUNNER_PRIVATE_KEY is set in .env"; env_ok=0; fi
+  # The mainnet owner key must never be on the server (docs/RUNBOOK.md, section 1). Not READY while it is.
+  if has MAINNET_DEPLOYER_PRIVATE_KEY; then warn "MAINNET_DEPLOYER_PRIVATE_KEY (the mainnet OWNER key) is in .env: it must not be on a server. Make the file with node scripts/make-server-env.mjs on your PC and copy that instead (docs/MAINNET_AGENTS.md, step 6); treat the owner key as exposed (docs/RUNBOOK.md, section 1)"; env_ok=0; else ok "the mainnet owner key is not in .env"; fi
   for name in GEMINI_API_KEY UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN NTFY_TOPIC; do
     if has "$name"; then ok "$name is set"; else warn "$name is not set (the runner still works; see docs/MAINNET_AGENTS.md)"; fi
   done

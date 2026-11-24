@@ -8,6 +8,7 @@ import path from 'node:path';
 import { CFG } from './config.mjs';
 import { planTick, tickDelay } from './plan.mjs';
 import { runnerSpec } from './supervise.mjs';
+import { holdsOwnerKey } from './ownerKey.mjs';
 import { ROOT } from '../scripts/lib.mjs';
 import {
   SEND_FLAG, MAINNET_CHAIN_ID, RUNNER_ENV_NAMES, readRunnerEnv, parseArgs, parseRunnerConfig, checkAgainstGuard,
@@ -357,4 +358,15 @@ test('source: the mainnet runner never mentions a deployer key or the old key na
   const main = fs.readFileSync(path.join(ROOT, 'runner/run-mainnet.mjs'), 'utf8');
   assert.match(main, /const wallet = LIVE \? createWalletClient/);
   assert.equal((main.match(/createWalletClient\(/g) || []).length, 1);
+});
+
+test('holdsOwnerKey (P2-03): a value for the owner key is found; an empty placeholder, a comment or another name is not', () => {
+  assert.equal(holdsOwnerKey(`A=1
+MAINNET_DEPLOYER_PRIVATE_KEY=${DEPLOYER_KEY}
+`), true);
+  assert.equal(holdsOwnerKey(`A=1\r\n  MAINNET_DEPLOYER_PRIVATE_KEY = "${DEPLOYER_KEY}"\r\n`), true);
+  assert.equal(holdsOwnerKey('MAINNET_DEPLOYER_PRIVATE_KEY=\nA=1'), false);
+  assert.equal(holdsOwnerKey('# MAINNET_DEPLOYER_PRIVATE_KEY=0xabc'), false);
+  assert.equal(holdsOwnerKey(`MAINNET_RUNNER_PRIVATE_KEY=${KEY}
+DEPLOYER_PRIVATE_KEY=${DEPLOYER_KEY}`), false);
 });
