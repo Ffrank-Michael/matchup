@@ -79,3 +79,18 @@ Rules 2, 3, 6, 14, 15, 19: the same rules, proven with the exact testnet setting
 | 1-hour settle window, then refund | `test_tenMin_settleWindow_oneHourAfterTheEnd`, `test_tenMin_nobodySettled_everyoneGetsARefund` |
 | Three staggered markets independent | `test_tenMin_threeMarketsSettleIndependently` |
 | Gas measurements for the cost estimate | `test_tenMin_gasReport` |
+
+## Coin vs coin (ETH vs BTC, SOL vs BTC)
+Files: `RatioGuard.t.sol` (the guard alone and with the relay), `RatioMarket.t.sol` (ETH/BTC through the arena),
+`RatioSolBtc.t.sol` (SOL/BTC through the arena, both pairs on one arena), `RatioTrust.t.sol` (what the pusher can and cannot do,
+`docs/AUDIT_RATIO_PART1.md` R-01 to R-03).
+
+| What | Covered by |
+|---|---|
+| Ratio maths, rounding, decimals 0..18 | `test_ethBtc_exactRatio`, `test_solBtc_exactRatio`, `test_realisticPrices_matchHandMaths`, `test_roundsDown`, `test_mixedDecimals_sameRatio`, `testFuzz_ratioFormula`, `testFuzz_ratioFormula_anyDecimals` |
+| Each leg's own age limit (R-04) | `test_feedExactlyMaxAgeOld_accepted_oneSecondMore_refused`, `test_eachFeedHasItsOwnAgeLimit`, `test_relay_refusesWhenOneLegOlderThanItsLimit`, `test_solBtc_staleSol_onlySolPairStops` |
+| Decimals checked on every read (R-06) | `test_decimalsChangedAfterDeploy_refused`, `test_decimalsReverting_refused`, `test_relay_refusesWhenDecimalsChanged` |
+| Swapped or wrong feeds refused at deploy (R-09) | `test_constructor_swappedFeeds_refused`, `test_constructor_wrongBottomFeed_refused`, `test_constructor_sameFeedAtTwoAddresses_refused`, `test_constructor_emptyLabel_refused` |
+| The pusher decides inside the band (R-01) | `test_pusherDecides_whenChainlinkIsFlat`, `test_pusherDecides_againstChainlink`, `test_pusherCannotLeaveTheBand`, `test_pusherWalletCanPlay`, `test_ownerCanSwapPusherMidRound` |
+| Withheld and repeated pushes refund (R-03) | `test_withheldStart_refundsAsNoUpdate`, `test_withheldEnd_refundsAsEndNotAfterStart`, `test_endPushedTooLate_stillRefunds`, `test_repeatedPush_refundsAsUnchangedPrice`, `test_repeatedPush_lastOneCounts`, `test_silentPusher_timeoutRefund` |
+| SOL/BTC end to end, claimMany across pairs | `test_solBtc_fullRound_solBeatsBtc`, `test_solBtc_fullRound_btcBeatsSol`, `test_solBtc_bandEdges`, `test_bothPairs_claimManyAcrossMarkets` |
