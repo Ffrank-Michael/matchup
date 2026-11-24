@@ -70,7 +70,8 @@ const guide = createGuide({ env: runnerEnv, live: LIVE, log, getCandles: (coin) 
 let execute;
 let checked = false;
 // Any PusherChanged on a relay, or a relay whose pusher is no longer this runner: phone alert + log (dry run too: it only reads).
-const pusherWatch = createPusherWatch({ pub, runner: account.address, log, alert: (title, message) => notify(runnerEnv.NTFY_TOPIC, title, message) });
+const alertPhone = (title, message) => notify(runnerEnv.NTFY_TOPIC, title, message);
+const pusherWatch = createPusherWatch({ pub, runner: account.address, arena: cfg.arena, log, alert: alertPhone, stateFile: path.join(ROOT, 'data', 'pusher-watch-mainnet.json') });
 if (!runnerEnv.NTFY_TOPIC) log('WARNING: no NTFY_TOPIC in .env, so a change of pusher on a relay is only written to this log');
 const failedUntil = new Map(); // action text -> time before which we do not retry it
 const failures = new Map();    // action text -> how many times in a row it has failed (a settle waits longer each time)
@@ -83,7 +84,11 @@ async function tick() {
   if (!checked) { // once, with the first look at the markets: is this the right chain, arena and pusher?
     const feeds = [...new Set(snap.markets.map((m) => m.feed.address))];
     const problems = await preflight({ pub, arena: cfg.arena, arenaAbi: art.arena.abi, relayAbi: art.relay.abi, runner: account.address, feeds });
-    if (problems.length) stop(problems.join('\n      '));
+    if (problems.length) {
+      // say WHY on the phone too: the supervisor's own alert only says the runner stopped (P2-06)
+      await alertPhone('Matchup MAINNET runner cannot start', problems.join(' ').slice(0, 900));
+      stop(problems.join('\n      '));
+    }
     checked = true;
     log(`checked: Arc mainnet, ${snap.markets.length} markets, ${feeds.length} relay feeds, the runner is the pusher of each`);
   }
