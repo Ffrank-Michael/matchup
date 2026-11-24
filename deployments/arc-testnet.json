@@ -182,8 +182,65 @@
       "minStake": 500000,
       "tx": "0x9ab53f5e8bc05e6560883f7bb5859e5be321096319348c57c96f5842ad90bb1d",
       "block": 69207793
+    },
+    {
+      "id": 12,
+      "name": "ETH/BTC 1h",
+      "coin": "ethbtc",
+      "kind": "ratio",
+      "round": 3600,
+      "offset": 50,
+      "feed": "0xf69f4d7d3638e9eee23c4e1732fe3368ef14c761",
+      "minStake": 500000,
+      "tx": "0x2fc9ac94116106aab24b62e3abaaa3348d10594132ef5c0c4a14b446993288a2",
+      "block": 73854174
+    },
+    {
+      "id": 13,
+      "name": "SOL/BTC 1h",
+      "coin": "solbtc",
+      "kind": "ratio",
+      "round": 3600,
+      "offset": 150,
+      "feed": "0x4297d11db1cf2e8284fdc53c91cf9955f2746356",
+      "minStake": 500000,
+      "tx": "0xe9ec4cc5f0aa4d226901d044ad1522ca240cb00ef8d84fa784837f40aac91e1f",
+      "block": 73854180
     }
   ],
   "previousArena": "0xec52762e8f91b2380d39cf2d03101412a8a3530c",
-  "deployedAt": "2026-10-26T15:54:42.958Z"
+  "deployedAt": "2026-10-26T15:54:42.958Z",
+  "ratio": {
+    "guards": {
+      "ethbtc": {
+        "address": "0xf19da0665493500ebd12e9687dad487efb876447",
+        "tx": "0x6987a3483cbefa729e94bac7d200179400dabb4e35c8532a500c3474c7be070e",
+        "block": 73854141,
+        "top": "0xf2b8852c17e140d3a130d159e98b2205855349fa",
+        "bottom": "0x1d9dff093702d516b71317fa40532476b601dbb8"
+      },
+      "solbtc": {
+        "address": "0xa333796b69bff21b8b3c813236f530bc125b5ace",
+        "tx": "0x5cfd11d10c756b543b3680e1c8c715fbe5643a6ecbcbfcccbee58dfb59c54ebf",
+        "block": 73854151,
+        "top": "0x433d105172d62e56dbeaa02d5a11c8d8bee73592",
+        "bottom": "0x1d9dff093702d516b71317fa40532476b601dbb8"
+      }
+    },
+    "feeds": {
+      "ethbtc": {
+        "address": "0xf69f4d7d3638e9eee23c4e1732fe3368ef14c761",
+        "tx": "0x5eb361809924efa69055936f7a78ddda4e289585e791c26a148f4a394b83ca7a",
+        "block": 73854158,
+        "firstPush": "0x3da3ebe0227ec8b2bb55f3a15dc2f267c3d34bad92d896d81deafa14f2209843"
+      },
+      "solbtc": {
+        "address": "0x4297d11db1cf2e8284fdc53c91cf9955f2746356",
+        "tx": "0x48cdd2342e613a21ec7efbf281fe03c23753ea0770716ec11926ff12b341ca35",
+        "block": 73854169,
+        "firstPush": "0x1a5b69a11d0831861b0506794db9b1abf6ea6bdc1b20239fd5b6b77072b5faec"
+      }
+    },
+    "deployedAt": "2026-11-24T10:38:16.515Z"
+  }
 }

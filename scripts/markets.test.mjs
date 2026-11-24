@@ -101,3 +101,45 @@ test('judgeGuard: exactly 26 hours old is fine (as in the relay), one second mor
   assert.deepEqual(judgeGuard({ ...good, updatedAt: NOW - 93_600 }, 'btc', NOW), []);
   assert.match(judgeGuard({ ...good, updatedAt: NOW - 93_601 }, 'btc', NOW).join(), /hours old/);
 });
+
+// ---------------------------------------------------------------- coin vs coin (scripts/deploy-ratio.mjs)
+import { RATIO_PAIRS, RATIO_MARKETS, RATIO_DECIMALS, ratioBandBps, ratioMarketName, ratioGuardDescription, ratioRelayDescription, validateRatioMarkets } from './markets.mjs';
+import { RATIO_PAIRS as RUNNER_PAIRS } from '../runner/pairs.mjs';
+
+const existing = SETS.rehearsal.markets.map((m, id) => ({ id, name: marketName(m), round: m.round, offset: m.offset }));
+
+test('coin vs coin: ETH vs BTC and SOL vs BTC, 1-hour rounds only, 2.5% band, 18 decimals', () => {
+  assert.deepEqual(RATIO_MARKETS.map(ratioMarketName), ['ETH/BTC 1h', 'SOL/BTC 1h']);
+  assert.ok(RATIO_MARKETS.every((m) => m.round === 3600));
+  assert.equal(ratioBandBps('ethbtc'), 250, 'BTC 100 + ETH 150');
+  assert.equal(ratioBandBps('solbtc'), 250, 'BTC 100 + SOL 150');
+  assert.equal(RATIO_DECIMALS, 18);
+  assert.deepEqual(validateRatioMarkets(existing), []);
+});
+
+test('coin vs coin: the names match what the runner and the site look for', () => {
+  for (const k of Object.keys(RATIO_PAIRS)) assert.ok(RUNNER_PAIRS[RATIO_PAIRS[k].pair], `${RATIO_PAIRS[k].pair} is a runner pair`);
+  assert.deepEqual(Object.keys(RUNNER_PAIRS).sort(), Object.values(RATIO_PAIRS).map((p) => p.pair).sort());
+});
+
+test('coin vs coin: no lock time collides with an existing market, a duplicate name is refused, other lengths are refused', () => {
+  assert.match(validateRatioMarkets([...existing, { id: 12, name: 'ETH/BTC 1h', round: 3600, offset: 50 }]).join(), /already exists/);
+  assert.match(validateRatioMarkets([...existing, { id: 99, name: 'X 5m', round: 300, offset: 50 }]).join(), /collides with X 5m/);
+  RATIO_MARKETS[0].round = 300;
+  try { assert.match(validateRatioMarkets(existing).join(), /1-hour only/); } finally { RATIO_MARKETS[0].round = 3600; }
+});
+
+test('coin vs coin: labels', () => {
+  assert.ok(ratioRelayDescription('ethbtc', 'rehearsal').startsWith('Matchup relay ETH / BTC (TESTNET REHEARSAL)'));
+  assert.ok(ratioRelayDescription('ethbtc', 'mainnet').startsWith('Matchup relay ETH / BTC: '));
+  assert.match(ratioRelayDescription('solbtc', 'mainnet'), /within 2\.5%/);
+  assert.equal(ratioGuardDescription('solbtc'), 'Matchup ratio guard SOL / BTC: Chainlink SOL/USD divided by Chainlink BTC/USD');
+});
+
+test('coin vs coin: RatioGuard compiles with the deploy script\'s compiler', () => {
+  const art = compile();
+  assert.ok(art.ratioGuard.bytecode.length > 2);
+  const fns = art.ratioGuard.abi.filter((x) => x.type === 'function').map((x) => x.name).sort();
+  assert.deepEqual(fns, ['MAX_FEED_DECIMALS', 'RATIO_DECIMALS', 'decimals', 'denominator', 'denominatorDecimals', 'description', 'getRoundData', 'latestRoundData', 'numerator', 'numeratorDecimals', 'version']);
+  assert.ok(!fns.some((n) => /owner|set|withdraw/i.test(n)), 'no owner, no setters');
+});

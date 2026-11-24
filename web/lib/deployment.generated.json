@@ -98,6 +98,22 @@
       "round": 3600,
       "offset": 200,
       "feed": "0x5e036746221c450b6adc8c9c40bf12b8ebe86563"
+    },
+    {
+      "id": 12,
+      "name": "ETH/BTC 1h",
+      "coin": "ethbtc",
+      "round": 3600,
+      "offset": 50,
+      "feed": "0xf69f4d7d3638e9eee23c4e1732fe3368ef14c761"
+    },
+    {
+      "id": 13,
+      "name": "SOL/BTC 1h",
+      "coin": "solbtc",
+      "round": 3600,
+      "offset": 150,
+      "feed": "0x4297d11db1cf2e8284fdc53c91cf9955f2746356"
     }
   ],
   "agents": [

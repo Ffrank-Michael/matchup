@@ -104,3 +104,55 @@ export function judgeGuard(feed, coin, now) {
   else if (now - feed.updatedAt > MAX_GUARD_AGE_SECONDS) bad.push(`latest answer is ${Math.round((now - feed.updatedAt) / 3600)} hours old, the relay accepts at most 26`);
   return bad;
 }
+
+// ---------------------------------------------------------------- coin vs coin (ETH vs BTC, SOL vs BTC)
+// Added to an EXISTING arena by scripts/deploy-ratio.mjs (testnet only for now; the mainnet steps are in docs/RATIO_MAINNET_CHECKLIST.md).
+// Each pair gets one RatioGuard (Chainlink top / Chainlink bottom, 18 decimals: on the testnet the two coins' stand-ins) and one
+// GuardedRelayFeed whose guard is that RatioGuard. The band must cover BOTH coins' lag behind Chainlink, so it is the sum of the two
+// coins' own bands: 100 + 150 = 250 bps (2.5%) for both pairs. 1-hour rounds only (a 5-minute ratio move is about 0.05%, 50x smaller
+// than the band). The offsets (50 and 150 s) are not used by any other 1-hour market, so no two markets need a price at the same second.
+export const RATIO_DECIMALS = 18;
+export const RATIO_PAIRS = {
+  ethbtc: { pair: 'ETH/BTC', label: 'ETH / BTC', top: 'eth', bottom: 'btc' },
+  solbtc: { pair: 'SOL/BTC', label: 'SOL / BTC', top: 'sol', bottom: 'btc' },
+};
+export const RATIO_MARKETS = [
+  { pair: 'ethbtc', round: 3600, offset: 50 },
+  { pair: 'solbtc', round: 3600, offset: 150 },
+];
+export const ratioBandBps = (key) => COINS[RATIO_PAIRS[key].top].bandBps + COINS[RATIO_PAIRS[key].bottom].bandBps;
+export const ratioMarketName = (m) => `${RATIO_PAIRS[m.pair].pair} ${m.round / 3600}h`;
+export const ratioGuardDescription = (key) => {
+  const p = RATIO_PAIRS[key];
+  return `Matchup ratio guard ${p.label}: Chainlink ${COINS[p.top].pair} divided by Chainlink ${COINS[p.bottom].pair}`;
+};
+export function ratioRelayDescription(key, setName) {
+  const p = RATIO_PAIRS[key];
+  const band = percent(ratioBandBps(key));
+  return setName === 'mainnet'
+    ? `Matchup relay ${p.label}: Bitfinex ${COINS[p.top].pair} / ${COINS[p.bottom].pair}, checked against Chainlink's ratio within ${band}`
+    : `Matchup relay ${p.label} (TESTNET REHEARSAL): Bitfinex ${COINS[p.top].pair} / ${COINS[p.bottom].pair}, checked against the stand-ins' ratio within ${band}`;
+}
+
+/** Every problem in the coin-vs-coin list, given the arena's existing markets (names and shapes), as readable strings. Pure. */
+export function validateRatioMarkets(existing = []) {
+  const bad = [];
+  const names = new Set(existing.map((m) => m.name));
+  for (const m of RATIO_MARKETS) {
+    const p = RATIO_PAIRS[m.pair];
+    if (!p) { bad.push(`${m.pair}: unknown pair`); continue; }
+    const n = ratioMarketName(m);
+    if (m.round !== 3600) bad.push(`${n}: coin-vs-coin markets are 1-hour only`);
+    if (!(m.offset >= 0 && m.offset < m.round)) bad.push(`${n}: offset must be below the round length`);
+    if (!COINS[p.top] || !COINS[p.bottom] || p.top === p.bottom) bad.push(`${n}: needs two different known coins`);
+    if (names.has(n)) bad.push(`${n}: a market with this name already exists`);
+    names.add(n);
+    const band = ratioBandBps(m.pair);
+    if (!(band > 0 && band <= 1000)) bad.push(`${n}: band ${band} bps outside 1..1000`);
+    if (!ratioRelayDescription(m.pair, 'rehearsal').startsWith('Matchup relay ')) bad.push(`${n}: relay description prefix`);
+    // no other market of any length may lock or end at the same second of the hour (the price pushes would collide)
+    for (const e of existing) if (e.round && 3600 % e.round === 0 && (m.offset % e.round) === e.offset) bad.push(`${n}: offset ${m.offset} s collides with ${e.name}`);
+  }
+  if (new Set(RATIO_MARKETS.map((m) => m.offset)).size !== RATIO_MARKETS.length) bad.push('two coin-vs-coin markets share a lock time');
+  return bad;
+}

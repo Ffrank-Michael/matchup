@@ -13,6 +13,7 @@ const FILES = [
   'contracts/interfaces/AggregatorV3Interface.sol',
   'contracts/mocks/MockPriceFeed.sol',
   'contracts/GuardedRelayFeed.sol',
+  'contracts/RatioGuard.sol',
 ];
 
 export function compile() {
@@ -72,6 +73,7 @@ export function compile() {
     arena: pick('contracts/PredictionArena.sol', 'PredictionArena'),
     feed: pick('contracts/mocks/MockPriceFeed.sol', 'MockPriceFeed'),
     relay: pick('contracts/GuardedRelayFeed.sol', 'GuardedRelayFeed'),
+    ratioGuard: pick('contracts/RatioGuard.sol', 'RatioGuard'),
   };
 }
 

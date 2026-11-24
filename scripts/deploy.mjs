@@ -370,7 +370,9 @@ async function verify(art, st) {
   check(getAddress(await read(A, art.arena.abi, 'USDC')) === getAddress(usdc), 'arena USDC is the Arc USDC token');
   check((await read(A, art.arena.abi, 'FEE_BPS')) === 200n, 'fee is 200 basis points (2%)');
   check((await read(A, art.arena.abi, 'SETTLE_WINDOW')) === 3600n, 'settle window is 1 hour');
-  check((await read(A, art.arena.abi, 'marketCount')) === BigInt(SET.markets.length), `${SET.markets.length} markets exist`);
+  // coin-vs-coin markets added later by scripts/deploy-ratio.mjs (kind "ratio") come after these and are checked by that script
+  const extra = (st.markets || []).filter((m) => m.kind === 'ratio').length;
+  check((await read(A, art.arena.abi, 'marketCount')) === BigInt(SET.markets.length + extra), `${SET.markets.length} markets exist${extra ? ` (plus ${extra} coin-vs-coin, see scripts/deploy-ratio.mjs)` : ''}`);
   // The code on chain must be the code in this repo (immutable slots and the compiler's metadata tail ignored).
   check(await sameCode(A, art.arena), 'arena code on chain matches the code compiled from this repo');
 
