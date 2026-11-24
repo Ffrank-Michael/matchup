@@ -30,6 +30,16 @@ What gets deployed, per pair (the same as the testnet rehearsal, `scripts/deploy
 - [ ] **Testnet first, end to end.** The 24 Nov rehearsal deployed and verified the contracts on the testnet, but the testnet arena
       there is the older v1 contract (`placeBet`, `nextBettableRound`), which the current runner and site cannot drive. A full round
       (two calls, start and end push by the runner, settle, claim) needs a fresh v2 testnet arena first. Do that round before mainnet.
+- [ ] **The owner is a hardware wallet (or an offline key).** The arena and every relay, the two new ratio relays included,
+      have been moved with the two-step transfer (`docs/RUNBOOK.md`, section 1), and `owner()` on each one reads the hardware
+      wallet. The owner can hand price control to anyone at once (audit part 1, R-02), so this comes before real money.
+- [ ] **The owner key is not on the server.** On the server, `grep -c MAINNET_DEPLOYER_PRIVATE_KEY /home/ubuntu/arc-arena/.env`
+      prints `0`; the file was made with `node scripts/make-server-env.mjs` (`docs/MAINNET_AGENTS.md`, step 6), and
+      `sudo bash deploy/setup-runner.sh` ends with `READY`.
+- [ ] **Alerts reach the phone.** `NTFY_TOPIC` is set on the server, the runner log does not show
+      `WARNING: no NTFY_TOPIC`, and a test message arrives: on the server,
+      `cd /home/ubuntu/arc-arena && node -e "import('./runner/supervise.mjs').then(async (m) => console.log(await m.notify(process.env.T, 'Matchup test', 'test alert')))"`
+      with `T=<your topic>` in front prints `true` and the phone buzzes.
 - [ ] **Code on the server is the `ratio` branch** (merged), so the mainnet runner knows the 18-decimal pairs. An older runner
       would refuse to quote "ETH/BTC" (no price source) and push nothing, which is safe but makes every round refund.
 
