@@ -24,6 +24,8 @@ export const RUNNER_ENV_NAMES = [
   // the guide calls (runner/guide.mjs): the key for the AI models (which model each agent uses is in the code) and the place the website reads the calls from
   'GEMINI_API_KEY',
   'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN',
+  // the phone alert topic (ntfy.sh) for a change of pusher on a relay (runner/pusherWatch.mjs); the supervisor uses the same one
+  'NTFY_TOPIC',
 ];
 export const readRunnerEnv = (text) => {
   const all = parseEnv(text);

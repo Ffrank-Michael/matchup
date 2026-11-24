@@ -26,6 +26,8 @@ import { makeReader } from './chain.mjs';
 import { createCandles } from './candles.mjs';
 import { createGuide, freshCandles } from './guide.mjs';
 import { SEND_FLAG, MIN_RUNNER_BALANCE, readRunnerEnv, parseArgs, parseRunnerConfig, makeMainnetExecutor, describe, chainProblem, preflight } from './mainnet.mjs';
+import { createPusherWatch } from './pusherWatch.mjs';
+import { notify } from './supervise.mjs';
 
 const stamp = () => new Date().toISOString().slice(11, 19);
 const log = (msg) => console.log(`${stamp()}  ${msg}`);
@@ -59,6 +61,9 @@ const candleSource = createCandles();
 const guide = createGuide({ env: runnerEnv, live: LIVE, log, getCandles: (coin) => freshCandles(candleSource, coin) });
 let execute;
 let checked = false;
+// Any PusherChanged on a relay, or a relay whose pusher is no longer this runner: phone alert + log (dry run too: it only reads).
+const pusherWatch = createPusherWatch({ pub, runner: account.address, log, alert: (title, message) => notify(runnerEnv.NTFY_TOPIC, title, message) });
+if (!runnerEnv.NTFY_TOPIC) log('WARNING: no NTFY_TOPIC in .env, so a change of pusher on a relay is only written to this log');
 const failedUntil = new Map(); // action text -> time before which we do not retry it
 const failures = new Map();    // action text -> how many times in a row it has failed (a settle waits longer each time)
 const inflight = new Set();    // action texts being executed right now
@@ -74,6 +79,10 @@ async function tick() {
     checked = true;
     log(`checked: Arc mainnet, ${snap.markets.length} markets, ${feeds.length} relay feeds, the runner is the pusher of each`);
   }
+  try { // at most once a minute; never stops the runner
+    const names = Object.fromEntries(snap.markets.map((m) => [m.feed.address, `${m.name.split(' ')[0]} relay`]));
+    await pusherWatch(snap.markets.map((m) => m.feed.address), names);
+  } catch (e) { log(`pusher watch problem: ${String(e.message).slice(0, 120)}`); }
   try { guide.tick(snap); } catch (e) { log(`GUIDE problem (the guide calls never stop the runner): ${String(e.message).slice(0, 120)}`); } // starts its work in the background and returns at once
   const balance = await pub.getBalance({ address: account.address });
   if (balance < MIN_RUNNER_BALANCE) {

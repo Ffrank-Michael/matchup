@@ -153,6 +153,7 @@ It pushes prices and settles rounds on Arc mainnet (chain 5042) and nothing else
 | `MAINNET_RUNNER_PRIVATE_KEY` | the runner's own wallet, with a little USDC for gas. Never the deployer, the owner, or a wallet people play with |
 | `MAINNET_ARENA_ADDRESS` | the mainnet PredictionArena contract |
 | `ARC_MAINNET_RPC_URL` | optional, if the default RPC is not enough |
+| `NTFY_TOPIC` | the phone alert topic: the runner alerts on any change of pusher on a relay (`runner/pusherWatch.mjs`, see `docs/RUNBOOK.md`) |
 
 **How it stays safe**
 
@@ -161,6 +162,9 @@ It pushes prices and settles rounds on Arc mainnet (chain 5042) and nothing else
 - **No gas on rounds without two sides.** A round with no calls, or calls on one side only, gets no price push and no settle. (Those rounds refund anyway; callers claim the refund once the 1-hour settle window has passed, because nobody settles them.) A price push serves every market of its coin, so it is skipped only when no market of that coin has a two-sided round running.
 - **Price checks as on testnet.** Bitfinex's last trade, 20% jump check, stale-market check and clock check, as before. On top of that, each price is compared with Chainlink off chain using the relay's own rule (same band, Chainlink not older than 26 hours), and a price outside it is not sent, so it never costs a failed transaction. The relay checks again on chain.
 - **Low balance.** A live runner stops when its wallet holds less than 0.10 USDC. The supervisor then alerts you (below).
+- **Pusher watch.** Once a minute it reads `PusherChanged` events on the relays and each relay's `pusher()`; any change, or a
+  relay whose pusher is not this runner, is a phone alert (`NTFY_TOPIC`). What to do: `docs/RUNBOOK.md`, section 2. The owner key
+  that can change the pusher must be kept offline or on a hardware wallet (`docs/RUNBOOK.md`, section 1).
 - Every pushed price is written to `data/price-log-mainnet.jsonl`, not to the testnet log.
 
 **How to run it** (from the repo folder)
