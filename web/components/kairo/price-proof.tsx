@@ -1,6 +1,6 @@
 "use client";
 
-import { formatPrice, isMatchupKey, MARKETS, type MarketKey } from "@/lib/markets";
+import { formatPrice, formatPricePair, isMatchupKey, MARKETS, type MarketKey } from "@/lib/markets";
 import { useTradeTime } from "@/lib/use-trade-time";
 import { txLink, type PricePush } from "@/onchain";
 
@@ -60,15 +60,18 @@ export function PriceProof({ coin, price, push, detail = true, round }: { coin: 
  */
 export function StartEnd({ start, end, round, className }: { start: number | null; end: number | null; round: RoundRef; className?: string }) {
   const openCard = useOpenRoundCard();
+  const m = MARKETS.find((x) => x.id === round.marketId);
+  const pair = m && start !== null && end !== null ? formatPricePair(m, start, end) : null; // both known: enough digits to tell them apart
   return (
     <span className={className}>
       <span className="whitespace-nowrap">
-        Start <span className="font-mono tabular-nums text-foreground">{start !== null ? byMarket(round.marketId, start) : "…"}</span>
+        Start <span className="font-mono tabular-nums text-foreground">{pair ? pair.start : start !== null ? byMarket(round.marketId, start) : "…"}</span>
       </span>{" "}
       <span aria-hidden>→</span>{" "}
       <span className="whitespace-nowrap">
-        End <span className="font-mono tabular-nums text-foreground">{end !== null ? byMarket(round.marketId, end) : "…"}</span>
+        End <span className="font-mono tabular-nums text-foreground">{pair ? pair.end : end !== null ? byMarket(round.marketId, end) : "…"}</span>
       </span>
+      {pair?.move ? <span className="whitespace-nowrap"> ({pair.move})</span> : null}
       {openCard ? (
         <>
           {" "}

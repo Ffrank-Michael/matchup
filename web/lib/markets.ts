@@ -1,5 +1,5 @@
 import deployment from "./deployment.generated.json";
-import { formatRatio } from "./ratio";
+import { formatRatio, formatRatioPair } from "./ratio";
 
 // The coins, the markets and the round schedule. The coins are the three on the page; the MARKETS (one per coin and time
 // frame) are read from the deployment file (deployments/arc-*.json, copied to lib/deployment.generated.json by
@@ -96,6 +96,15 @@ export function feedDecimals(feed: string): number {
 export function formatPrice(market: Pick<Market, "kind" | "key">, value: number) {
   if (market.kind !== "ratio") return formatUsd(value);
   return formatRatio(value, matchupOf(market.key)?.b ?? "");
+}
+
+/**
+ * A round's start and end as text, written so two different prices never look the same (P2-10). A coin-vs-coin pair also gets
+ * its move in percent; a coin's dollar prices already show cents, so the move is left out (move = null).
+ */
+export function formatPricePair(market: Pick<Market, "kind" | "key">, start: number, end: number): { start: string; end: string; move: string | null } {
+  if (market.kind !== "ratio") return { start: formatUsd(start), end: formatUsd(end), move: null };
+  return formatRatioPair(start, end, matchupOf(market.key)?.b ?? "");
 }
 
 /** The time frames that exist, shortest first (from the deployment). */

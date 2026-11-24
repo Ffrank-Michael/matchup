@@ -37,3 +37,23 @@ export function ratioCandles<C extends Candle>(top: C[] | null, bottom: C[] | nu
 export function formatRatio(value: number, unit: string): string {
   return `${Number(value.toPrecision(5))} ${unit}`.trim();
 }
+
+/**
+ * A round's start and end ratio together (audit part 2, P2-10): with as many significant digits as it takes (5 to 12) for two
+ * different numbers never to look the same, and the move in percent. Without this a round whose ratio moved by less than
+ * about 0.0015% showed "0.033925 → 0.033925" and still had a winner.
+ */
+export function formatRatioPair(start: number, end: number, unit: string): { start: string; end: string; move: string } {
+  let digits = 5;
+  while (start !== end && digits < 12 && Number(start.toPrecision(digits)) === Number(end.toPrecision(digits))) digits++;
+  const text = (v: number) => `${Number(v.toPrecision(digits))} ${unit}`.trim();
+  return { start: text(start), end: text(end), move: percentMove(start, end) };
+}
+
+/** The move from start to end in percent, signed, with two significant digits: "+0.21%", "-0.0012%", "0%". */
+export function percentMove(start: number, end: number): string {
+  if (!(start > 0)) return "";
+  const pct = (end / start - 1) * 100;
+  if (pct === 0) return "0%";
+  return `${pct > 0 ? "+" : "-"}${Number(Math.abs(pct).toPrecision(2))}%`;
+}

@@ -3,7 +3,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 
-import { chainPrice, formatPrice, frameWords, type Market } from "@/lib/markets";
+import { chainPrice, formatPricePair, frameWords, type Market } from "@/lib/markets";
 import { cn } from "@/lib/utils";
 import { usdc, useRoundHistory, type Round } from "@/onchain";
 
@@ -127,7 +127,7 @@ export function RoundHistory({
                         </span>
                         {r.startPrice !== null && r.endPrice !== null ? (
                           <span className="truncate font-mono text-[12px] tabular-nums text-muted-foreground">
-                            {formatPrice(market, chainPrice(market.id, r.startPrice))} → {formatPrice(market, chainPrice(market.id, r.endPrice))}
+                            {(() => { const p = formatPricePair(market, chainPrice(market.id, r.startPrice), chainPrice(market.id, r.endPrice)); return `${p.start} → ${p.end}${p.move ? ` (${p.move})` : ""}`; })()}
                           </span>
                         ) : null}
                       </span>

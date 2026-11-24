@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { formatPrice, frameWords, MARKETS } from "@/lib/markets";
+import { formatPrice, formatPricePair, frameWords, MARKETS } from "@/lib/markets";
 import { useBackedAgents } from "@/lib/backed";
 import { whoIs, whoName } from "@/lib/players";
 import { oneSidedNote } from "@/lib/one-sided";
@@ -296,7 +296,9 @@ function RoundCard({
                   {settlement &&
                   (settlement.startPrice !== null ||
                     settlement.endPrice !== null)
-                    ? `Start ${settlement.startPrice !== null ? formatPrice(market, settlement.startPrice) : "none"} → End ${settlement.endPrice !== null ? formatPrice(market, settlement.endPrice) : "none"}`
+                    ? settlement.startPrice !== null && settlement.endPrice !== null
+                      ? (() => { const p = formatPricePair(market, settlement.startPrice, settlement.endPrice); return `Start ${p.start} → End ${p.end}${p.move ? ` (${p.move})` : ""}`; })()
+                      : `Start ${settlement.startPrice !== null ? formatPrice(market, settlement.startPrice) : "none"} → End ${settlement.endPrice !== null ? formatPrice(market, settlement.endPrice) : "none"}`
                     : refunded
                       ? "No prices were recorded"
                       : "Prices are recorded when the round is settled"}

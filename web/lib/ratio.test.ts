@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { formatRatio, ratioCandles, ratioOf } from "./ratio.ts";
+import { formatRatio, formatRatioPair, percentMove, ratioCandles, ratioOf } from "./ratio.ts";
 
 test("ratioOf rounds like the chain: 8-decimal prices, 18-decimal ratio, rounded down", () => {
   assert.equal(ratioOf(3000, 100000), 0.03);
@@ -41,4 +41,33 @@ test("ratio candles: exact open and close, no invented wicks, only minutes both 
 test("a ratio is written with 5 significant digits and its unit", () => {
   assert.equal(formatRatio(0.0339245945, "BTC"), "0.033925 BTC");
   assert.equal(formatRatio(0.0015, "BTC"), "0.0015 BTC");
+});
+
+test("formatRatioPair (P2-10): a decided round never shows the same start and end", () => {
+  // 0.0339246 -> 0.0339249 is a 0.0009% move: 5 digits showed "0.033925 → 0.033925"
+  const p = formatRatioPair(0.0339246, 0.0339249, "BTC");
+  assert.notEqual(p.start, p.end);
+  assert.equal(p.start, "0.0339246 BTC");
+  assert.equal(p.end, "0.0339249 BTC");
+  assert.equal(p.move, "+0.00088%");
+  // an ordinary move keeps the short form
+  const q = formatRatioPair(0.033925, 0.034, "BTC");
+  assert.deepEqual([q.start, q.end, q.move], ["0.033925 BTC", "0.034 BTC", "+0.22%"]);
+  // equal (a refund) stays equal, and says 0%
+  const r = formatRatioPair(0.0015, 0.0015, "BTC");
+  assert.equal(r.start, r.end);
+  assert.equal(r.move, "0%");
+});
+
+test("formatRatioPair: even 18-decimal neighbours are told apart up to 12 digits", () => {
+  const a = 0.033924594537743416;
+  const b = a * (1 + 2e-11);
+  const p = formatRatioPair(a, b, "BTC");
+  assert.notEqual(p.start, p.end);
+});
+
+test("percentMove: signed, two significant digits", () => {
+  assert.equal(percentMove(100, 101.234), "+1.2%");
+  assert.equal(percentMove(100, 99.9988), "-0.0012%");
+  assert.equal(percentMove(0, 1), "");
 });
