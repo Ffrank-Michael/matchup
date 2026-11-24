@@ -6,6 +6,8 @@
 //   others     5 minutes, as before
 export const SETTLE_RETRY_FIRST_MS = 15_000;
 export const SETTLE_RETRY_MAX_MS = 240_000;
+/** A FINAL failure (e.final: a price window with too few trades, which can never change) is not tried again for this long. */
+export const FINAL_WAIT_MS = 2 * 60 * 60_000;
 
 /** `failures` is how many times in a row this action has failed, this time included (1 for the first failure). */
 export function retryAfterMs(type, failures = 1) {

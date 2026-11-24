@@ -138,7 +138,21 @@ Deployer wallet total: about 0.19 USDC an hour (about 4.6 a day), so the roughly
 - **Honest limit:** the price is the last trade, so it changes only when somebody trades. On a busy market that is several times a second; in a quiet hour it can be every few seconds (measured on a quiet Sunday evening: BTC about 1 trade every 6 s, ETH about 1 every 8 s, SOL about 1 every 30 s). Nothing is invented in between.
 - **Tested from the owner's PC (2026-10-25):** Bitfinex and Bitstamp connect; Coinbase, Kraken, Binance (global and .vision), OKX, Bybit, Gemini, Bitget and Crypto.com did not. Bitstamp works too but has fewer trades (BTC 3 in 40 s, ETH none). CoinGecko is no longer used anywhere.
 
-## H5. Start and end price timing (decided 2026-10-26; supersedes H2's delays; built in the runner 2026-10-26)
+## H6. Start and end price from a window of trades (2026-11-25, audit part 2 P2-01; replaces H5's single trade for BTC and ETH)
+- **BTC and ETH:** the start price is the MEDIAN of all Bitfinex trades from lock + 2 s for 60 s (BTC) or 90 s (ETH); the end
+  price is the median of the trades in the 60 s (BTC) or 90 s (ETH) that close 60 s before the round ends. One trade can no
+  longer set a price: an attacker would need more than half of the trades in the window.
+- **Too few trades:** fewer than 3 trades in a window means no price. Nothing is pushed and the round refunds (measured over
+  a day on 25 Nov 2026: 0.3% of BTC windows and 1.7% of ETH windows, so about 0.6% of BTC rounds and 3 to 4% of ETH rounds;
+  more in the quietest hours).
+- **SOL keeps H5's single trade** (first trade at or after lock + 2 s; last trade about 60 s before the end): SOL/USD on
+  Bitfinex has no trade at all in about 40% of minutes, so a window would refund most rounds. A known limit until a second,
+  deeper source is added (`docs/RUNBOOK.md`, "Known limits"). A coin-vs-coin price takes each coin by its own rule.
+- **Never late:** an end price is not sent in the last 20 s (P2-02), and a start price must come after calling really closed,
+  also when the chain's clock runs behind Bitfinex's (P2-14).
+- **Built in:** `runner/exchangePrices.mjs` (`WINDOWS`, `windowQuote`); the site says the same in `web/lib/price-rule.ts`.
+
+## H5. Start and end price timing (decided 2026-10-26; supersedes H2's delays; built in the runner 2026-10-26; BTC and ETH replaced by H6)
 - **Start price** = the first Bitfinex trade whose own time is at least 2 s after the lock, pushed as soon as it is seen (usually 5 to 15 s after the lock; up to 30 to 45 s for SOL when quiet). If none has arrived by 25% of the round, no start price is recorded and the round refunds. Because the trade happens after calling closes, nobody can know it when they call.
 - **End price** = the last trade, pushed 60 s before the end (changed from 15 s on 26 Oct: a push takes about 13 s on the testnet, so 15 s left no safety margin; the log now shows how many seconds before the end each end price landed, measured 41 to 53 s on the testnet). No mid-round push (testnet or mainnet).
 - **Offsets:** a coin uses the same offset for its 5 and 10 minute markets (BTC 0, ETH 100, SOL 200), so a coin's two markets share lock and end times and one push serves both, and no two coins ever need a price in the same second (before, ETH 5m and SOL 10m ended together and the second push came after the end).

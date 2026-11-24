@@ -79,7 +79,7 @@ test('the START ratio uses each coin\'s own first trade at least 2 s after the l
   const lock = NOW / 1000 - 30;
   const after = lock + CFG.startAfter;
   const { fetchFn, urls } = fakeBitfinex({ tSOLUSD: [after * 1000 + 400, 150], tBTCUSD: [after * 1000 + 9000, 100000] });
-  const prices = createExchangePrices({ fetchFn, nowMs: () => NOW });
+  const prices = createExchangePrices({ fetchFn, nowMs: () => NOW, windows: {} }); // the single-trade rule (BTC's window has its own test)
   const q = await prices.quote('SOL/BTC 1h', { firstTradeAfter: after });
   for (const u of urls) assert.ok(u.endsWith(`limit=1&sort=1&start=${after * 1000}`), `oldest trade from lock + 2 s: ${u}`);
   assert.equal(q.price, 1_500_000_000_000_000n);
@@ -90,7 +90,7 @@ test('the START ratio uses each coin\'s own first trade at least 2 s after the l
 test('no start ratio until BOTH coins have traded after the lock (it tries again)', async () => {
   const after = NOW / 1000 - 10;
   const { fetchFn } = fakeBitfinex({ tETHUSD: [after * 1000 + 100, 3000], tBTCUSD: null });
-  const prices = createExchangePrices({ fetchFn, nowMs: () => NOW });
+  const prices = createExchangePrices({ fetchFn, nowMs: () => NOW, windows: {} }); // the single-trade rule
   await assert.rejects(prices.quote('ETH/BTC 1h', { firstTradeAfter: after }), /no BTC\/USD trade on Bitfinex yet.*will try again/);
 });
 

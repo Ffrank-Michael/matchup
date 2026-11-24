@@ -72,7 +72,14 @@ export function checkAgainstGuard({ price, guardAnswer, guardUpdatedAt, bandBps,
   return { ok: true, reason: '', deviationBps };
 }
 
-const quoteText = (q) => (q.quotedAt ? `${q.source ?? 'exchange'} last trade at ${new Date((q.tradeAt ?? q.quotedAt) * 1000).toISOString().slice(11, 19)} UTC` : `${q.source ?? 'exchange'} quote`);
+const hms = (sec) => new Date(sec * 1000).toISOString().slice(11, 19);
+/** How a price was made, for the log: the median of a window of trades (P2-01), or one trade; for coin vs coin, each coin. */
+export function madeOf(q) {
+  const one = (x) => (x.method ? `median of ${x.trades} trades ${hms(x.windowFrom)}-${hms(x.windowTo)}` : `trade at ${hms(x.tradeAt ?? x.quotedAt)}`);
+  if (Array.isArray(q.legs) && q.legs.length) return `${q.legs.map((l) => `${l.pair} ${one(l)}`).join(' / ')} UTC`;
+  return q.method ? `${one(q)} UTC` : `last trade at ${hms(q.tradeAt ?? q.quotedAt)} UTC`;
+}
+const quoteText = (q) => (q.quotedAt ? `${q.source ?? 'exchange'} ${madeOf(q)}` : `${q.source ?? 'exchange'} quote`);
 
 export function describe(a) {
   switch (a.type) {
@@ -106,7 +113,7 @@ export function makeMainnetExecutor({ live, pub, wallet, arena, arenaAbi, relayA
     // a start price: if the chain's clock runs behind Bitfinex's, calls closed later in real time, so the start must be later too (P2-14)
     const firstTradeAfter = a.firstTradeAfter === undefined ? undefined : clock.startAfter(a.firstTradeAfter);
     const chainNow = a.firstTradeAfter === undefined ? null : Number((await pub.getBlock()).timestamp);
-    const q = await prices.quote(a.marketName, { firstTradeAfter }); // throws when the API fails or there is no trade after the lock yet
+    const q = await prices.quote(a.marketName, { firstTradeAfter, endsAt: a.endsAt }); // throws when the API fails, the window is not over, or it has too few trades
     if (chainNow !== null) clock.check(a.firstTradeAfter, q, chainNow);
     const r = await relayOf(a.feed);
     const [, answer, , updatedAt] = await read(r.guard, guardAbi, 'latestRoundData');
@@ -141,7 +148,7 @@ export function makeMainnetExecutor({ live, pub, wallet, arena, arenaAbi, relayA
         const spare = a.endsAt - Number(block.timestamp);
         note += `\n         end price landed ${spare} s before the round ends${spare < 30 ? ' (LESS THAN 30 s: too close)' : ''}`;
       }
-      logPush(markLate(makePriceLogEntry({ action: a, quote: q, txHash: hash, blockNumber: rc.blockNumber, blockTimestamp: block.timestamp, feed: a.feed, explorer, chainId, label: 'Bitfinex last trade, checked against Chainlink' }), a, block));
+      logPush(markLate(makePriceLogEntry({ action: a, quote: q, txHash: hash, blockNumber: rc.blockNumber, blockTimestamp: block.timestamp, feed: a.feed, explorer, chainId, label: 'Bitfinex trades, checked against Chainlink' }), a, block));
     } catch (e) { note += `\n         WARNING: the price is on chain but could not be written to the price log: ${e.message}`; }
     return { tx: hash, note };
   };
@@ -177,7 +184,8 @@ export function createStartClock({ maxGapSec = 30 } = {}) {
       const gap = Math.max(0, Number(q.quotedAt) - chainNow);
       lag = gap;
       if (gap > maxGapSec) throw new Error(`start price not sent: the chain's clock is ${gap} s behind Bitfinex's (more than ${maxGapSec} s); check the node and the clocks`);
-      const trades = Array.isArray(q.legs) && q.legs.length ? q.legs.map((l) => Number(l.tradeAt)) : [Number(q.tradeAt)];
+      // a window of trades (P2-01) starts at windowFrom; a single trade is at tradeAt
+      const trades = Array.isArray(q.legs) && q.legs.length ? q.legs.map((l) => Number(l.windowFrom ?? l.tradeAt)) : [Number(q.windowFrom ?? q.tradeAt)];
       const earliest = Math.min(...trades);
       if (earliest < planned + gap) throw new Error(`start price not sent: the chain is ${gap} s behind Bitfinex, so calling closed later than the lock in real time; the start trade must be at least ${planned + gap - earliest} s later. Will try again`);
     },

@@ -21,7 +21,8 @@ function setup(responses, opts = {}) {
     if (r instanceof Error) throw r;
     return typeof r === 'function' ? r(t) : r;
   };
-  const prices = createExchangePrices({ fetchFn, nowMs: () => t, ...opts });
+  // windows: {} = the single-trade rule for every coin (what SOL still uses); the windows for BTC and ETH have their own tests (P2-01)
+  const prices = createExchangePrices({ fetchFn, nowMs: () => t, windows: {}, ...opts });
   return { prices, calls, advance: (s) => { t += s * 1000; } };
 }
 

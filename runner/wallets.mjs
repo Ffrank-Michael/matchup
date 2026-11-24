@@ -8,7 +8,7 @@ import { displayName } from '../agents/index.mjs';
 import { createExchangePrices } from './exchangePrices.mjs';
 import { appendPriceLog, makePriceLogEntry } from './priceLog.mjs';
 import { pairOf, isRatioPair, priceText } from './pairs.mjs';
-import { refuseLateEnd, markLate, createStartClock } from './mainnet.mjs';
+import { refuseLateEnd, markLate, createStartClock, madeOf } from './mainnet.mjs';
 
 const usdcText = (u) => '$' + (u / 1e6).toFixed(2);
 
@@ -29,7 +29,11 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
   prices ||= createExchangePrices();
   const usd = (p, a) => priceText(p, pairOf(a.marketName));
   const legsText = (q) => (q.legs ? `${q.legs.map((l) => `${l.pair} ${l.usd}`).join(' / ')}, ` : '');
-  const quoteText = (q) => (q.quotedAt ? `${legsText(q)}${q.source ?? 'exchange'} last trade at ${new Date((q.tradeAt ?? q.quotedAt) * 1000).toISOString().slice(11, 19)} UTC, asked at ${new Date(q.quotedAt * 1000).toISOString().slice(11, 19)} UTC` : `${q.source ?? 'exchange'} quote (no time given)`);
+  const quoteText = (q) => (q.quotedAt
+    ? (q.method || q.legs?.some((l) => l.method)
+      ? `${legsText(q)}${q.source ?? 'exchange'} ${madeOf(q)}, asked at ${new Date(q.quotedAt * 1000).toISOString().slice(11, 19)} UTC` // a window of trades (P2-01)
+      : `${legsText(q)}${q.source ?? 'exchange'} last trade at ${new Date((q.tradeAt ?? q.quotedAt) * 1000).toISOString().slice(11, 19)} UTC, asked at ${new Date(q.quotedAt * 1000).toISOString().slice(11, 19)} UTC`)
+    : `${q.source ?? 'exchange'} quote (no time given)`);
   // The feed to push to is the one the market uses (the planner reads it from the chain). In the testnet rehearsal each coin's
   // stand-in for Chainlink (deployments.arena.guards) is pushed the same price first, so the relay's guard never goes stale.
   const feedFor = (a) => a.feed ?? deployments.arena.feeds[['btc', 'eth', 'sol'][a.market]].address;
@@ -81,14 +85,14 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
   return async function execute(a) {
     if (!live) {
       if (a.type !== 'pushPrice') return { dryRun: true };
-      const q = await prices.quote(a.marketName, { firstTradeAfter: a.firstTradeAfter });
+      const q = await prices.quote(a.marketName, { firstTradeAfter: a.firstTradeAfter, endsAt: a.endsAt });
       return { dryRun: true, note: `would push the real price ${usd(q.price, a)}, ${quoteText(q)}, to the TEST feed` };
     }
     switch (a.type) {
       case 'pushPrice': {
         const isStart = a.firstTradeAfter !== undefined;
         const chainNow = isStart ? Number((await pub.getBlock()).timestamp) : null;
-        const q = await prices.quote(a.marketName, { firstTradeAfter: isStart ? clock.startAfter(a.firstTradeAfter) : undefined }); // throws if the API fails or there is no trade after the lock yet: then nothing is pushed
+        const q = await prices.quote(a.marketName, { firstTradeAfter: isStart ? clock.startAfter(a.firstTradeAfter) : undefined, endsAt: a.endsAt }); // throws if the API fails or there is no trade after the lock yet: then nothing is pushed
         if (isStart) clock.check(a.firstTradeAfter, q, chainNow);
         const feed = feedFor(a);
         await refuseLateEnd(pub, a);

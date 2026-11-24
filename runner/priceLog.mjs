@@ -35,8 +35,8 @@ export function makePriceLogEntry({ action, quote, txHash, blockNumber, blockTim
     price: String(quote.price),
     // a coin-vs-coin market (e.g. ETH/BTC) logs its ratio and BOTH trades it was made from; a USD market logs its dollar price
     ...(legs
-      ? { ratio: quote.usd, legs: legs.map((l) => ({ pair: l.pair, priceUsd: l.usd, price: String(l.price), lastTradeAt: l.tradeAt ?? null, sourceQuoteAt: l.quotedAt ?? null })) }
-      : { priceUsd: quote.usd }),
+      ? { ratio: quote.usd, legs: legs.map((l) => ({ pair: l.pair, priceUsd: l.usd, price: String(l.price), lastTradeAt: l.tradeAt ?? null, sourceQuoteAt: l.quotedAt ?? null, ...windowOf(l) })) }
+      : { priceUsd: quote.usd, ...windowOf(quote) }),
     decimals: quote.decimals ?? 8,
     source: quote.source ?? 'Bitfinex',
     sourceQuoteAt: quote.quotedAt,
@@ -50,6 +50,9 @@ export function makePriceLogEntry({ action, quote, txHash, blockNumber, blockTim
     explorerUrl: `${explorer}/tx/${txHash}`,
   };
 }
+
+/** How a price was made from a window of trades (audit P2-01): the median of `trades` trades from windowFrom to windowTo. */
+const windowOf = (q) => (q.method ? { method: q.method, trades: q.trades, windowFrom: q.windowFrom, windowTo: q.windowTo } : {});
 
 export function appendPriceLog(entry, file = PRICE_LOG_FILE) {
   fs.mkdirSync(path.dirname(file), { recursive: true });

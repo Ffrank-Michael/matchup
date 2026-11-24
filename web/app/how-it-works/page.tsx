@@ -1,4 +1,4 @@
-import { END_RULE, START_RULE } from "@/lib/price-rule";
+import { END_RULE, START_RULE, TOO_FEW_RULE } from "@/lib/price-rule";
 import type { Metadata } from "next";
 import Link from "next/link";
 import type * as React from "react";
@@ -36,6 +36,7 @@ const STEPS: ReadonlyArray<{ title: string; body: React.ReactNode }> = [
               End higher than start: UP wins. Lower: DOWN wins. Same price:
               everyone gets their money back.
             </li>
+            <li>{TOO_FEW_RULE}</li>
           </ul>
         </div>
         <div className="mt-2">
@@ -44,9 +45,10 @@ const STEPS: ReadonlyArray<{ title: string; body: React.ReactNode }> = [
         </div>
         <div className="mt-2">
           <span className="font-semibold text-foreground">Example:</span>{" "}
-          Calling closes at 12:00. Bitcoin&apos;s first price after that is
-          $80,000, the start price. The round ends at 12:05; at about 12:04 it&apos;s
-          $80,100, the end price. It went up, so UP wins, whatever happens in the last minute.
+          Calling closes at 12:00. Bitcoin&apos;s trades from 12:00:02 to 12:01:02 have a
+          middle price of $80,000: the start price. The round ends at 12:05; the trades from
+          12:03:00 to 12:04:00 have a middle price of $80,100: the end price. It went up, so UP
+          wins, whatever happens in the last minute.
         </div>
       </>
     ),
@@ -122,8 +124,9 @@ export default function HowItWorks() {
             <li>
               The price of a round is the ratio of the two coins: {LIVE_MATCHUPS[0].a}&apos;s dollar price divided by{" "}
               {LIVE_MATCHUPS[0].b}&apos;s (how many {LIVE_MATCHUPS[0].b} one {LIVE_MATCHUPS[0].a} is worth). The start ratio uses
-              each coin&apos;s first trade after calling closes; the end ratio uses each coin&apos;s last trade about one minute
-              before the end (the last minute does not count).
+              each coin&apos;s own start price and the end ratio each coin&apos;s own end price, as above: the middle price of a
+              short window of trades for BTC and ETH, a single trade for SOL. The last minute does not count, and too few
+              trades means no price and money back.
             </li>
             <li>
               Ratio up at the end: {LIVE_MATCHUPS[0].a} wins. Ratio down: {LIVE_MATCHUPS[0].b} wins. Exactly the same ratio

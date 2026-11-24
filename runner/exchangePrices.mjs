@@ -15,14 +15,44 @@
 // OLDEST trade at or after T (sort=1&start=T) and uses that trade's own time, not the time of the quote.
 // If nothing has traded since T it throws, and the runner asks again a few seconds later.
 //
+// WINDOWS (audit part 2, P2-01): one trade at a moment anyone can predict was enough to set a price. So for BTC and ETH the
+// start and end prices are the MEDIAN of all trades in a short window instead of one trade:
+//   start: the window opens at firstTradeAfter (lock + 2 s) and lasts WINDOWS[pair].seconds
+//   end:   the window closes endMargin seconds before the round ends (60 s) and lasts WINDOWS[pair].seconds
+// With fewer than WINDOWS[pair].minTrades trades in the window there is no price: the error is FINAL (e.final = true), the
+// runner does not ask again, nothing is pushed and the round refunds. The median counts trades, not their size, so one big
+// order that walks the book counts once per trade it makes, and an attacker needs more than half of the trades in the window.
+// SOL/USD trades too rarely on Bitfinex for this (no trade at all in about 40% of minutes, measured 25 Nov 2026), so SOL keeps
+// the single-trade rule above until a second, deeper source is added (docs/RUNBOOK.md, "Known limits").
+//
 // If the API fails or looks wrong this THROWS. It never falls back to made-up numbers: the runner then
 // simply pushes nothing, which is what a real feed outage looks like (the contract refunds a round with
 // no usable update).
 import { pairOf, isRatioPair, legsOf, ratio18, toUsd8, RATIO_DECIMALS, USD_DECIMALS } from './pairs.mjs';
+import { CFG } from './config.mjs';
 
 export const SOURCE = 'Bitfinex';
 export const SYMBOLS = { 'BTC/USD': 'tBTCUSD', 'ETH/USD': 'tETHUSD', 'SOL/USD': 'tSOLUSD' };
 const BASE = 'https://api-pub.bitfinex.com/v2/trades';
+/** Coins whose start and end are the median of a window of trades (P2-01). A coin not listed (SOL) keeps the single trade. */
+export const WINDOWS = {
+  // Measured over a full day on 25 Nov 2026 (76,000 BTC and 25,500 ETH trades): fewer than 3 trades in 0.3% of 60 s BTC windows
+  // (5% in the quietest hour) and 1.7% of 90 s ETH windows (18% in the quietest hour). Shorter windows refunded too often
+  // (BTC 30 s: 2.5%; ETH 60 s: 5.3%). Both still fit a 5-minute round: start 0:02-1:32, end 2:30-4:00 for ETH.
+  'BTC/USD': { seconds: 60, minTrades: 3 },
+  'ETH/USD': { seconds: 90, minTrades: 3 },
+};
+/** A window is only asked for once it closed this long ago, so Bitfinex's history has every trade in it. */
+export const WINDOW_SETTLE_SEC = 2;
+
+/** The median of a list of numbers (the mean of the middle two for an even count). */
+export function median(values) {
+  const v = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(v.length / 2);
+  return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
+}
+
+const hhmmss = (sec) => new Date(sec * 1000).toISOString().slice(11, 19);
 
 export function createExchangePrices({
   fetchFn = fetch,
@@ -32,6 +62,8 @@ export function createExchangePrices({
   maxTradeAgeSec = 900,    // a market with no trade for 15 minutes looks stalled: do not push
   maxClockSkewSec = 120,   // this PC's clock must be within 2 minutes of Bitfinex's
   maxJump = 0.20,          // reject a price that moved more than 20% from the last one we handed out
+  windows = WINDOWS,       // which coins use a window of trades instead of one trade (P2-01)
+  endMargin = CFG.endMargin, // the end window closes this long before the round ends
 } = {}) {
   const cache = {};        // market name -> { at, quote }
   const lastTry = {};      // market name -> ms
@@ -70,6 +102,40 @@ export function createExchangePrices({
     return { usd, quotedAt, tradeAt, source: SOURCE };
   }
 
+  /**
+   * The median of every trade of `pair` from fromSec (included) to toSec (not included). Throws (not final) while the window has
+   * not closed WINDOW_SETTLE_SEC ago, and a FINAL error when it holds fewer than minTrades trades.
+   */
+  async function windowQuote(pair, fromSec, toSec, minTrades) {
+    const symbol = SYMBOLS[pair];
+    if (!symbol) throw new Error(`no real price source for market ${pair}`);
+    const nowSec = nowMs() / 1000;
+    if (nowSec < toSec + WINDOW_SETTLE_SEC) throw new Error(`the ${pair} price window (${hhmmss(fromSec)} to ${hhmmss(toSec)} UTC) is not over yet; will try again`);
+    if (nowMs() - (lastTry[pair] ?? -Infinity) < minGapMs) throw new Error('price API was tried a moment ago; waiting before asking again');
+    lastTry[pair] = nowMs();
+    const res = await fetchFn(`${BASE}/${symbol}/hist?start=${Math.floor(fromSec * 1000)}&end=${Math.floor(toSec * 1000) - 1}&limit=10000&sort=1`, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(`Bitfinex answered HTTP ${res.status}${res.status === 429 ? ' (too many requests: rate limited)' : ''}`);
+    const data = await res.json();
+    if (!Array.isArray(data) || (data.length && !Array.isArray(data[0]))) throw new Error(`Bitfinex gave no usable trades for ${symbol}${data?.[0] === 'error' ? ` (${data.slice(1).join(' ')})` : ''}`);
+    const dateHeader = res.headers?.get?.('date');
+    const serverMs = dateHeader ? Date.parse(dateHeader) : NaN;
+    const quotedAt = Number.isFinite(serverMs) ? Math.floor(serverMs / 1000) : Math.floor(nowSec);
+    if (Number.isFinite(serverMs) && Math.abs(nowSec - quotedAt) > maxClockSkewSec) {
+      throw new Error(`this PC's clock differs from Bitfinex's by ${Math.round(nowSec - quotedAt)} s: fix the clock before pushing prices`);
+    }
+    if (quotedAt < toSec) throw new Error(`Bitfinex's clock says the ${pair} window is not over yet; will try again`);
+    const trades = data
+      .filter((t) => typeof t?.[1] === 'number' && typeof t?.[3] === 'number' && Number.isFinite(t[3]) && t[3] > 0)
+      .filter((t) => t[1] >= fromSec * 1000 && t[1] < toSec * 1000);
+    if (trades.length < minTrades) {
+      const e = new Error(`only ${trades.length} ${pair} trade${trades.length === 1 ? '' : 's'} on Bitfinex from ${hhmmss(fromSec)} to ${hhmmss(toSec)} UTC (at least ${minTrades} needed): no price, so the round refunds`);
+      e.final = true;
+      throw e;
+    }
+    const usd = median(trades.map((t) => t[3]));
+    return { usd, quotedAt, tradeAt: Math.floor(trades[trades.length - 1][1] / 1000), source: SOURCE, method: 'median', trades: trades.length, windowFrom: fromSec, windowTo: toSec };
+  }
+
   async function load(pair) {
     const c = cache[pair];
     if (c && nowMs() - c.at < ttlMs) return c.quote;
@@ -79,10 +145,19 @@ export function createExchangePrices({
     return quote;
   }
 
-  /** One USD market's checked quote (8-decimal price). firstTradeAfter: use the oldest trade at or after that moment (the START price). */
-  async function usdQuote(pair, firstTradeAfter) {
+  /**
+   * One USD market's checked quote (8-decimal price).
+   *   firstTradeAfter: the START price (a window from that moment, or the oldest trade at or after it for a coin without a window)
+   *   endsAt:          the END price of a round ending then (a window closing endMargin before it, or the last trade for a coin without one)
+   */
+  async function usdQuote(pair, firstTradeAfter, endsAt) {
     let q;
-    if (firstTradeAfter !== undefined) {
+    const w = windows[pair];
+    if (w && firstTradeAfter !== undefined) {
+      q = await windowQuote(pair, firstTradeAfter, firstTradeAfter + w.seconds, w.minTrades);
+    } else if (w && endsAt !== undefined) {
+      q = await windowQuote(pair, endsAt - endMargin - w.seconds, endsAt - endMargin, w.minTrades);
+    } else if (firstTradeAfter !== undefined) {
       q = await ask(pair, `limit=1&sort=1&start=${Math.floor(firstTradeAfter * 1000)}`);
       if (!q) throw new Error(`no ${pair} trade on Bitfinex yet since ${new Date(firstTradeAfter * 1000).toISOString().slice(11, 19)} UTC; will try again`);
       if (q.tradeAt < firstTradeAfter) throw new Error(`Bitfinex answered with a ${pair} trade from before the lock; will try again`);
@@ -107,14 +182,14 @@ export function createExchangePrices({
    * firstTradeAfter), and the price is top / bottom with 18 decimals, the same maths as the RatioGuard contract.
    * Both trades are kept in `legs`, so the price log can show where the ratio came from.
    */
-  async function ratioQuote(pair, firstTradeAfter) {
+  async function ratioQuote(pair, firstTradeAfter, endsAt) {
     const [topPair, bottomPair] = legsOf(pair);
-    const top = await usdQuote(topPair, firstTradeAfter);
-    const bottom = await usdQuote(bottomPair, firstTradeAfter);
+    const top = await usdQuote(topPair, firstTradeAfter, endsAt);
+    const bottom = await usdQuote(bottomPair, firstTradeAfter, endsAt);
     const price = ratio18(top.price, bottom.price);
     const value = Number(price) / 10 ** RATIO_DECIMALS;
     jumpCheck(pair, value);
-    const leg = (p, q) => ({ pair: p, usd: q.usd, price: String(q.price), tradeAt: q.tradeAt, quotedAt: q.quotedAt });
+    const leg = (p, q) => ({ pair: p, usd: q.usd, price: String(q.price), tradeAt: q.tradeAt, quotedAt: q.quotedAt, ...(q.method ? { method: q.method, trades: q.trades, windowFrom: q.windowFrom, windowTo: q.windowTo } : {}) });
     return {
       price, usd: value, decimals: RATIO_DECIMALS, source: SOURCE,
       quotedAt: Math.max(top.quotedAt, bottom.quotedAt),
@@ -131,9 +206,9 @@ export function createExchangePrices({
      * firstTradeAfter (unix seconds, optional): use the OLDEST trade whose own time is at or after this moment
      * (the START price). Throws if there is none yet; the cache is not used and the 5 second limit still applies.
      */
-    async quote(marketName, { firstTradeAfter } = {}) {
+    async quote(marketName, { firstTradeAfter, endsAt } = {}) {
       const pair = pairOf(marketName); // "BTC/USD 5m" and "BTC/USD 10m" are the same coin
-      return isRatioPair(pair) ? ratioQuote(pair, firstTradeAfter) : usdQuote(pair, firstTradeAfter);
+      return isRatioPair(pair) ? ratioQuote(pair, firstTradeAfter, endsAt) : usdQuote(pair, firstTradeAfter, endsAt);
     },
 
     /** Same as quote(), but only the price (8 decimals, or 18 for a coin-vs-coin market). */

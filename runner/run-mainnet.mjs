@@ -21,7 +21,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { ROOT, NETWORKS, arcChain } from '../scripts/lib.mjs';
 import { CFG } from './config.mjs';
 import { planTick, tickDelay } from './plan.mjs';
-import { retryAfterMs, wrongSettleIds } from './retry.mjs';
+import { retryAfterMs, wrongSettleIds, FINAL_WAIT_MS } from './retry.mjs';
 import { makeReader } from './chain.mjs';
 import { createCandles } from './candles.mjs';
 import { createGuide, freshCandles } from './guide.mjs';
@@ -118,7 +118,7 @@ async function tick() {
       // a settle after 15 s, then longer each time up to 4 minutes (retry.mjs), anything else after 5 minutes
       const n = (failures.get(text) || 0) + 1;
       failures.set(text, n);
-      failedUntil.set(text, Date.now() + retryAfterMs(a.type, n));
+      failedUntil.set(text, Date.now() + (e.final ? FINAL_WAIT_MS : retryAfterMs(a.type, n)));
       if (a.type === 'settle' && a.feed && wrongSettleIds(e)) { readSnapshot.forgetFeed?.(a.feed); log(`settle refused for a wrong price id: ${a.marketName}'s feed history will be read again from scratch`); }
       const why = String(e.shortMessage || e.message).slice(0, 300);
       log(`${/will try again/.test(why) ? 'WAITING' : LIVE ? 'FAILED' : 'WOULD FAIL'}: ${text}\n         ${why}`);
