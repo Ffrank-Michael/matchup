@@ -168,6 +168,30 @@ test('executor: live mode sends the price to the relay feed and the settle to th
   assert.ok(s.tx);
 });
 
+test('executor (P2-02): an end price is not sent when the chain is already within 20 s of the round end', async () => {
+  const c = fakeChain();
+  const execute = c.make(true);
+  await assert.rejects(execute({ ...push, endsAt: NOW + 20 }), /end price not sent: only 20 s left before the round ends \(the limit is 20 s\)/);
+  await assert.rejects(execute({ ...push, endsAt: NOW + 5 }), /end price not sent/);
+  await assert.rejects(execute({ ...push, endsAt: NOW - 3 }), /end price not sent/);
+  assert.equal(c.sent.length, 0, 'nothing sent');
+  await execute({ ...push, endsAt: NOW + 21 });
+  assert.equal(c.sent.length, 1, '21 s left: sent');
+});
+
+test('executor (P2-02): a start price has no end limit, and the cutoff can be set', async () => {
+  const c = fakeChain();
+  await c.make(true)({ ...push, why: 'start price', endsAt: undefined, firstTradeAfter: NOW - 5 });
+  assert.equal(c.sent.length, 1);
+});
+
+test('price log (P2-02): an end price that still landed after the end is marked, a normal one is not', async () => {
+  const { markLate } = await import('./mainnet.mjs');
+  assert.equal(markLate({}, { endsAt: 100 }, { timestamp: 101n }).landedAfterEnd, true);
+  assert.equal(markLate({}, { endsAt: 100 }, { timestamp: 100n }).landedAfterEnd, undefined);
+  assert.equal(markLate({}, {}, { timestamp: 999n }).landedAfterEnd, undefined);
+});
+
 test('executor: a price outside the Chainlink band is not sent (live) and is reported (dry run)', async () => {
   const c = fakeChain({ bitfinex: 10_300_00000000n });
   await assert.rejects(c.make(true)(push), /price not sent: .*3% away from Chainlink/);

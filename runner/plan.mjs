@@ -174,7 +174,7 @@ function planCall(m, k, agent, cfg, actions, decisions, candles) {
 /**
  * Which price (if any) is due for the round that is running now (round k-1) of a market.
  *   'start': no update at or after the lock yet, from lock + startAfter until startGiveUp of the round has passed
- *   'end'  : the round has its start price and the end price is not in yet, from endMargin seconds before the end
+ *   'end'  : the round has its start price and the end price is not in yet, from endMargin seconds before the end until endCutoff before it
  * Also used by the runner to tick faster while a price is due.
  */
 /**
@@ -207,7 +207,7 @@ export function priceDue(m, now, cfg) {
   if (!latest || latest.updatedAt < lockR) {
     return now >= lockR + cfg.startAfter && now < lockR + m.roundLength * cfg.startGiveUp ? 'start' : null;
   }
-  if (now >= endR - cfg.endMargin && now < endR && latest.updatedAt < endR - cfg.endMargin) return 'end';
+  if (now >= endR - cfg.endMargin && now < endR - cfg.endCutoff && latest.updatedAt < endR - cfg.endMargin) return 'end';
   return null;
 }
 

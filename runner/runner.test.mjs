@@ -246,8 +246,8 @@ test('a price from before the lock never counts as the start price', () => {
 
 test('only the start price asks for a trade after the lock; the end price is the last trade', () => {
   const f = [...FEED, upd(5, 6010, 102)];
-  assert.equal(priceAt(6585, f)[0].why, 'end price');
-  assert.equal(priceAt(6585, f)[0].firstTradeAfter, undefined);
+  assert.equal(priceAt(6570, f)[0].why, 'end price');
+  assert.equal(priceAt(6570, f)[0].firstTradeAfter, undefined);
 });
 
 test('there is no price in the middle of the round', () => {
@@ -260,7 +260,9 @@ test('end price: pushed from 60 seconds before the end, once, and the action say
   assert.equal(priceAt(6539, f).length, 0);
   assert.equal(priceAt(6540, f)[0].why, 'end price');
   assert.equal(priceAt(6540, f)[0].endsAt, 6600);
-  assert.equal(priceAt(6599, f)[0].why, 'end price'); // late is better than never, until the end
+  assert.equal(priceAt(6579, f)[0].why, 'end price'); // late is better than never, until 20 s before the end ...
+  assert.equal(priceAt(6580, f).length, 0);             // ... then never: it could land after the end (audit P2-02)
+  assert.equal(priceAt(6599, f).length, 0);
   assert.equal(priceAt(6540, [...f, upd(6, 6541, 103)]).length, 0);
   assert.equal(priceAt(6600, f).length, 0); // next round now
 });
@@ -534,9 +536,9 @@ test('two markets of one coin on the same feed: one start price push, one end pr
   assert.equal(start[0].feed, '0xRELAY'); // the executor pushes to the feed the market uses
   // after that push both markets have their start price, so nothing more is due
   assert.equal(pushes(3003, { address: '0xRELAY', updates: [...feed.updates, upd(2, 3003, 101)] }).length, 0);
-  // at 3285 the 5-minute round ends in 15 s (its end window is open); the 10-minute round has 5 more minutes: one end price push, for the 5m market
+  // at 3270 the 5-minute round ends in 30 s (its end window is open); the 10-minute round has 5 more minutes: one end price push, for the 5m market
   const mid = { address: '0xRELAY', updates: [...feed.updates, upd(2, 3003, 101)] };
-  const end = pushes(3285, mid);
+  const end = pushes(3270, mid);
   assert.equal(end.length, 1);
   assert.equal(end[0].why, 'end price');
   assert.equal(end[0].marketName, 'BTC/USD 5m');

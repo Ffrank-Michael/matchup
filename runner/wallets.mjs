@@ -8,6 +8,7 @@ import { displayName } from '../agents/index.mjs';
 import { createExchangePrices } from './exchangePrices.mjs';
 import { appendPriceLog, makePriceLogEntry } from './priceLog.mjs';
 import { pairOf, isRatioPair, priceText } from './pairs.mjs';
+import { refuseLateEnd, markLate } from './mainnet.mjs';
 
 const usdcText = (u) => '$' + (u / 1e6).toFixed(2);
 
@@ -86,7 +87,9 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
       case 'pushPrice': {
         const q = await prices.quote(a.marketName, { firstTradeAfter: a.firstTradeAfter }); // throws if the API fails or there is no trade after the lock yet: then nothing is pushed
         const feed = feedFor(a);
+        await refuseLateEnd(pub, a);
         for (const [standIn, price] of standInPushes(a, q)) await deployerSend(standIn, feedAbi, 'setPrice', [price]);
+        await refuseLateEnd(pub, a); // the stand-ins take a transaction each on the testnet: look again before the relay
         const { hash, rc } = await deployerSend(feed, relayAbi ?? feedAbi, 'setPrice', [q.price]);
         let note = `real price ${usd(q.price, a)}, ${quoteText(q)}, pushed to the TEST feed`;
         try { // the price is already on chain; a log problem must be loud but must not look like a failed push
@@ -96,7 +99,7 @@ export function makeExecutor({ live, env, deployments, pub, wallet, usdc, arenaA
             note += `
          end price landed ${spare} s before the round ends${spare < 30 ? ' (LESS THAN 30 s: too close)' : ''}`;
           }
-          logPush(makePriceLogEntry({ action: a, quote: q, txHash: hash, blockNumber: rc.blockNumber, blockTimestamp: block.timestamp, feed, explorer, chainId }));
+          logPush(markLate(makePriceLogEntry({ action: a, quote: q, txHash: hash, blockNumber: rc.blockNumber, blockTimestamp: block.timestamp, feed, explorer, chainId }), a, block));
         } catch (e) { note += `
          WARNING: the price is on chain but could not be written to the price log: ${e.message}`; }
         return { tx: hash, note };

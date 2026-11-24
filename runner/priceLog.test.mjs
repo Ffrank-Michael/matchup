@@ -163,5 +163,5 @@ test('start and end prices carry the running round and the right kind', () => {
   const old = { id: id(1), updatedAt: 5990, price: 1n };
   const start = { id: id(2), updatedAt: 6010, price: 1n };
   assert.deepEqual(at(6010, [old]).map((a) => [a.why, a.round]), [['start price', 10]]);
-  assert.deepEqual(at(6585, [old, start]).map((a) => [a.why, a.round]), [['end price', 10]]);
+  assert.deepEqual(at(6570, [old, start]).map((a) => [a.why, a.round]), [['end price', 10]]);
 });

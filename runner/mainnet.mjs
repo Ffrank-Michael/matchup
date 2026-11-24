@@ -12,6 +12,7 @@ import { ROOT, parseEnv } from '../scripts/lib.mjs';
 import { createExchangePrices } from './exchangePrices.mjs';
 import { appendPriceLog, makePriceLogEntry } from './priceLog.mjs';
 import { pairOf, priceText } from './pairs.mjs';
+import { CFG } from './config.mjs';
 
 export const MAINNET_CHAIN_ID = 5042;
 export const SEND_FLAG = '--i-understand-this-spends-real-usdc';
@@ -86,7 +87,7 @@ export function describe(a) {
  * live false (the default): nothing is sent, and `wallet` may be null; it only logs what it would do.
  * Before a price is sent it is checked against Chainlink; a price outside the relay's band is not sent.
  */
-export function makeMainnetExecutor({ live, pub, wallet, arena, arenaAbi, relayAbi, guardAbi, prices, explorer, chainId, logPush = (e) => appendPriceLog(e, MAINNET_PRICE_LOG_FILE), nowSec = () => Math.floor(Date.now() / 1000) }) {
+export function makeMainnetExecutor({ live, pub, wallet, arena, arenaAbi, relayAbi, guardAbi, prices, explorer, chainId, logPush = (e) => appendPriceLog(e, MAINNET_PRICE_LOG_FILE), nowSec = () => Math.floor(Date.now() / 1000), endCutoff = CFG.endCutoff }) {
   if (live && !wallet) throw new Error('live mode needs a wallet');
   prices ||= createExchangePrices();
   const read = (address, abi, functionName, args = []) => pub.readContract({ address, abi, functionName, args });
@@ -127,6 +128,7 @@ export function makeMainnetExecutor({ live, pub, wallet, arena, arenaAbi, relayA
     const pair = pairOf(a.marketName);
     let note = `${quoteText(q)}: ${priceText(q.price, pair)}, Chainlink ${priceText(guardAnswer, pair)}, ${(res.deviationBps / 100).toFixed(2)}% apart (limit ${(await relayOf(a.feed)).bandBps / 100}%)`;
     if (!live) return { dryRun: true, note: `would push ${note}` };
+    await refuseLateEnd(pub, a, endCutoff);
     const { hash, rc } = await send(a.feed, relayAbi, 'setPrice', [q.price]);
     try { // the price is already on chain; a log problem must be loud but must not look like a failed push
       const block = await pub.getBlock({ blockNumber: rc.blockNumber });
@@ -134,10 +136,27 @@ export function makeMainnetExecutor({ live, pub, wallet, arena, arenaAbi, relayA
         const spare = a.endsAt - Number(block.timestamp);
         note += `\n         end price landed ${spare} s before the round ends${spare < 30 ? ' (LESS THAN 30 s: too close)' : ''}`;
       }
-      logPush(makePriceLogEntry({ action: a, quote: q, txHash: hash, blockNumber: rc.blockNumber, blockTimestamp: block.timestamp, feed: a.feed, explorer, chainId, label: 'Bitfinex last trade, checked against Chainlink' }));
+      logPush(markLate(makePriceLogEntry({ action: a, quote: q, txHash: hash, blockNumber: rc.blockNumber, blockTimestamp: block.timestamp, feed: a.feed, explorer, chainId, label: 'Bitfinex last trade, checked against Chainlink' }), a, block));
     } catch (e) { note += `\n         WARNING: the price is on chain but could not be written to the price log: ${e.message}`; }
     return { tx: hash, note };
   };
+}
+
+/**
+ * Right before an END price is sent: the latest block time must be more than endCutoff seconds before the round ends (as in the planner). The quote
+ * can take several seconds (two Bitfinex requests for a coin-vs-coin market), so the planner's check alone is not enough.
+ * A late end price would refund the round and become the next round's start, a price from before its lock (P2-02).
+ */
+export async function refuseLateEnd(pub, a, endCutoff = CFG.endCutoff) {
+  if (!a.endsAt) return;
+  const chainNow = Number((await pub.getBlock()).timestamp);
+  if (chainNow >= a.endsAt - endCutoff) throw new Error(`end price not sent: only ${a.endsAt - chainNow} s left before the round ends (the limit is ${endCutoff} s), so it could land after the end`);
+}
+
+/** A price log entry whose end price still landed after the end (should not happen any more) says so. */
+export function markLate(entry, a, block) {
+  if (a.endsAt && Number(block.timestamp) > a.endsAt) entry.landedAfterEnd = true;
+  return entry;
 }
 
 /** The problem with the node's chain, or null when it is Arc mainnet. Run before anything else is read. */
