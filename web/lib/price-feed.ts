@@ -8,9 +8,10 @@ import { ratioCandles } from "@/lib/ratio";
 // The ONE source of prices on the site: Bitfinex's free public websocket (no key).
 //   wss://api-pub.bitfinex.com/ws/2   channel "candles", key "trade:1m:tBTCUSD" (and ETH, SOL)
 // It first sends the last 240 one-minute candles (4 hours), then a message on every trade.
-// The price is the price of the last trade (the close of the newest candle). The runner that
-// records the round's start and end prices reads the last trade from the same Bitfinex market
-// (runner/exchangePrices.mjs), so every price on the page is the number that decides a round.
+// The live price is the price of the last trade (the close of the newest candle). A round's start
+// and end price are NOT simply the last trade: the runner reads the same Bitfinex market and takes the
+// middle price of a window of trades for BTC and ETH, a single trade for SOL (runner/exchangePrices.mjs,
+// lib/price-rule.ts). The start price the site shows for a round comes from the chain.
 //
 // Every place on the page takes its price from here, so two places can never disagree.
 // Limits (Bitfinex docs): 20 new connections per minute per IP and 25 channels per connection.

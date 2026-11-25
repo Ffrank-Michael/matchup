@@ -33,6 +33,20 @@ export const START_RULE =
 export const END_RULE =
   "The end price is the middle price of the trades in the 60 seconds (90 for ETH) before the last minute of the round; for SOL, the last trade about one minute before the end. The last minute does not count.";
 
+/** The live price against a round's start and end price, in plain words (How it works, under the rules). */
+export const LIVE_PRICE_NOTE =
+  "The live price on this site is the latest trade on Bitfinex. The start and end price of a round follow the rules above: the middle price of the trades in a window for BTC and ETH, and a single trade for SOL.";
+
+/** The same, short, for the home page footer (no rules above it there). */
+export const LIVE_PRICE_SHORT = "Live price: the latest trade on Bitfinex. A round's start and end price follow the rules in";
+
+/**
+ * Who holds the money and who sends the prices, in plain words. The contract holds the pot and only pays the fee to Matchup, but
+ * the runner pushes every start and end price; the relay only refuses a price far from Chainlink's (1% BTC, 1.5% ETH and SOL).
+ */
+export const MONEY_AND_PRICES_NOTE =
+  "The money sits in the contract, not with Matchup, and Matchup's only cut is the 2% fee. But the Matchup runner sends the start and end prices to the contract, so you are trusting it to send the right ones. A safety check in the contract rejects any price that is far from Chainlink's price.";
+
 /** When there are too few trades, in plain words. */
 export const TOO_FEW_RULE =
   "If BTC or ETH has fewer than 3 trades in one of these windows, there is no price and everyone gets their money back.";

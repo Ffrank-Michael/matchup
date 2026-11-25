@@ -16,6 +16,7 @@ import {
   type MarketKey,
 } from "@/lib/markets";
 import { hourPoints, lastPrice, usePriceFeed } from "@/lib/price-feed";
+import { LIVE_PRICE_SHORT } from "@/lib/price-rule";
 import { withGuideCalls } from "@/lib/guide-merge";
 import { noteOf, useAgentNotes } from "@/lib/use-agent-notes";
 import { useGuideCalls } from "@/lib/use-guide-calls";
@@ -355,16 +356,11 @@ export function KairoHome() {
         />
 
         <footer className="mt-4 px-1 text-[11px] text-muted-foreground">
-          Prices: last trade on{" "}
-          <a
-            href="https://www.bitfinex.com"
-            target="_blank"
-            rel="noreferrer"
-            className="underline underline-offset-2 hover:text-foreground"
-          >
-            Bitfinex
-          </a>
-          , live.{" "}
+          {LIVE_PRICE_SHORT}{" "}
+          <Link href="/how-it-works" className="underline underline-offset-2 hover:text-foreground">
+            How it works
+          </Link>
+          .{" "}
           {feed.status === "reconnecting" && !feedFailed
             ? "Connection lost just now, showing the last prices while it reconnects."
             : null}

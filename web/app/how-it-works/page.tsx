@@ -1,4 +1,4 @@
-import { END_RULE, START_RULE, TOO_FEW_RULE } from "@/lib/price-rule";
+import { END_RULE, LIVE_PRICE_NOTE, MONEY_AND_PRICES_NOTE, START_RULE, TOO_FEW_RULE } from "@/lib/price-rule";
 import type { Metadata } from "next";
 import Link from "next/link";
 import type * as React from "react";
@@ -14,7 +14,8 @@ export const metadata: Metadata = {
 };
 
 // The six steps are the owner's text. Changes made for accuracy: rounds are 5 or 10 minutes (not 15), the call is on the
-// NEXT round, the start price is the first live trade after calling closes, and the contract (not Matchup) holds the pot.
+// NEXT round, the start and end prices follow lib/price-rule.ts, and the contract (not Matchup) holds the pot while the runner
+// sends the prices (MONEY_AND_PRICES_NOTE).
 const STEPS: ReadonlyArray<{ title: string; body: React.ReactNode }> = [
   {
     title: "Pick a market.",
@@ -59,7 +60,7 @@ const STEPS: ReadonlyArray<{ title: string; body: React.ReactNode }> = [
   },
   {
     title: "Claim.",
-    body: "Press Claim and your USDC goes straight to your wallet: winnings, refunds, and the part of a call that was not matched, even if the call lost. Claim all covers them together. The money sits in the contract, not with Matchup: Matchup can only take its 2% fee.",
+    body: `Press Claim and your USDC goes straight to your wallet: winnings, refunds, and the part of a call that was not matched, even if the call lost. Claim all covers them together. ${MONEY_AND_PRICES_NOTE}`,
   },
 ];
 
@@ -242,7 +243,7 @@ export default function HowItWorks() {
       <ContractNote className="mt-3 text-[15px] leading-relaxed text-muted-foreground" />
 
       <p className="mt-6 text-[13px] text-muted-foreground">
-        Prices are the last live trade on Bitfinex. Charts by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">TradingView Lightweight Charts™</a>. Matchup is in beta: each
+        {LIVE_PRICE_NOTE} Charts by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">TradingView Lightweight Charts™</a>. Matchup is in beta: each
         wallet can have at most 10 USDC on a round.
       </p>
       <p className="mt-2 text-[13px] text-muted-foreground">
