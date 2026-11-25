@@ -46,6 +46,8 @@ Nothing in this file is secret, and no secret should ever be added to it.
   window** (60 s for BTC, 90 s for ETH, at least 3 trades or the round refunds). The start window opens 2 s after the lock;
   the end window closes 60 s before the round ends. SOL keeps a **single trade** (see "Known limits"). Every price is
   checked against Chainlink before it is sent, and an end price is **never sent in the last 20 seconds** of a round.
+  The runner keeps asking for a start price until 30 s after its window can be read, or 25% of the round if that is later
+  (about 64 to 94 s after the lock on BTC 5m, 94 to 124 s on ETH 5m), and never once the end window has opened.
 - **Only one runner at a time.** Never run the mainnet runner on your PC while the server runs it.
 
 ---
@@ -132,7 +134,7 @@ worth doing every day or two.
 | `checked: Arc mainnet, <n> markets, <m> relay feeds, the runner is the pusher of each` | The start-up checks passed. Today 12 markets and 3 feeds; 13 and 4 once ETH vs BTC is deployed. | No |
 | `DONE:` | A price push or a settle went through. A `tx` line follows with its hash. An end price also says `end price landed <n> s before the round ends`. | Only if it says `LESS THAN 30 s` often |
 | `WOULD:` / `WOULD FAIL:` | Dry run: what it would have sent, or what would have failed. | No |
-| `WAITING:` | A price is not ready yet: the BTC/ETH price window is not over, no SOL trade since the lock yet, or the chain's clock runs a little behind Bitfinex's so the start must be later (P2-14). It tries again by itself. | Only if the same round waits for minutes |
+| `WAITING:` | A price is not ready yet: the BTC/ETH price window is not over (normal for the first 64 s after the lock on BTC, 94 s on ETH), no SOL trade since the lock yet, or the chain's clock runs a little behind Bitfinex's so the start must be later (P2-14). It tries again by itself. | Only if the same round still waits 30 s after that |
 | `FAILED:` | A push or settle failed. It tries again by itself (5 s for a price, 15 s up to 4 min for a settle). | Once: no. The same round again and again: yes, read the reason on the next line |
 | `... only <n> BTC/USD trades on Bitfinex from ... (at least 3 needed): no price, so the round refunds` | Too few trades in the price window. Not tried again for that round. | No, unless it happens on most rounds |
 | `end price not sent: only <n> s left before the round ends (the limit is 20 s)` | The end price was ready too late. Sending it could land after the end and refund the round, so it was not sent (P2-02). That round refunds. | Rare: no. Often: the RPC or Bitfinex is slow |

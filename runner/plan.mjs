@@ -29,7 +29,8 @@ import * as chartReader from '../agents/chartReader.mjs';
 import * as coinFlipper from '../agents/coinFlipper.mjs';
 import * as contrarian from '../agents/contrarian.mjs';
 import { findSettleIds } from './settleIds.mjs';
-import { pairOf, priceNumber } from './pairs.mjs';
+import { legsOf, pairOf, priceNumber } from './pairs.mjs';
+import { WINDOWS, WINDOW_SETTLE_SEC } from './exchangePrices.mjs';
 import { AI_AGENTS, MIN_CANDLES, COULDNT_DECIDE, candlesFor, frameLabel } from '../agents/ai.mjs';
 import { legalStake, fmtUsdc, opposite } from '../agents/lib.mjs';
 
@@ -172,12 +173,6 @@ function planCall(m, k, agent, cfg, actions, decisions, candles) {
 }
 
 /**
- * Which price (if any) is due for the round that is running now (round k-1) of a market.
- *   'start': no update at or after the lock yet, from lock + startAfter until startGiveUp of the round has passed
- *   'end'  : the round has its start price and the end price is not in yet, from endMargin seconds before the end until endCutoff before it
- * Also used by the runner to tick faster while a price is due.
- */
-/**
  * Matched calls: a caller on the BIGGER side who lost still gets the unmatched part of the stake back at claim.
  * Same maths as the contract: the loser's matched part is ceil(stake * M / T) (M = smaller side, T = bigger side),
  * so what comes back is stake - ceil(stake * M / T). BigInt, because stake * M can pass 2^53. Zero for anyone else.
@@ -196,6 +191,37 @@ export function unmatchedBack(r, p) {
 /** Calls on both sides: the only kind of round that needs a price push when cfg.matchedOnly is set. */
 const twoSided = (r) => !!r && r.up > 0 && r.down > 0;
 
+/** Seconds of a market's price window plus the wait for Bitfinex's history to hold all of it; 0 for a single trade (SOL). A coin-vs-coin market waits for its slower coin. */
+function windowWait(m) {
+  const pair = pairOf(m.name);
+  const legs = legsOf(pair) ?? [pair];
+  return Math.max(0, ...legs.map((p) => (WINDOWS[p] ? WINDOWS[p].seconds + WINDOW_SETTLE_SEC : 0)));
+}
+const windowLength = (m) => {
+  const pair = pairOf(m.name);
+  return Math.max(0, ...(legsOf(pair) ?? [pair]).map((p) => WINDOWS[p]?.seconds ?? 0));
+};
+
+/** Seconds after the lock from which the start price can first be read: SOL at once (lock + startAfter), BTC and ETH once their window has closed. */
+export const startReadyAfter = (m, cfg) => cfg.startAfter + windowWait(m);
+
+/** Seconds after the lock at which the end price window opens (SOL: the single end trade, endMargin before the end). */
+export const endWindowOpensAfter = (m, cfg) => m.roundLength - cfg.endMargin - windowLength(m);
+
+/**
+ * Seconds after the lock until which the runner keeps asking for the start price: startGiveUp of the round, or startMargin after
+ * the start price can first be read, whichever is later; but never once the end price window has opened, so a late start push
+ * can never be mistaken for the end price nor come near the last 20 seconds (endCutoff). Asked at second t means t < deadline.
+ */
+export const startDeadline = (m, cfg) =>
+  Math.min(Math.max(m.roundLength * cfg.startGiveUp, startReadyAfter(m, cfg) + cfg.startMargin), endWindowOpensAfter(m, cfg));
+
+/**
+ * Which price (if any) is due for the round that is running now (round k-1) of a market.
+ *   'start': no update at or after the lock yet, from lock + startAfter until startDeadline (above)
+ *   'end'  : the round has its start price and the end price is not in yet, from endMargin seconds before the end until endCutoff before it
+ * Also used by the runner to tick faster while a price is due.
+ */
 export function priceDue(m, now, cfg) {
   const k = m.nextRound;
   if (k < 1) return null;
@@ -205,7 +231,7 @@ export function priceDue(m, now, cfg) {
   const updates = m.feed.updates;
   const latest = updates.length ? updates[updates.length - 1] : null;
   if (!latest || latest.updatedAt < lockR) {
-    return now >= lockR + cfg.startAfter && now < lockR + m.roundLength * cfg.startGiveUp ? 'start' : null;
+    return now >= lockR + cfg.startAfter && now < lockR + startDeadline(m, cfg) ? 'start' : null;
   }
   if (now >= endR - cfg.endMargin && now < endR - cfg.endCutoff && latest.updatedAt < endR - cfg.endMargin) return 'end';
   return null;

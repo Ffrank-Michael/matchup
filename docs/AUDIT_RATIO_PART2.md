@@ -364,7 +364,7 @@ cover it.
 - Bitfinex answers are checked: HTTP errors, error arrays, empty lists, non-numbers, a trade more than 15 minutes old, and
   a PC clock more than 2 minutes off all make the runner push **nothing**. No price is ever made up; the round refunds.
 - The start uses each coin's first trade at or after lock + 2 s, and a trade from before that is refused. The runner keeps
-  trying for the first quarter of the round (15 minutes on 1-hour rounds), then gives up and the round refunds.
+  trying for the first quarter of the round (15 minutes on 1-hour rounds), then gives up and the round refunds. (Fixed after this audit: on BTC and ETH 5m rounds the window closes too close to, or after, that quarter, so the runner now asks until 30 s after the window can be read; `docs/RULES.md` H6.)
 - The ratio is the same integer maths in the runner (`ratio18`), the contract (`RatioGuard._ratio`) and the site (`ratioOf`):
   both prices as 8-decimal integers, 18 decimals, rounded down.
 - On mainnet every price is compared off chain with the relay's own rule (band and guard age) before it is sent; with

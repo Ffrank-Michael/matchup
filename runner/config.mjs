@@ -18,7 +18,12 @@ export const CFG = {
   // soon as it is seen (usually 5 to 15 s after the lock, longer on a quiet market). If none has come by
   // startGiveUp of the round, no start price is recorded and the round refunds.
   startAfter: 2,         // the start trade must be at least this many seconds after the lock (covers clock differences)
-  startGiveUp: 0.25,     // ... and the runner stops waiting for it after this share of the round
+  startGiveUp: 0.25,     // ... and the runner stops waiting for it after this share of the round, or startMargin after the start
+                         // price can first be read (BTC/ETH: once their window has closed), whichever is later, but never once the end
+                         // price window has opened (plan.mjs, startDeadline). Without this, ETH's 90 s window closed after 25% of a
+                         // 5-minute round (75 s) and those rounds could never get a start price.
+  startMargin: 30,       // seconds the runner keeps asking after the start price can first be read (Bitfinex retries, a slow push,
+                         // and the chain running a little behind Bitfinex, which moves the window later: P2-14)
   endMargin: 60,         // the last trade is pushed this long before the end: it becomes the END price. A push takes about 13 s on the testnet
                          // (two transactions), so this leaves at least 30 s to spare even when the network is slow. The log shows each landing.
   endCutoff: 20,         // ... and never later than this before the end: an end price that lands after the end would refund the round and become
