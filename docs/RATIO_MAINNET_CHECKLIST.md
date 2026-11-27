@@ -48,24 +48,27 @@ What gets deployed (the same pieces as the testnet rehearsal, ETH vs BTC only):
 - [ ] **Code on the server is the `ratio` branch** (merged), so the mainnet runner knows the 18-decimal pair. An older runner
       would refuse to quote "ETH/BTC" (no price source) and push nothing, which is safe but makes every round refund.
 
-## Write the mainnet script (not written yet)
+## The mainnet script (written: `scripts/deploy-ratio-mainnet.mjs`, not run with the flag)
 
-`scripts/deploy-ratio.mjs` refuses mainnet on purpose. A mainnet version must, like `scripts/deploy.mjs --set mainnet`:
+`scripts/deploy-ratio.mjs` refuses mainnet on purpose; `scripts/deploy-ratio-mainnet.mjs` is the mainnet version (tests: `scripts/deploy-ratio-mainnet.test.mjs`). It does all of this:
 
-- [ ] be a **dry run unless** `--i-understand-this-spends-real-usdc` is given, and print the cost estimate first;
-- [ ] use `MAINNET_DEPLOYER_PRIVATE_KEY` (the arena owner) on your PC only, never on the server;
-- [ ] take the pusher from `MAINNET_RUNNER_PRIVATE_KEY`'s **address** (`scripts/runnerKey.mjs`), and refuse if it is the owner;
-- [ ] deploy **ETH vs BTC only** (the `ethbtc` entry of `RATIO_MARKETS` in `scripts/markets.mjs`), and refuse any other pair on
+- [x] be a **dry run unless** `--i-understand-this-spends-real-usdc` is given, and print the cost estimate first;
+- [x] use `MAINNET_DEPLOYER_PRIVATE_KEY` (the arena owner) on your PC only, never on the server;
+- [x] take the pusher from `MAINNET_RUNNER_PRIVATE_KEY`'s **address** (`scripts/runnerKey.mjs`), and refuse if it is the owner;
+- [x] deploy **ETH vs BTC only** (the `ethbtc` entry of `RATIO_MARKETS` in `scripts/markets.mjs`), and refuse any other pair on
       mainnet, SOL vs BTC included, until "Later: SOL vs BTC" is done;
-- [ ] read the two Chainlink proxies first (ETH/USD and BTC/USD; `judgeGuard`: description, 8 decimals, answer > 0, not older
-      than 26 h) and stop on any problem;
-- [ ] after deploying the RatioGuard, read `latestRoundData()` and compare it with Chainlink ETH / BTC worked out off chain;
-- [ ] check the arena's `marketCount` is 12 before creating the market, so the new id is 12;
-- [ ] save to `deployments/arc-mainnet.json` under `ratio` and append the market with `kind: "ratio"` (the same shape as the
+- [x] read the two Chainlink proxies first (ETH/USD and BTC/USD; `judgeGuard`: description, 8 decimals, answer > 0, not older
+      than 25 h, the RatioGuard's own leg limit) and stop on any problem;
+- [x] after deploying the RatioGuard, read `latestRoundData()` and compare it with Chainlink ETH / BTC worked out off chain;
+- [x] check the arena's `marketCount` is 12 before creating the market, so the new id is 12;
+- [x] save to `deployments/arc-mainnet.json` under `ratio` and append the market with `kind: "ratio"` (the same shape as the
       testnet file), so `scripts/sync-web-deployment.mjs` and `scripts/deploy.mjs --verify-only` keep working;
-- [ ] verify everything on chain afterwards (owner, pusher, guard, band, decimals, description, code matches the repo, market settings),
+- [x] verify everything on chain afterwards (owner, pusher, guard, band, decimals, description, code matches the repo, market settings),
       like the testnet `verify()`;
-- [ ] **not** push a first ratio by itself: on mainnet the runner pushes only for rounds with calls on both sides.
+- [x] **not** push a first ratio by itself: on mainnet the runner pushes only for rounds with calls on both sides.
+- [x] check the arena owner on chain is the owner wallet in `.env` (it stops otherwise). **So it must run before the arena is handed
+      to the hardware wallet**, or the hardware wallet would have to send the three steps itself; the new relay is then handed over
+      together with the arena and the other relays.
 
 ## Deploy day
 
@@ -73,8 +76,8 @@ What gets deployed (the same pieces as the testnet rehearsal, ETH vs BTC only):
       pusher of **4** relay feeds.
 - [ ] Fund the deployer wallet (about the cost the dry run prints; 1 RatioGuard + 1 relay + 1 createMarket is well under 1 USDC
       at today's gas).
-- [ ] Run the mainnet script with the flag. Keep the transaction links.
-- [ ] `node scripts/deploy.mjs --set mainnet --verify-only` and the new script's verify: all OK.
+- [ ] `node scripts/deploy-ratio-mainnet.mjs` (dry run) and read it, then run it again with `--i-understand-this-spends-real-usdc`. Keep the transaction links.
+- [ ] `node scripts/deploy.mjs --set mainnet --verify-only` and `node scripts/deploy-ratio-mainnet.mjs --verify-only`: all OK.
 - [ ] Restart the runner on the server (`docs/RUNBOOK.md`, section 3) and watch the log for the `checked: ... 13 markets, 4 relay feeds` line.
 - [ ] Site: `NEXT_PUBLIC_NETWORK=mainnet npm run build` in `web/` passes, then push to the production branch. The "Coin vs coin"
       row appears by itself once the deployment file has the market, with ETH vs BTC only.
