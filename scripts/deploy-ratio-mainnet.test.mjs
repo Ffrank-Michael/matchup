@@ -90,6 +90,7 @@ const ARENA = getAddress('0xaebac196c76a2c9338a30aef663e4799ffa0d364');
 const OWNER = getAddress('0x1AB2ADf11B3B16544C5F76d74c729B4EdCDcb4bC');
 const PUSHER = getAddress('0x141043c9f604c8274286Dc0319a2F1c9124CEa3F');
 const BTC_RELAY = getAddress('0x15dbb61c92fd8c301a19b769d984491731afab60');
+const ETH_RELAY = getAddress('0xdbb8d2106f1e45aa5287b666a4c8841bead356c0');
 const ETH = getAddress(CHAINLINK_MAINNET.eth);
 const BTC = getAddress(CHAINLINK_MAINNET.btc);
 const contract = { abi: [], bytecode: '0x' + '60'.repeat(100), deployedBytecode: '0x' + '60'.repeat(80) };
@@ -98,7 +99,8 @@ const ART = { arena: contract, relay: contract, ratioGuard: contract };
 function fakeState() {
   return {
     network: 'arc-mainnet', chainId: 5042, owner: OWNER, pusher: PUSHER, arena: { address: ARENA },
-    feeds: { btc: { address: BTC_RELAY } },
+    feeds: { btc: { address: BTC_RELAY }, eth: { address: ETH_RELAY } },
+    guards: { btc: { address: BTC, kind: 'Chainlink proxy' }, eth: { address: ETH, kind: 'Chainlink proxy' } },
     markets: Array.from({ length: 12 }, (_, id) => ({ id, name: `M${id}` })),
   };
 }
@@ -117,6 +119,9 @@ function fakeIo(over = {}) {
     [`${ARENA}.pendingOwner`]: zeroAddress,
     [`${ARENA}.marketCount`]: BigInt(over.marketCount ?? 12),
     [`${BTC_RELAY}.pusher`]: over.btcRelayPusher ?? PUSHER,
+    [`${ETH_RELAY}.pusher`]: over.ethRelayPusher ?? PUSHER,
+    [`${BTC_RELAY}.guard`]: over.btcRelayGuard ?? BTC,
+    [`${ETH_RELAY}.guard`]: over.ethRelayGuard ?? ETH,
   };
   const io = {
     log: (s) => lines.push(s),
@@ -231,4 +236,26 @@ test('F-3: the Chainlink constants must be written checksummed; a mistyped chara
   assert.equal(problems.length, 1);
   assert.match(problems[0], /Chainlink ETH\/USD address .* is not a valid checksummed address/);
   assert.match(ethBtcMarket({ eth: CHAINLINK_MAINNET.eth, btc: CHAINLINK_MAINNET.btc.toLowerCase() }).problems[0], /BTC\/USD address/);
+});
+
+test('F-2: the Chainlink addresses must be the feeds the live ETH and BTC relays use; anything else stops the run before any leg is read', async () => {
+  const other = getAddress('0x' + '44'.repeat(20));
+  for (const [over, msg] of [
+    [{ ethRelayGuard: other }, /has 0x50FCDD99D6762D1C170DC6A9111db944AEE6D364 for Chainlink ETH\/USD, but the live ETH relay .* uses 0x4444/],
+    [{ btcRelayGuard: other }, /for Chainlink BTC\/USD, but the live BTC relay .* uses 0x4444/],
+    [{ ethRelayPusher: other }, /the ETH relay's pusher on chain is 0x4444/],
+  ]) {
+    const f = fakeIo(over);
+    await assert.rejects(run(dry, f.io), msg);
+    assert.doesNotMatch(f.text(), /ETH\/USD +0x/, 'no leg was read');
+  }
+  const st = fakeState();
+  st.guards.eth.address = other;
+  await assert.rejects(run(dry, fakeIo({ state: st }).io), /lists 0x4444.* as the ETH guard/);
+  const noEth = fakeState();
+  delete noEth.feeds.eth;
+  await assert.rejects(run(dry, fakeIo({ state: noEth }).io), /lists no ETH relay/);
+  const ok = fakeIo();
+  await run(dry, ok.io);
+  assert.match(ok.text(), /The live ETH and BTC relays use exactly these Chainlink feeds/);
 });

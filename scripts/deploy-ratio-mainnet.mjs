@@ -147,6 +147,11 @@ export async function run(mode, io) {
 
   // ---------- 1. Chainlink ETH/USD and BTC/USD (reads only) ----------
   step('Check Chainlink on Arc mainnet (reads only)');
+  // The addresses must be the feeds the live ETH and BTC relays already use as their guard (audit part 3, F-2): a raw aggregator,
+  // a secondary proxy or someone else's contract can say "ETH / USD" with 8 decimals too, and every other check reads the same address.
+  const refProblems = await liveReferenceProblems(io, st, top, bottom);
+  if (refProblems.length) stop('the Chainlink addresses do not match the live mainnet relays:\n  ' + refProblems.join('\n  ') + '\nNothing was sent.');
+  log(`  The live ETH and BTC relays use exactly these Chainlink feeds as their guard: ${top}, ${bottom}`);
   const now = await chain.now();
   const legs = {};
   for (const [coin, address] of [['eth', top], ['btc', bottom]]) {
@@ -286,6 +291,34 @@ export async function run(mode, io) {
   return { ok, sent };
 }
 
+/**
+ * Reads only. The Chainlink addresses (top = ETH/USD, bottom = BTC/USD) against an independent reference that is already on chain:
+ * the guard() of the live mainnet ETH and BTC relays, the guards listed in deployments/arc-mainnet.json, and the ETH relay's pusher.
+ * Returns the problems (empty = all match). A read that fails counts as a problem.
+ */
+export async function liveReferenceProblems(io, st, top, bottom) {
+  const read = (address, abi, fn) => io.chain.read(address, abi, fn, []);
+  const bad = [];
+  const want = { eth: top, btc: bottom };
+  for (const c of ['eth', 'btc']) {
+    const relay = st.feeds?.[c]?.address;
+    if (!relay) { bad.push(`deployments/arc-mainnet.json lists no ${c.toUpperCase()} relay`); continue; }
+    try {
+      const g = getAddress(await read(getAddress(relay), io.art.relay.abi, 'guard'));
+      if (g !== want[c]) bad.push(`scripts/markets.mjs has ${want[c]} for Chainlink ${COINS[c].pair}, but the live ${c.toUpperCase()} relay ${getAddress(relay)} uses ${g}`);
+    } catch (e) { bad.push(`could not read guard() of the ${c.toUpperCase()} relay ${relay} (${short(e)})`); }
+    const listed = st.guards?.[c]?.address;
+    if (!listed || getAddress(listed) !== want[c]) bad.push(`deployments/arc-mainnet.json lists ${listed ?? 'nothing'} as the ${c.toUpperCase()} guard, not ${want[c]}`);
+  }
+  if (st.feeds?.eth?.address) {
+    try {
+      const p = getAddress(await read(getAddress(st.feeds.eth.address), io.art.relay.abi, 'pusher'));
+      if (p !== getAddress(st.pusher)) bad.push(`the ETH relay's pusher on chain is ${p}, not ${getAddress(st.pusher)} as the file says`);
+    } catch (e) { bad.push(`could not read pusher() of the ETH relay (${short(e)})`); }
+  }
+  return bad;
+}
+
 /** Reads only: everything about the ETH vs BTC guard, relay and market matches what this script deploys. Returns true when all pass. */
 async function verify(io, st, M) {
   const { chain, art, log } = io;
@@ -304,6 +337,9 @@ async function verify(io, st, M) {
   const owner = getAddress(await read(A, art.arena.abi, 'owner'));
   const name = ratioMarketName(M);
   check(Number(await read(A, art.arena.abi, 'marketCount')) === st.markets.length, `the arena has the ${st.markets.length} markets the file lists`);
+  const ref = await liveReferenceProblems(io, st, getAddress(CHAINLINK_MAINNET.eth), getAddress(CHAINLINK_MAINNET.btc));
+  for (const p of ref) check(false, p);
+  if (!ref.length) check(true, 'the Chainlink feeds are the ones the live ETH and BTC relays use');
   check(getAddress(await read(G, art.ratioGuard.abi, 'numerator')) === getAddress(CHAINLINK_MAINNET.eth), 'guard: top is Chainlink ETH/USD');
   check(getAddress(await read(G, art.ratioGuard.abi, 'denominator')) === getAddress(CHAINLINK_MAINNET.btc), 'guard: bottom is Chainlink BTC/USD');
   check(Number(await read(G, art.ratioGuard.abi, 'decimals')) === RATIO_DECIMALS, `guard has ${RATIO_DECIMALS} decimals`);
