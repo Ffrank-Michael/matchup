@@ -93,8 +93,22 @@ const BTC_RELAY = getAddress('0x15dbb61c92fd8c301a19b769d984491731afab60');
 const ETH_RELAY = getAddress('0xdbb8d2106f1e45aa5287b666a4c8841bead356c0');
 const ETH = getAddress(CHAINLINK_MAINNET.eth);
 const BTC = getAddress(CHAINLINK_MAINNET.btc);
-const contract = { abi: [], bytecode: '0x' + '60'.repeat(100), deployedBytecode: '0x' + '60'.repeat(80) };
-const ART = { arena: contract, relay: contract, ratioGuard: contract };
+const contract = (b) => ({ abi: [], bytecode: '0x' + b.repeat(100), deployedBytecode: '0x' + b.repeat(80) });
+const ART = { arena: contract('60'), relay: contract('61'), ratioGuard: contract('62') };
+const GUARD = getAddress('0x' + '9a'.repeat(20));
+const RELAY = getAddress('0x' + '9b'.repeat(20));
+const RATIO = 3n * 10n ** 16n; // 3000 / 100000: the fake Chainlink legs below
+
+/** What a correct RatioGuard answers (any read can be overridden). */
+const guardReads = (over = {}) => ({
+  numerator: ETH, denominator: BTC, decimals: 18, description: ratioGuardDescription(PAIR),
+  numeratorMaxAge: RATIO_LEG_MAX_AGE_SECONDS, denominatorMaxAge: RATIO_LEG_MAX_AGE_SECONDS, version: 2n,
+  latestRoundData: [0n, RATIO, 0n, BigInt(NOW - 600), 0n], ...over,
+});
+/** What a correct ETH/BTC relay on guard G answers. */
+const relayReads = (G, over = {}) => ({
+  owner: OWNER, pusher: PUSHER, guard: G, bandBps: 250, decimals: 18, description: ratioRelayDescription(PAIR, 'mainnet'), ...over,
+});
 
 function fakeState() {
   return {
@@ -117,12 +131,14 @@ function fakeIo(over = {}) {
   const reads = {
     [`${ARENA}.owner`]: over.arenaOwner ?? OWNER,
     [`${ARENA}.pendingOwner`]: zeroAddress,
-    [`${ARENA}.marketCount`]: BigInt(over.marketCount ?? 12),
+    [`${ARENA}.marketCount`]: () => BigInt(over.marketCount ?? st.markets.length),
     [`${BTC_RELAY}.pusher`]: over.btcRelayPusher ?? PUSHER,
     [`${ETH_RELAY}.pusher`]: over.ethRelayPusher ?? PUSHER,
     [`${BTC_RELAY}.guard`]: over.btcRelayGuard ?? BTC,
     [`${ETH_RELAY}.guard`]: over.ethRelayGuard ?? ETH,
   };
+  // contracts the fake chain knows besides Chainlink: address -> { code, reads }. A sender may add to it.
+  const contracts = { ...over.contracts };
   const io = {
     log: (s) => lines.push(s),
     explorer: 'https://explorer.arc.io',
@@ -134,15 +150,21 @@ function fakeIo(over = {}) {
     chain: {
       chainId: over.chainId ?? 5042,
       now: async () => NOW,
-      getCode: async (a) => (legs[a] ? '0x6080' : '0x'),
-      read: async (a, _abi, fn) => {
+      getCode: async (a) => (legs[a] ? '0x6080' : contracts[a]?.code ?? '0x'),
+      read: async (a, _abi, fn, args = []) => {
         if (legs[a]) {
           const l = legs[a];
           if (fn === 'description') return l.description;
           if (fn === 'decimals') return 8;
           if (fn === 'latestRoundData') return [1n, l.answer, 0n, BigInt(l.updatedAt), 1n];
         }
+        if (contracts[a]) {
+          const v = contracts[a].reads[fn];
+          if (v === undefined) throw new Error(`execution reverted: ${fn}() is not on this contract`);
+          return typeof v === 'function' ? v(...args) : v;
+        }
         const k = `${a}.${fn}`;
+        if (typeof reads[k] === 'function') return reads[k](...args);
         if (k in reads) return reads[k];
         throw new Error(`the dry run read something unexpected: ${k}`);
       },
@@ -152,7 +174,7 @@ function fakeIo(over = {}) {
       testnetMarketGas: async () => 300_000n,
     },
   };
-  return { io, lines, saves: () => saved, text: () => lines.join('\n') };
+  return { io, lines, contracts, reads, saves: () => saved, text: () => lines.join('\n') };
 }
 
 const dry = { send: false, verifyOnly: false };
@@ -258,4 +280,78 @@ test('F-2: the Chainlink addresses must be the feeds the live ETH and BTC relays
   const ok = fakeIo();
   await run(dry, ok.io);
   assert.match(ok.text(), /The live ETH and BTC relays use exactly these Chainlink feeds/);
+});
+
+// ---------------------------------------------------------------- F-1: a saved guard or relay is checked before anything builds on it
+
+/** A state whose earlier run saved a guard and (optionally) a relay, and the chain contracts that go with it. */
+function savedRun({ relay = true, guardOver = {}, relayOver = {} } = {}) {
+  const st = fakeState();
+  st.ratio = { guards: { ethbtc: { address: GUARD } }, feeds: relay ? { ethbtc: { address: RELAY } } : {} };
+  const contracts = { [GUARD]: { code: ART.ratioGuard.deployedBytecode, reads: guardReads(guardOver) } };
+  if (relay) contracts[RELAY] = { code: ART.relay.deployedBytecode, reads: relayReads(GUARD, relayOver) };
+  return { state: st, contracts };
+}
+/** A sender that must never be used. */
+const forbiddenSender = () => {
+  const calls = [];
+  return { calls, deploy: async (...a) => { calls.push(['deploy', ...a]); throw new Error('must not deploy'); }, write: async (...a) => { calls.push(['write', ...a]); throw new Error('must not write'); } };
+};
+const send = { send: true, verifyOnly: false };
+
+test('F-1: a correct saved guard and relay pass every check in the dry run and are not deployed again', async () => {
+  const f = fakeIo(savedRun());
+  const res = await run(dry, f.io);
+  assert.equal(res.ok, true);
+  assert.ok(f.text().includes(`Saved RatioGuard ${GUARD}: every check passed`));
+  assert.ok(f.text().includes(`Saved relay ${RELAY}: every check passed`));
+  assert.ok(f.text().includes(`1. RatioGuard: already deployed at ${GUARD}`));
+  assert.match(f.text(), /RatioGuard 0, relay 0, createMarket 300000/);
+});
+
+test('F-1: a saved relay with the wrong pusher, band, guard, owner or code stops the dry run and the real run; nothing is sent', async () => {
+  const other = getAddress('0x' + '55'.repeat(20));
+  const cases = [
+    [savedRun({ relayOver: { pusher: other } }), `relay pusher is ${PUSHER}`],
+    [savedRun({ relayOver: { bandBps: 1000 } }), 'relay band is 250 bps'],
+    [savedRun({ relayOver: { guard: other } }), `relay guard is the RatioGuard ${GUARD}`],
+    [savedRun({ relayOver: { owner: other } }), `relay is owned by the arena owner ${OWNER}`],
+    [(() => { const r = savedRun(); r.contracts[RELAY].code = '0x' + '99'.repeat(80); return r; })(), 'relay code on chain matches the repo'],
+  ];
+  for (const [setup, failing] of cases) {
+    for (const mode of [dry, send]) {
+      const f = fakeIo(setup);
+      const sender = forbiddenSender();
+      if (mode.send) f.io.sender = sender;
+      await assert.rejects(run(mode, f.io), (e) => e.message.includes(`the saved relay ${RELAY} is not what this script deploys`) && e.message.includes(failing) && e.message.includes('Nothing was sent'));
+      assert.deepEqual(sender.calls, [], failing);
+      assert.equal(f.saves(), 0);
+    }
+  }
+});
+
+test('F-1: a saved guard that is version 1, has the wrong age limit, the wrong legs or another version stops the run', async () => {
+  const { numeratorMaxAge, denominatorMaxAge, ...v1 } = guardReads({ version: 1n }); // version 1 has no age limits at all
+  const v1Run = savedRun({ relay: false });
+  v1Run.contracts[GUARD].reads = v1;
+  for (const [setup, failing] of [
+    [v1Run, 'each leg at most 25 h old (the read failed'],
+    [savedRun({ relay: false, guardOver: { denominatorMaxAge: 26 * 3600 } }), 'each leg at most 25 h old'],
+    [savedRun({ relay: false, guardOver: { numerator: BTC, denominator: ETH } }), 'guard: top is Chainlink ETH/USD'],
+    [savedRun({ relay: false, guardOver: { version: 3n } }), 'guard is version 2'],
+    [savedRun({ relay: false, guardOver: { description: 'Matchup ratio guard SOL / BTC' } }), 'guard says'],
+  ]) {
+    const f = fakeIo(setup);
+    await assert.rejects(run(dry, f.io), (e) => e.message.includes(`the saved RatioGuard ${GUARD} is not what this script deploys`) && e.message.includes(failing));
+    assert.doesNotMatch(f.text(), /The plan/);
+  }
+});
+
+test('F-1: an inconsistent file (market but no guard, relay but no guard) stops the run', async () => {
+  const st = fakeState();
+  st.markets.push({ id: 12, name: 'ETH/BTC 1h', kind: 'ratio', coin: 'ethbtc' });
+  await assert.rejects(run(dry, fakeIo({ state: st }).io), /lists market ETH\/BTC 1h but no RatioGuard or relay/);
+  const st2 = fakeState();
+  st2.ratio = { guards: {}, feeds: { ethbtc: { address: RELAY } } };
+  await assert.rejects(run(dry, fakeIo({ state: st2 }).io), /an ETH\/BTC relay but no RatioGuard/);
 });

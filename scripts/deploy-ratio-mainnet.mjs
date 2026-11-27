@@ -203,6 +203,21 @@ export async function run(mode, io) {
   const doneGuard = st.ratio.guards[PAIR];
   const doneRelay = st.ratio.feeds[PAIR];
   const relayArgs = (guard) => [arenaOwner, pusher, guard, ratioBandBps(PAIR), ratioRelayDescription(PAIR, 'mainnet')];
+
+  // A guard or relay saved by an earlier run (or a hand edit) is checked in full BEFORE anything builds on it, in the dry run
+  // too: the market's feed can never be changed once createMarket is sent (audit part 3, F-1).
+  if (have && (!doneGuard || !doneRelay)) stop(`the file lists market ${name} but no RatioGuard or relay for it. Repair deployments/arc-mainnet.json first.`);
+  if (doneRelay && !doneGuard) stop('the file has an ETH/BTC relay but no RatioGuard. Repair deployments/arc-mainnet.json first.');
+  if (doneGuard) {
+    const bad = failures(await checkGuard(io, getAddress(doneGuard.address)));
+    if (bad.length) stop(`the saved RatioGuard ${doneGuard.address} is not what this script deploys:\n  ${bad.join('\n  ')}\nNothing was sent.`);
+    log(`  Saved RatioGuard ${getAddress(doneGuard.address)}: every check passed.`);
+  }
+  if (doneRelay) {
+    const bad = failures(await checkRelay(io, getAddress(doneRelay.address), getAddress(doneGuard.address), arenaOwner, pusher));
+    if (bad.length) stop(`the saved relay ${doneRelay.address} is not what this script deploys:\n  ${bad.join('\n  ')}\nNothing was sent.`);
+    log(`  Saved relay ${getAddress(doneRelay.address)}: every check passed.`);
+  }
   step(mode.send ? 'The plan (sending now)' : `DRY RUN (nothing is sent). The plan, exactly. Add ${UNDERSTAND_FLAG} to send it.`);
   log(doneGuard ? `  1. RatioGuard: already deployed at ${doneGuard.address}` : [
     '  1. Deploy RatioGuard',
@@ -279,6 +294,9 @@ export async function run(mode, io) {
     const id = Number(await read(A, art.arena.abi, 'marketCount'));
     if (id !== EXPECTED_MARKET_COUNT || id !== st.markets.length) stop(`the arena now has ${id} markets (the file lists ${st.markets.length}); stopping before creating ${name}.`);
     const feed = getAddress(st.ratio.feeds[PAIR].address);
+    // last look before the one step that cannot be undone (this also covers a relay deployed in this same run)
+    const bad = [...failures(await checkGuard(io, G)), ...failures(await checkRelay(io, feed, G, arenaOwner, pusher))];
+    if (bad.length) stop(`the guard or relay is not what this script deploys; the market was NOT created:\n  ${bad.join('\n  ')}`);
     const res = await send(`Create market ${name}`, sender.write(A, art.arena.abi, 'createMarket', [name, feed, zeroAddress, M.round, M.offset, MIN_STAKE]));
     st.markets.push({ id, name, coin: PAIR, kind: 'ratio', round: M.round, offset: M.offset, feed, minStake: Number(MIN_STAKE), tx: res.hash, block: res.block });
     state.save(st);
@@ -319,6 +337,52 @@ export async function liveReferenceProblems(io, st, top, bottom) {
   return bad;
 }
 
+/** The code at `address` is `c` from the repo (immutables blanked when io.normalise is given). */
+async function sameCode(io, address, c) {
+  const code = await io.chain.getCode(address);
+  return !!code && code !== '0x' && (io.normalise ? io.normalise(code, c.immutableReferences) === io.normalise(c.deployedBytecode, c.immutableReferences) : code === c.deployedBytecode);
+}
+
+/** Runs each [what, test] in turn; a test that throws (a missing function, an older contract, no contract) is a failure, not a crash. */
+async function runChecks(list) {
+  const out = [];
+  for (const [what, fn] of list) {
+    try { out.push({ ok: !!(await fn()), what }); } catch (e) { out.push({ ok: false, what: `${what} (the read failed: ${short(e)})` }); }
+  }
+  return out;
+}
+
+/** Reads only: is the contract at G exactly the RatioGuard this script deploys? Returns [{ ok, what }] (audit part 3, F-1). */
+export async function checkGuard(io, G) {
+  const read = (fn) => io.chain.read(G, io.art.ratioGuard.abi, fn, []);
+  return runChecks([
+    ['guard: top is Chainlink ETH/USD', async () => getAddress(await read('numerator')) === getAddress(CHAINLINK_MAINNET.eth)],
+    ['guard: bottom is Chainlink BTC/USD', async () => getAddress(await read('denominator')) === getAddress(CHAINLINK_MAINNET.btc)],
+    [`guard has ${RATIO_DECIMALS} decimals`, async () => Number(await read('decimals')) === RATIO_DECIMALS],
+    [`guard says "${ratioGuardDescription(PAIR)}"`, async () => (await read('description')) === ratioGuardDescription(PAIR)],
+    [`guard: each leg at most ${RATIO_LEG_MAX_AGE_SECONDS / 3600} h old`, async () => Number(await read('numeratorMaxAge')) === RATIO_LEG_MAX_AGE_SECONDS && Number(await read('denominatorMaxAge')) === RATIO_LEG_MAX_AGE_SECONDS],
+    ['guard is version 2', async () => Number(await read('version')) === 2],
+    ['guard code on chain matches the repo', () => sameCode(io, G, io.art.ratioGuard)],
+    ['guard answers a ratio above 0', async () => (await read('latestRoundData'))[1] > 0n],
+  ]);
+}
+
+/** Reads only: is the contract at R exactly the relay this script deploys, on guard G? Returns [{ ok, what }] (audit part 3, F-1). */
+export async function checkRelay(io, R, G, owner, pusher) {
+  const read = (fn) => io.chain.read(R, io.art.relay.abi, fn, []);
+  return runChecks([
+    [`relay is owned by the arena owner ${owner}`, async () => getAddress(await read('owner')) === owner],
+    [`relay pusher is ${pusher}`, async () => getAddress(await read('pusher')) === pusher],
+    [`relay guard is the RatioGuard ${G}`, async () => getAddress(await read('guard')) === G],
+    [`relay band is ${ratioBandBps(PAIR)} bps`, async () => Number(await read('bandBps')) === ratioBandBps(PAIR)],
+    [`relay has ${RATIO_DECIMALS} decimals`, async () => Number(await read('decimals')) === RATIO_DECIMALS],
+    [`relay says "${ratioRelayDescription(PAIR, 'mainnet')}"`, async () => (await read('description')) === ratioRelayDescription(PAIR, 'mainnet')],
+    ['relay code on chain matches the repo', () => sameCode(io, R, io.art.relay)],
+  ]);
+}
+
+const failures = (results) => results.filter((r) => !r.ok).map((r) => r.what);
+
 /** Reads only: everything about the ETH vs BTC guard, relay and market matches what this script deploys. Returns true when all pass. */
 async function verify(io, st, M) {
   const { chain, art, log } = io;
@@ -327,10 +391,6 @@ async function verify(io, st, M) {
   if (!st.ratio?.guards?.[PAIR] || !st.ratio?.feeds?.[PAIR]) throw new Error('STOP: deployments/arc-mainnet.json has no ETH vs BTC deployment yet.');
   let bad = 0;
   const check = (ok, what) => { log(`  ${ok ? 'OK  ' : 'FAIL'} ${what}`); if (!ok) bad++; };
-  const sameCode = async (address, c) => {
-    const code = await chain.getCode(address);
-    return !!code && (io.normalise ? io.normalise(code, c.immutableReferences) === io.normalise(c.deployedBytecode, c.immutableReferences) : code === c.deployedBytecode);
-  };
   const A = getAddress(st.arena.address);
   const G = getAddress(st.ratio.guards[PAIR].address);
   const R = getAddress(st.ratio.feeds[PAIR].address);
@@ -340,24 +400,8 @@ async function verify(io, st, M) {
   const ref = await liveReferenceProblems(io, st, getAddress(CHAINLINK_MAINNET.eth), getAddress(CHAINLINK_MAINNET.btc));
   for (const p of ref) check(false, p);
   if (!ref.length) check(true, 'the Chainlink feeds are the ones the live ETH and BTC relays use');
-  check(getAddress(await read(G, art.ratioGuard.abi, 'numerator')) === getAddress(CHAINLINK_MAINNET.eth), 'guard: top is Chainlink ETH/USD');
-  check(getAddress(await read(G, art.ratioGuard.abi, 'denominator')) === getAddress(CHAINLINK_MAINNET.btc), 'guard: bottom is Chainlink BTC/USD');
-  check(Number(await read(G, art.ratioGuard.abi, 'decimals')) === RATIO_DECIMALS, `guard has ${RATIO_DECIMALS} decimals`);
-  check((await read(G, art.ratioGuard.abi, 'description')) === ratioGuardDescription(PAIR), `guard says "${ratioGuardDescription(PAIR)}"`);
-  const ages = await Promise.all([read(G, art.ratioGuard.abi, 'numeratorMaxAge'), read(G, art.ratioGuard.abi, 'denominatorMaxAge')]);
-  check(ages.every((x) => Number(x) === RATIO_LEG_MAX_AGE_SECONDS), `guard: each leg at most ${RATIO_LEG_MAX_AGE_SECONDS / 3600} h old`);
-  check(await sameCode(G, art.ratioGuard), 'guard code on chain matches the repo');
-  try {
-    const [, answer] = await read(G, art.ratioGuard.abi, 'latestRoundData');
-    check(answer > 0n, `guard answers ${Number(answer) / 1e18}`);
-  } catch (e) { check(false, `guard answers (${short(e)})`); }
-  check(getAddress(await read(R, art.relay.abi, 'owner')) === owner, `relay is owned by the arena owner ${owner}`);
-  check(getAddress(await read(R, art.relay.abi, 'pusher')) === getAddress(st.pusher), `relay pusher is ${getAddress(st.pusher)}`);
-  check(getAddress(await read(R, art.relay.abi, 'guard')) === G, 'relay guard is the RatioGuard');
-  check(Number(await read(R, art.relay.abi, 'bandBps')) === ratioBandBps(PAIR), `relay band is ${ratioBandBps(PAIR)} bps`);
-  check(Number(await read(R, art.relay.abi, 'decimals')) === RATIO_DECIMALS, `relay has ${RATIO_DECIMALS} decimals`);
-  check((await read(R, art.relay.abi, 'description')) === ratioRelayDescription(PAIR, 'mainnet'), `relay says "${ratioRelayDescription(PAIR, 'mainnet')}"`);
-  check(await sameCode(R, art.relay), 'relay code on chain matches the repo');
+  for (const r of await checkGuard(io, G)) check(r.ok, r.what);
+  for (const r of await checkRelay(io, R, G, owner, getAddress(st.pusher))) check(r.ok, r.what);
   const rec = st.markets.find((x) => x.name === name);
   if (!rec) check(false, `market ${name} is in the file`);
   else {
