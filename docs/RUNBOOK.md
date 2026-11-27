@@ -326,6 +326,7 @@ with someone playing every 5-minute round of one coin is about 3 USDC; most days
 runner pay for settles on purpose with tiny one-sided calls (see "Known limits", P2-12), so watch the balance.
 
 **Check it:** command 3d above, or paste the runner address into https://explorer.arc.io.
+All wallets at once (owner, runner, arena and its unclaimed fees, who can withdraw them; reads public data only, no keys): `node scripts/check-balances.mjs [extra addresses...]`.
 
 **Top it up** (from your own wallet, on your phone or PC):
 1. Open your wallet and pick the **Arc mainnet** network.
