@@ -27,8 +27,10 @@ What gets deployed (the same pieces as the testnet rehearsal, ETH vs BTC only):
       after it (version 2: per-leg age limit, decimals checked on every read, expected leg labels), so a review must cover version 2.
 - [ ] **The testnet guards of 24 Nov are version 1.** `node scripts/deploy-ratio.mjs --verify-only` now reports their code and
       age limits as FAIL. Redeploy them (with the fresh v2 testnet arena below) before the end-to-end testnet round.
-- [ ] **Mutation check** on RatioGuard (the 5 deliberate breaks run on 24 Nov were all caught; add them to `ci/mutations.json`
-      so CI repeats them).
+- [x] **Mutation check** on RatioGuard version 2: 18 deliberate breaks (`G01` to `G18`, group "ratio") are in `ci/mutations.json`
+      (commit `eca2f8e`), so the mutation workflow repeats them. All 18 were caught when they were added, and again on 27 Nov 2026
+      (each applied with `node ci/mutate.js apply`, then the four `contracts/test/Ratio*` suites). Run the workflow again after any
+      change to `contracts/RatioGuard.sol`.
 - [ ] **Measure the Bitfinex-vs-Chainlink ratio gap for a week** (PLAN_V3 R1). If it ever gets near 2.5%, pushes would be refused and
       rounds refund. Chainlink ETH and BTC on Arc update on a deviation threshold (0.5% and 0.1%), so the guard ratio can lag by roughly the two
       thresholds added up.
