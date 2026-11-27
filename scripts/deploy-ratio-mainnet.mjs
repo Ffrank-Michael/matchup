@@ -21,7 +21,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { formatUnits, getAddress, zeroAddress, encodeDeployData, createPublicClient, http } from 'viem';
+import { formatUnits, getAddress, isAddress, zeroAddress, encodeDeployData, createPublicClient, http } from 'viem';
 import { UNDERSTAND_FLAG } from './deployFlags.mjs';
 import {
   COINS, CHAINLINK_MAINNET, FEED_DECIMALS, MIN_STAKE, RATIO_PAIRS, RATIO_MARKETS, RATIO_DECIMALS, RATIO_LEG_MAX_AGE_SECONDS,
@@ -59,8 +59,11 @@ export function parseArgs(args) {
   return { send: args.includes(UNDERSTAND_FLAG) && !verifyOnly, verifyOnly, error: null };
 }
 
+/** True only for an address written in its EIP-55 checksummed form: a mistyped character, or an unchecked all-lowercase form, is refused. Pure. */
+export const isChecksummed = (a) => typeof a === 'string' && isAddress(a, { strict: true }) && a === getAddress(a);
+
 /** The one market this script may create, checked against scripts/markets.mjs. Returns { market, problems }. Pure. */
-export function ethBtcMarket() {
+export function ethBtcMarket(chainlink = CHAINLINK_MAINNET) {
   const problems = [];
   const p = RATIO_PAIRS[PAIR];
   const market = RATIO_MARKETS.find((m) => m.pair === PAIR);
@@ -71,7 +74,8 @@ export function ethBtcMarket() {
     if (market.offset !== 50) problems.push(`ETH/BTC offset is ${market.offset} s, expected 50`);
   }
   if (ratioBandBps(PAIR) !== 250) problems.push(`ETH/BTC band is ${ratioBandBps(PAIR)} bps, expected 250`);
-  for (const c of ['eth', 'btc']) if (!/^0x[0-9a-fA-F]{40}$/.test(CHAINLINK_MAINNET[c] || '')) problems.push(`no Chainlink ${c.toUpperCase()}/USD proxy address`);
+  // strict: a mixed-case address must carry a correct EIP-55 checksum, so one mistyped character is caught (audit part 3, F-3)
+  for (const c of ['eth', 'btc']) if (!isChecksummed(chainlink[c])) problems.push(`the Chainlink ${c.toUpperCase()}/USD address in scripts/markets.mjs ("${chainlink[c] ?? ''}") is not a valid checksummed address`);
   return { market, problems };
 }
 
@@ -135,8 +139,8 @@ export async function run(mode, io) {
   if (st.network !== 'arc-mainnet' || st.chainId !== MAINNET_CHAIN_ID) stop('deployments/arc-mainnet.json is not the Arc mainnet deployment.');
   if ((st.markets || []).some((m) => m.kind === 'ratio' && m.coin !== PAIR)) stop('deployments/arc-mainnet.json already lists a coin-vs-coin market other than ETH vs BTC. Stop and look at it.');
   const A = getAddress(st.arena.address);
-  const top = getAddress(CHAINLINK_MAINNET.eth.toLowerCase());
-  const bottom = getAddress(CHAINLINK_MAINNET.btc.toLowerCase());
+  const top = getAddress(CHAINLINK_MAINNET.eth);
+  const bottom = getAddress(CHAINLINK_MAINNET.btc);
   const read = (address, abi, fn, a = []) => chain.read(address, abi, fn, a);
 
   if (mode.verifyOnly) return { ok: await verify(io, st, M), sent };
@@ -300,8 +304,8 @@ async function verify(io, st, M) {
   const owner = getAddress(await read(A, art.arena.abi, 'owner'));
   const name = ratioMarketName(M);
   check(Number(await read(A, art.arena.abi, 'marketCount')) === st.markets.length, `the arena has the ${st.markets.length} markets the file lists`);
-  check(getAddress(await read(G, art.ratioGuard.abi, 'numerator')) === getAddress(CHAINLINK_MAINNET.eth.toLowerCase()), 'guard: top is Chainlink ETH/USD');
-  check(getAddress(await read(G, art.ratioGuard.abi, 'denominator')) === getAddress(CHAINLINK_MAINNET.btc.toLowerCase()), 'guard: bottom is Chainlink BTC/USD');
+  check(getAddress(await read(G, art.ratioGuard.abi, 'numerator')) === getAddress(CHAINLINK_MAINNET.eth), 'guard: top is Chainlink ETH/USD');
+  check(getAddress(await read(G, art.ratioGuard.abi, 'denominator')) === getAddress(CHAINLINK_MAINNET.btc), 'guard: bottom is Chainlink BTC/USD');
   check(Number(await read(G, art.ratioGuard.abi, 'decimals')) === RATIO_DECIMALS, `guard has ${RATIO_DECIMALS} decimals`);
   check((await read(G, art.ratioGuard.abi, 'description')) === ratioGuardDescription(PAIR), `guard says "${ratioGuardDescription(PAIR)}"`);
   const ages = await Promise.all([read(G, art.ratioGuard.abi, 'numeratorMaxAge'), read(G, art.ratioGuard.abi, 'denominatorMaxAge')]);

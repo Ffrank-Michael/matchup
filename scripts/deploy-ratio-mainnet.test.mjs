@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getAddress, zeroAddress } from 'viem';
-import { parseArgs, ethBtcMarket, onServer, judgeLeg, expectedRatio, costAndNeed, run, PAIR, MIN_NEED_RAW } from './deploy-ratio-mainnet.mjs';
+import { parseArgs, ethBtcMarket, isChecksummed, onServer, judgeLeg, expectedRatio, costAndNeed, run, PAIR, MIN_NEED_RAW } from './deploy-ratio-mainnet.mjs';
 import { UNDERSTAND_FLAG } from './deployFlags.mjs';
 import { CHAINLINK_MAINNET, RATIO_LEG_MAX_AGE_SECONDS, ratioGuardDescription, ratioRelayDescription, MIN_STAKE } from './markets.mjs';
 
@@ -90,8 +90,8 @@ const ARENA = getAddress('0xaebac196c76a2c9338a30aef663e4799ffa0d364');
 const OWNER = getAddress('0x1AB2ADf11B3B16544C5F76d74c729B4EdCDcb4bC');
 const PUSHER = getAddress('0x141043c9f604c8274286Dc0319a2F1c9124CEa3F');
 const BTC_RELAY = getAddress('0x15dbb61c92fd8c301a19b769d984491731afab60');
-const ETH = getAddress(CHAINLINK_MAINNET.eth.toLowerCase());
-const BTC = getAddress(CHAINLINK_MAINNET.btc.toLowerCase());
+const ETH = getAddress(CHAINLINK_MAINNET.eth);
+const BTC = getAddress(CHAINLINK_MAINNET.btc);
 const contract = { abi: [], bytecode: '0x' + '60'.repeat(100), deployedBytecode: '0x' + '60'.repeat(80) };
 const ART = { arena: contract, relay: contract, ratioGuard: contract };
 
@@ -220,4 +220,15 @@ test('sending stops before any transaction when the owner holds too little USDC'
   const f = fakeIo({ balance: 100_000n });
   f.io.sender = { deploy: async () => assert.fail('must not send'), write: async () => assert.fail('must not send') };
   await assert.rejects(run({ send: true, verifyOnly: false }, f.io), /needs at least 0\.5\. Fund it first\. Nothing was sent/);
+});
+
+test('F-3: the Chainlink constants must be written checksummed; a mistyped character is refused', () => {
+  assert.equal(isChecksummed(CHAINLINK_MAINNET.eth), true);
+  assert.equal(isChecksummed(CHAINLINK_MAINNET.btc), true);
+  const typo = CHAINLINK_MAINNET.eth.slice(0, -1) + (CHAINLINK_MAINNET.eth.endsWith('4') ? '5' : '4'); // last hex digit changed, same case
+  for (const bad of [typo, CHAINLINK_MAINNET.eth.toLowerCase(), '', undefined, '0x1234']) assert.equal(isChecksummed(bad), false, String(bad));
+  const { problems } = ethBtcMarket({ eth: typo, btc: CHAINLINK_MAINNET.btc });
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /Chainlink ETH\/USD address .* is not a valid checksummed address/);
+  assert.match(ethBtcMarket({ eth: CHAINLINK_MAINNET.eth, btc: CHAINLINK_MAINNET.btc.toLowerCase() }).problems[0], /BTC\/USD address/);
 });
