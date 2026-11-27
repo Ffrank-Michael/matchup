@@ -21,6 +21,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import { formatUnits, getAddress, isAddress, zeroAddress, encodeDeployData, encodeFunctionData, decodeFunctionResult, createPublicClient, http } from 'viem';
 import { UNDERSTAND_FLAG } from './deployFlags.mjs';
 import {
@@ -77,6 +78,23 @@ export function ethBtcMarket(chainlink = CHAINLINK_MAINNET) {
   // strict: a mixed-case address must carry a correct EIP-55 checksum, so one mistyped character is caught (audit part 3, F-3)
   for (const c of ['eth', 'btc']) if (!isChecksummed(chainlink[c])) problems.push(`the Chainlink ${c.toUpperCase()}/USD address in scripts/markets.mjs ("${chainlink[c] ?? ''}") is not a valid checksummed address`);
   return { market, problems };
+}
+
+/**
+ * What the deployment is built from: every contract source (compiled by scripts/compile.mjs) and every script that decides an
+ * address, a setting or the bytecode. A real run is refused unless all of them match the commit that is checked out (audit part 3, F-9).
+ */
+export const SOURCE_PATHS = ['contracts', 'scripts/deploy-ratio-mainnet.mjs', 'scripts/markets.mjs', 'scripts/compile.mjs', 'scripts/lib.mjs', 'scripts/deployFlags.mjs', 'scripts/runnerKey.mjs', 'package.json', 'package-lock.json'];
+
+/**
+ * The source state from `git rev-parse HEAD` and `git status --porcelain -- SOURCE_PATHS`. Pure.
+ * Returns { commit, clean, changes: [lines] }; a missing or malformed commit counts as not clean.
+ */
+export function judgeSource(commit, porcelain) {
+  const c = String(commit ?? '').trim();
+  const changes = String(porcelain ?? '').split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean);
+  if (!/^[0-9a-f]{40}$/.test(c)) return { commit: null, clean: false, changes: changes.length ? changes : ['(git did not give a commit)'] };
+  return { commit: c, clean: changes.length === 0, changes };
 }
 
 /** Is this checkout the server's? The owner key must never be used there (docs/RATIO_MAINNET_CHECKLIST.md). Pure. */
@@ -145,6 +163,16 @@ export async function run(mode, io) {
 
   if (mode.verifyOnly) return { ok: await verify(io, st, M), sent };
 
+  // ---------- 0. what the deployment is built from (audit part 3, F-9) ----------
+  step('Source (what is compiled and deployed)');
+  const src = io.source ?? { commit: null, clean: false, changes: ['(the source state is unknown)'] };
+  if (src.clean) log(`  Commit ${src.commit}: the contracts and the deploy scripts match it exactly.`);
+  else {
+    const list = src.changes.map((c) => '    ' + c).join('\n');
+    if (mode.send) stop(`the contracts or the deploy scripts do not match a commit, so this is not a reviewed version:\n${list}\nCommit (and have reviewed) these changes, or undo them, then run again. Nothing was sent.`);
+    log(`  WARNING: these do not match the checked-out commit${src.commit ? ` ${src.commit}` : ''}:\n${list}\n  The real run will refuse until they are committed or undone.`);
+  }
+
   // ---------- 1. Chainlink ETH/USD and BTC/USD (reads only) ----------
   step('Check Chainlink on Arc mainnet (reads only)');
   // The addresses must be the feeds the live ETH and BTC relays already use as their guard (audit part 3, F-2): a raw aggregator,
@@ -195,6 +223,9 @@ export async function run(mode, io) {
   if (io.deployer && getAddress(io.deployer) === filePusher) stop('the pusher is the owner wallet. The runner must have its own wallet.');
   const pusher = filePusher;
   log(`  Pusher          : ${pusher} (the runner wallet; the BTC relay on chain agrees)`);
+  // the new relay must be the same unchanged contract as the live ones: its compiled code must equal the live BTC relay's (F-9)
+  if (!(await sameCode(io, getAddress(st.feeds.btc.address), art.relay))) stop(`the GuardedRelayFeed compiled here is not the code of the live BTC relay ${getAddress(st.feeds.btc.address)}. contracts/GuardedRelayFeed.sol (or the compiler settings) changed. Nothing was sent.`);
+  log('  Relay code      : the GuardedRelayFeed compiled here is the code of the live BTC relay');
 
   // ---------- 3. what it would deploy ----------
   st.ratio ||= { guards: {}, feeds: {} };
@@ -299,7 +330,7 @@ export async function run(mode, io) {
   };
   if (!doneGuard) {
     const res = await send('Deploy RatioGuard ETH/BTC', sender.deploy(art.ratioGuard, gArgs));
-    st.ratio.guards[PAIR] = { address: res.address, tx: res.hash, block: res.block, top, bottom };
+    st.ratio.guards[PAIR] = { address: res.address, tx: res.hash, block: res.block, top, bottom, commit: src.commit };
     state.save(st);
     log(`  ${res.address}`);
   }
@@ -316,7 +347,7 @@ export async function run(mode, io) {
 
   if (!st.ratio.feeds[PAIR]) {
     const res = await send('Deploy relay feed ETH/BTC', sender.deploy(art.relay, relayArgs(G)));
-    st.ratio.feeds[PAIR] = { address: res.address, tx: res.hash, block: res.block };
+    st.ratio.feeds[PAIR] = { address: res.address, tx: res.hash, block: res.block, commit: src.commit };
     state.save(st);
     log(`  ${res.address}`);
   }
@@ -328,7 +359,7 @@ export async function run(mode, io) {
     const bad = [...failures(await checkGuard(io, G)), ...failures(await checkRelay(io, feed, G, arenaOwner, pusher))];
     if (bad.length) stop(`the guard or relay is not what this script deploys; the market was NOT created:\n  ${bad.join('\n  ')}`);
     const res = await send(`Create market ${name}`, sender.write(A, art.arena.abi, 'createMarket', [name, feed, zeroAddress, M.round, M.offset, MIN_STAKE]));
-    st.markets.push({ id, name, coin: PAIR, kind: 'ratio', round: M.round, offset: M.offset, feed, minStake: Number(MIN_STAKE), tx: res.hash, block: res.block });
+    st.markets.push({ id, name, coin: PAIR, kind: 'ratio', round: M.round, offset: M.offset, feed, minStake: Number(MIN_STAKE), tx: res.hash, block: res.block, commit: src.commit });
     state.save(st);
     log(`  market id ${id}`);
   }
@@ -466,7 +497,14 @@ async function main() {
   const pusher = env.MAINNET_RUNNER_PRIVATE_KEY || mode.send ? mainnetPusher(env, deployer ? [['the owner wallet', deployer], ...agents] : agents) : { address: null, problems: [] };
 
   const STATE_FILE = path.join(ROOT, 'deployments', 'arc-mainnet.json');
+  // what is compiled: git must say every source file matches the checked-out commit (reads only; F-9)
+  let source;
+  try {
+    const git = (a) => execFileSync('git', a, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    source = judgeSource(git(['rev-parse', 'HEAD']), git(['status', '--porcelain', '--untracked-files=all', '--', ...SOURCE_PATHS]));
+  } catch (e) { source = { commit: null, clean: false, changes: [`(git could not be asked: ${short(e)})`] }; }
   const io = {
+    source,
     log: (s) => console.log(s),
     explorer: chain.blockExplorers.default.url,
     art: compile(),

@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getAddress, zeroAddress } from 'viem';
-import { parseArgs, ethBtcMarket, isChecksummed, onServer, judgeLeg, expectedRatio, costAndNeed, run, PAIR, MIN_NEED_RAW } from './deploy-ratio-mainnet.mjs';
+import { parseArgs, ethBtcMarket, isChecksummed, judgeSource, SOURCE_PATHS, onServer, judgeLeg, expectedRatio, costAndNeed, run, PAIR, MIN_NEED_RAW } from './deploy-ratio-mainnet.mjs';
 import { UNDERSTAND_FLAG } from './deployFlags.mjs';
 import { CHAINLINK_MAINNET, RATIO_LEG_MAX_AGE_SECONDS, ratioGuardDescription, ratioRelayDescription, MIN_STAKE } from './markets.mjs';
 
@@ -140,6 +140,7 @@ function fakeIo(over = {}) {
   // contracts the fake chain knows besides Chainlink: address -> { code, reads }. A sender may add to it.
   const contracts = { ...over.contracts };
   const io = {
+    source: 'source' in over ? over.source : { commit: 'c'.repeat(40), clean: true, changes: [] },
     log: (s) => lines.push(s),
     explorer: 'https://explorer.arc.io',
     art: ART,
@@ -150,7 +151,7 @@ function fakeIo(over = {}) {
     chain: {
       chainId: over.chainId ?? 5042,
       now: async () => NOW,
-      getCode: async (a) => (legs[a] ? '0x6080' : contracts[a]?.code ?? '0x'),
+      getCode: async (a) => (legs[a] ? '0x6080' : contracts[a]?.code ?? ([BTC_RELAY, ETH_RELAY].includes(a) ? over.liveRelayCode ?? ART.relay.deployedBytecode : '0x')),
       read: async (a, _abi, fn, args = []) => {
         if (legs[a]) {
           const l = legs[a];
@@ -397,4 +398,49 @@ test('F-4: with a saved guard, the relay constructor is estimated on it, and a f
   await run(dry, ok.io);
   assert.match(ok.text(), /RatioGuard 0, relay 1000000, createMarket 300000/);
   assert.doesNotMatch(ok.text(), /Simulate the RatioGuard constructor/);
+});
+
+// ---------------------------------------------------------------- F-9: only a committed version is ever deployed
+
+test('F-9: judgeSource reads git: clean only with a real commit and no changed source file', () => {
+  const c = 'a'.repeat(40);
+  assert.deepEqual(judgeSource(c + '\n', ''), { commit: c, clean: true, changes: [] });
+  assert.deepEqual(judgeSource(c, ' M contracts/RatioGuard.sol\n?? contracts/Extra.sol\n'), { commit: c, clean: false, changes: [' M contracts/RatioGuard.sol', '?? contracts/Extra.sol'] });
+  assert.equal(judgeSource('', '').clean, false);
+  assert.equal(judgeSource('not-a-commit', '').clean, false);
+  assert.equal(judgeSource(undefined, undefined).commit, null);
+  for (const p of ['contracts', 'scripts/markets.mjs', 'scripts/compile.mjs', 'scripts/deploy-ratio-mainnet.mjs', 'package-lock.json']) assert.ok(SOURCE_PATHS.includes(p), p);
+});
+
+test('F-9: the real run refuses uncommitted or unknown source, says so clearly, and sends nothing', async () => {
+  for (const source of [
+    { commit: 'b'.repeat(40), clean: false, changes: [' M contracts/RatioGuard.sol'] },
+    { commit: null, clean: false, changes: ['(git could not be asked: spawn git ENOENT)'] },
+    undefined,
+  ]) {
+    const f = fakeIo({ source });
+    const sender = forbiddenSender();
+    f.io.sender = sender;
+    await assert.rejects(run(send, f.io), (e) => /do not match a commit, so this is not a reviewed version/.test(e.message) && /Nothing was sent/.test(e.message) && (source ? e.message.includes(source.changes[0]) : /unknown/.test(e.message)));
+    assert.deepEqual(sender.calls, []);
+    assert.doesNotMatch(f.text(), /Check Chainlink/, 'it stops before anything else');
+  }
+});
+
+test('F-9: the dry run names the commit, or warns that the real run will refuse', async () => {
+  const clean = fakeIo();
+  await run(dry, clean.io);
+  assert.match(clean.text(), new RegExp(`Commit ${'c'.repeat(40)}: the contracts and the deploy scripts match it exactly`));
+  const dirty = fakeIo({ source: { commit: 'b'.repeat(40), clean: false, changes: [' M scripts/markets.mjs'] } });
+  const res = await run(dry, dirty.io);
+  assert.equal(res.ok, true);
+  assert.match(dirty.text(), /WARNING: these do not match the checked-out commit b{40}:\n {4} M scripts\/markets\.mjs\n {2}The real run will refuse/);
+});
+
+test('F-9: a GuardedRelayFeed that is not the code of the live BTC relay stops the run', async () => {
+  const f = fakeIo({ liveRelayCode: '0x' + '77'.repeat(80) });
+  await assert.rejects(run(dry, f.io), /the GuardedRelayFeed compiled here is not the code of the live BTC relay/);
+  const ok = fakeIo();
+  await run(dry, ok.io);
+  assert.match(ok.text(), /Relay code +: the GuardedRelayFeed compiled here is the code of the live BTC relay/);
 });
