@@ -47,6 +47,16 @@ export const LIVE_PRICE_SHORT = "Live price: the latest trade on Bitfinex. A rou
 export const MONEY_AND_PRICES_NOTE =
   "The money sits in the contract, not with Matchup, and Matchup's only cut is the 2% fee. But the Matchup runner sends the start and end prices to the contract, so you are trusting it to send the right ones. A safety check in the contract rejects any price that is far from Chainlink's price.";
 
+/** The one-time USDC permission the site asks for before a wallet's first call (useMakeCall uses this number). */
+export const PERMISSION_USDC = 50;
+
+/**
+ * The one-time permission, in plain words, for How it works and the call sheet. The contract pulls USDC only in placeCall,
+ * only from the caller and only that call's amount (contracts/PredictionArena.sol, safeTransferFrom in placeCall).
+ */
+export const PERMISSION_NOTE =
+  `Your first call asks your wallet for a one-time permission. The permission does not move any of your money to Matchup. It costs only Arc's tiny network fee, like every action. It lets the Matchup contract use up to ${PERMISSION_USDC} USDC of yours for calls, and nothing else. Each call takes only the amount you choose, at the moment you confirm that call. If you call 10 USDC, 10 USDC moves. You will not be asked again until the ${PERMISSION_USDC} USDC has been used up. In a browser wallet such as MetaMask you can lower the amount or remove the permission at any time.`;
+
 /** When there are too few trades, in plain words. */
 export const TOO_FEW_RULE =
   "If BTC or ETH has fewer than 3 trades in one of these windows, there is no price and everyone gets their money back.";

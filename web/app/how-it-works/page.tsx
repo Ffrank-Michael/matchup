@@ -1,4 +1,4 @@
-import { END_RULE, LIVE_PRICE_NOTE, MONEY_AND_PRICES_NOTE, START_RULE, TOO_FEW_RULE } from "@/lib/price-rule";
+import { END_RULE, LIVE_PRICE_NOTE, MONEY_AND_PRICES_NOTE, PERMISSION_NOTE, START_RULE, TOO_FEW_RULE } from "@/lib/price-rule";
 import type { Metadata } from "next";
 import Link from "next/link";
 import type * as React from "react";
@@ -220,10 +220,7 @@ export default function HowItWorks() {
           <span className="font-semibold text-foreground">
             One-time permission:
           </span>{" "}
-          the first time you call, your wallet asks you to let Matchup take your
-          call amount. It is a one-time permission (50 USDC unless you change
-          it), so your later calls need only one confirmation. You can remove it
-          any time.
+          {PERMISSION_NOTE}
         </li>
         <li>
           <span className="font-semibold text-foreground">

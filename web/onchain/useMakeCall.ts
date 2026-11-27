@@ -33,6 +33,7 @@ import { useEnsureNetwork } from "./wagmiConfig";
 import { usePlayer, type PlayerSource } from "./usePlayer";
 import { useGoogleWallet } from "@/lib/use-google-wallet";
 import { APPROVE_SIGNATURE, PLACE_CALL_SIGNATURE, lockTimeProblem, microToUsdc } from "@/lib/circle-calls";
+import { PERMISSION_NOTE, PERMISSION_USDC } from "@/lib/price-rule";
 
 // ── Beta limit ────────────────────────────────────────────────
 
@@ -43,10 +44,10 @@ export const BETA_LIMIT_USDC = 10;
 export const BETA_LIMIT_RAW = BigInt(BETA_LIMIT_USDC) * 1_000_000n;
 
 /** The one-time permission asked for before the first call (the visitor can change the amount). */
-export const DEFAULT_APPROVAL_USDC = 50;
+export const DEFAULT_APPROVAL_USDC = PERMISSION_USDC;
 
-/** The sentence shown BEFORE the permission is asked for. */
-export const APPROVAL_NOTICE = "Your wallet will ask you to approve once. This lets Matchup take only the amount of each call you make, never more than your limit (50 USDC). Nothing is taken until you make a call. If you switch it off, you can't make calls until you approve again.";
+/** The words shown BEFORE the permission is asked for (the shared wording in lib/price-rule.ts). */
+export const APPROVAL_NOTICE = PERMISSION_NOTE;
 
 /** Kept back for network fees (Arc pays fees in USDC). */
 export const GAS_RESERVE_RAW = 10_000n; // $0.01 (the approval and the call cost about $0.004 together)

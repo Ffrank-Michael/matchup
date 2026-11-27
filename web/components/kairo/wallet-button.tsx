@@ -195,7 +195,7 @@ function ConnectView({ onDone, google }: { onDone: () => void; google: GoogleWal
   );
 }
 
-/** A small grey link at the bottom of the wallet window: takes back Matchup's permission to use the wallet's USDC (after a yes/no question). */
+/** A small grey link at the bottom of the wallet window: takes back the Matchup contract's permission to use the wallet's USDC (after a yes/no question). */
 function RemoveAccess() {
   const wallet = useUsdc();
   const approval = useRevokeApproval();
@@ -234,11 +234,11 @@ function RemoveAccess() {
     <div className="mt-4 text-center">
       {hasAccess ? (
         <button type="button" onClick={() => setAsking(true)} className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
-          Remove Matchup&apos;s access to my USDC
+          Remove the Matchup contract&apos;s permission to use my USDC
         </button>
       ) : null}
       <p className="text-[11px] text-muted-foreground" role="status">
-        {approval.status === "failed" && approval.errorMessage ? approval.errorMessage : approval.status === "done" ? "Matchup's access was removed." : ""}
+        {approval.status === "failed" && approval.errorMessage ? approval.errorMessage : approval.status === "done" ? "The permission was removed." : ""}
       </p>
     </div>
   );
