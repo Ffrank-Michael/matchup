@@ -33,7 +33,9 @@ What gets deployed (the same pieces as the testnet rehearsal, ETH vs BTC only):
       change to `contracts/RatioGuard.sol`.
 - [ ] **Measure the Bitfinex-vs-Chainlink ratio gap for a week** (PLAN_V3 R1). If it ever gets near 2.5%, pushes would be refused and
       rounds refund. Chainlink ETH and BTC on Arc update on a deviation threshold (0.5% and 0.1%), so the guard ratio can lag by roughly the two
-      thresholds added up.
+      thresholds added up. The logger is `scripts/ratio-gap.mjs` (read only, no keys): on the server, install
+      `deploy/ratio-gap.service` (the steps are at the top of that file); after a week, `node scripts/ratio-gap.mjs --summary --days 7`
+      prints the largest and the typical gap and how often it went over half the band and over the band.
 - [ ] **Testnet first, end to end.** The 24 Nov rehearsal deployed and verified the contracts on the testnet, but the testnet arena
       there is the older v1 contract (`placeBet`, `nextBettableRound`), which the current runner and site cannot drive. A full round
       (two calls, start and end push by the runner, settle, claim) needs a fresh v2 testnet arena first. Do that round before mainnet.

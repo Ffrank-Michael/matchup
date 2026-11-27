@@ -1,0 +1,38 @@
+# Matchup: logs the gap between Bitfinex ETH/BTC and Chainlink ETH/USD ÷ BTC/USD every 5 minutes (scripts/ratio-gap.mjs).
+# READ ONLY: no keys, no transactions, public data only. It does not read .env.
+# Install on the server (Ubuntu, user "ubuntu", repo in /home/ubuntu/arc-arena):
+#   sudo cp deploy/ratio-gap.service /etc/systemd/system/matchup-ratio-gap.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now matchup-ratio-gap
+#   systemctl status matchup-ratio-gap         is it running?
+#   journalctl -u matchup-ratio-gap -f         live log (Ctrl+C to leave it)
+#   node scripts/ratio-gap.mjs --summary       the largest and the typical gap so far (in /home/ubuntu/arc-arena)
+#   sudo systemctl disable --now matchup-ratio-gap   stop it for good (the log file stays)
+
+[Unit]
+Description=Matchup ETH/BTC gap logger (read only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/arc-arena
+ExecStart=/usr/local/bin/node scripts/ratio-gap.mjs --every 300
+Restart=always
+RestartSec=60
+
+# Small: two Bitfinex requests and four chain reads every 5 minutes. Keep it far below the runner on the 1 GB machine.
+Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-old-space-size=96
+MemoryMax=200M
+
+# It only writes data/ratio-gap-mainnet.jsonl.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/arc-arena/data
+
+[Install]
+WantedBy=multi-user.target
