@@ -122,16 +122,21 @@ function fakeState() {
 function fakeIo(over = {}) {
   const lines = [];
   let saved = 0;
+  const snapshots = [];
   const st = over.state ?? fakeState();
   const legs = {
     [ETH]: { description: 'ETH / USD', answer: 3_000n * 10n ** 8n, updatedAt: NOW - 600 },
     [BTC]: { description: 'BTC / USD', answer: 100_000n * 10n ** 8n, updatedAt: NOW - 60 },
     ...over.legs,
   };
+  // the markets on the fake arena: how many there are, and the ones a test (or createMarket) put there, by id
+  const arena = { count: over.marketCount ?? st.markets.length, markets: { ...over.arenaMarkets } };
   const reads = {
     [`${ARENA}.owner`]: over.arenaOwner ?? OWNER,
     [`${ARENA}.pendingOwner`]: zeroAddress,
-    [`${ARENA}.marketCount`]: () => BigInt(over.marketCount ?? st.markets.length),
+    [`${ARENA}.marketCount`]: () => BigInt(arena.count),
+    [`${ARENA}.markets`]: (id) => { const m = arena.markets[Number(id)]; if (!m) throw new Error(`execution reverted: no market ${id}`); return m.struct; },
+    [`${ARENA}.marketName`]: (id) => { const m = arena.markets[Number(id)]; if (!m) throw new Error(`execution reverted: no market ${id}`); return m.name; },
     [`${BTC_RELAY}.pusher`]: over.btcRelayPusher ?? PUSHER,
     [`${ETH_RELAY}.pusher`]: over.ethRelayPusher ?? PUSHER,
     [`${BTC_RELAY}.guard`]: over.btcRelayGuard ?? BTC,
@@ -146,7 +151,8 @@ function fakeIo(over = {}) {
     art: ART,
     deployer: 'deployer' in over ? over.deployer : OWNER,
     pusher: over.pusher ?? { address: PUSHER, problems: [] },
-    state: { load: () => st, save: () => { saved++; } },
+    // every save is kept as a copy, so a test can see what was written after each step
+    state: { load: () => st, save: (s) => { saved++; snapshots.push(JSON.parse(JSON.stringify(s, (_k, v) => (typeof v === 'bigint' ? String(v) : v)))); } },
     sender: null,
     chain: {
       chainId: over.chainId ?? 5042,
@@ -183,7 +189,7 @@ function fakeIo(over = {}) {
       testnetMarketGas: async () => 300_000n,
     },
   };
-  return { io, lines, contracts, reads, saves: () => saved, text: () => lines.join('\n') };
+  return { io, st, arena, lines, contracts, reads, snapshots, saves: () => saved, text: () => lines.join('\n') };
 }
 
 const dry = { send: false, verifyOnly: false };
@@ -443,4 +449,186 @@ test('F-9: a GuardedRelayFeed that is not the code of the live BTC relay stops t
   const ok = fakeIo();
   await run(dry, ok.io);
   assert.match(ok.text(), /Relay code +: the GuardedRelayFeed compiled here is the code of the live BTC relay/);
+});
+
+// ---------------------------------------------------------------- F-12: the real run past its first transaction, and --verify-only
+
+const COMMIT = 'c'.repeat(40);
+const txHash = (n) => '0x' + n.toString(16).padStart(64, '0');
+
+/**
+ * A sender that really "deploys" onto the fake chain: a RatioGuard at GUARD and a relay at RELAY that answer what their constructor
+ * arguments say (plus any override), and createMarket that adds the market to the fake arena. `failOn` = the call number that throws.
+ */
+function chainSender(f, { guardOver = {}, relayOver = {}, failOn = null } = {}) {
+  const calls = [];
+  const done = () => { if (failOn === calls.length) throw new Error('the RPC dropped the connection'); return { hash: txHash(calls.length), block: 100 + calls.length }; };
+  return {
+    calls,
+    deploy: async (c, args) => {
+      calls.push(['deploy', c === ART.ratioGuard ? 'RatioGuard' : c === ART.relay ? 'relay' : '?', args]);
+      const r = done();
+      if (c === ART.ratioGuard) {
+        f.contracts[GUARD] = { code: c.deployedBytecode, reads: guardReads({ numerator: args[0], denominator: args[1], numeratorMaxAge: args[2], denominatorMaxAge: args[3], description: args[6], ...guardOver }) };
+        return { ...r, address: GUARD };
+      }
+      f.contracts[RELAY] = { code: c.deployedBytecode, reads: relayReads(args[2], { owner: args[0], pusher: args[1], bandBps: args[3], description: args[4], ...relayOver }) };
+      return { ...r, address: RELAY };
+    },
+    write: async (address, _abi, fn, args) => {
+      calls.push(['write', fn, args]);
+      const r = done();
+      assert.equal(address, ARENA);
+      const id = f.arena.count++;
+      f.arena.markets[id] = { name: args[0], struct: [args[1], args[2], args[3], args[4], args[5], false] };
+      return r;
+    },
+  };
+}
+
+test('F-12: the real run end to end: the exact arguments of all three transactions, what is saved after each, and a passing verify', async () => {
+  const f = fakeIo();
+  const sender = chainSender(f);
+  f.io.sender = sender;
+  const res = await run(send, f.io);
+  assert.equal(res.ok, true);
+  assert.deepEqual(res.sent, ['Deploy RatioGuard ETH/BTC', 'Deploy relay feed ETH/BTC', 'Create market ETH/BTC 1h']);
+  assert.deepEqual(sender.calls, [
+    ['deploy', 'RatioGuard', [ETH, BTC, RATIO_LEG_MAX_AGE_SECONDS, RATIO_LEG_MAX_AGE_SECONDS, 'ETH / USD', 'BTC / USD', ratioGuardDescription(PAIR)]],
+    ['deploy', 'relay', [OWNER, PUSHER, GUARD, 250, ratioRelayDescription(PAIR, 'mainnet')]],
+    ['write', 'createMarket', ['ETH/BTC 1h', RELAY, zeroAddress, 3600, 50, MIN_STAKE]],
+  ]);
+
+  assert.equal(f.snapshots.length, 4);
+  const [afterGuard, afterRelay, afterMarket, last] = f.snapshots;
+  assert.deepEqual(afterGuard.ratio.guards.ethbtc, { address: GUARD, tx: txHash(1), block: 101, top: ETH, bottom: BTC, commit: COMMIT });
+  assert.deepEqual(afterGuard.ratio.feeds, {});
+  assert.deepEqual(afterRelay.ratio.feeds.ethbtc, { address: RELAY, tx: txHash(2), block: 102, commit: COMMIT });
+  assert.equal(afterRelay.markets.length, 12);
+  assert.deepEqual(afterMarket.markets[12], { id: 12, name: 'ETH/BTC 1h', coin: 'ethbtc', kind: 'ratio', round: 3600, offset: 50, feed: RELAY, minStake: 500000, tx: txHash(3), block: 103, commit: COMMIT });
+  assert.equal(last.ratio.deployedAt, new Date(NOW * 1000).toISOString());
+
+  const t = f.text();
+  assert.match(t, /RatioGuard answers 0\.03; Chainlink ETH \/ BTC worked out here: 0\.03 OK/);
+  assert.match(t, /market id 12/);
+  assert.match(t, /All checks passed/);
+  assert.doesNotMatch(t, /FAIL/);
+});
+
+test('F-12: a run that stopped after the guard carries on: the guard is checked and reused, only the relay and the market are sent', async () => {
+  const f = fakeIo();
+  f.io.sender = chainSender(f, { failOn: 2 });
+  await assert.rejects(run(send, f.io), /the RPC dropped the connection/);
+  assert.equal(f.snapshots.length, 1, 'only the guard was saved');
+  assert.equal(f.arena.count, 12);
+
+  const again = chainSender(f);
+  f.io.sender = again;
+  const res = await run(send, f.io);
+  assert.equal(res.ok, true);
+  assert.deepEqual(again.calls.map((c) => c[1]), ['relay', 'createMarket']);
+  assert.ok(f.text().includes(`Saved RatioGuard ${GUARD}: every check passed`));
+  assert.equal(f.arena.count, 13);
+});
+
+test('F-12: a deployed guard that does not give Chainlink ETH / BTC stops before the relay is deployed', async () => {
+  const f = fakeIo();
+  const sender = chainSender(f, { guardOver: { latestRoundData: [0n, RATIO + 7n, 0n, 0n, 0n] } });
+  f.io.sender = sender;
+  await assert.rejects(run(send, f.io), /does not give Chainlink ETH \/ BTC\. Do not go on; nothing uses it yet/);
+  assert.deepEqual(sender.calls.map((c) => c[1]), ['RatioGuard']);
+});
+
+test('F-12: a relay deployed in the same run that is not what was asked for is caught before createMarket', async () => {
+  const f = fakeIo();
+  const sender = chainSender(f, { relayOver: { bandBps: 1000 } });
+  f.io.sender = sender;
+  await assert.rejects(run(send, f.io), (e) => /the market was NOT created/.test(e.message) && /relay band is 250 bps/.test(e.message));
+  assert.deepEqual(sender.calls.map((c) => c[1]), ['RatioGuard', 'relay']);
+  assert.equal(f.arena.count, 12);
+});
+
+test('F-12: a createMarket that fails leaves the guard and relay saved and no market in the file', async () => {
+  const f = fakeIo();
+  f.io.sender = chainSender(f, { failOn: 3 });
+  await assert.rejects(run(send, f.io), /the RPC dropped the connection/);
+  assert.equal(f.snapshots.length, 2);
+  assert.equal(f.st.markets.length, 12);
+});
+
+/** A finished deployment: the file and the fake chain agree on guard, relay and market 12. */
+function deployedRun() {
+  const st = fakeState();
+  st.ratio = { guards: { ethbtc: { address: GUARD } }, feeds: { ethbtc: { address: RELAY } } };
+  st.markets.push({ id: 12, name: 'ETH/BTC 1h', coin: 'ethbtc', kind: 'ratio', round: 3600, offset: 50, feed: RELAY, minStake: 500000 });
+  return {
+    state: st,
+    contracts: {
+      [GUARD]: { code: ART.ratioGuard.deployedBytecode, reads: guardReads() },
+      [RELAY]: { code: ART.relay.deployedBytecode, reads: relayReads(GUARD) },
+    },
+    arenaMarkets: { 12: { name: 'ETH/BTC 1h', struct: [RELAY, zeroAddress, 3600, 50, MIN_STAKE, false] } },
+  };
+}
+const verifyOnly = { send: false, verifyOnly: true };
+
+test('F-12: --verify-only on a correct deployment: every check OK, nothing sent or saved', async () => {
+  const f = fakeIo(deployedRun());
+  const res = await run(verifyOnly, f.io);
+  assert.deepEqual(res, { ok: true, sent: [] });
+  assert.equal(f.saves(), 0);
+  const t = f.text();
+  assert.match(t, /All checks passed/);
+  assert.doesNotMatch(t, /FAIL/);
+  assert.ok((t.match(/^ {2}OK /gm) || []).length >= 22, 'every check is listed');
+  assert.doesNotMatch(t, /Check Chainlink|The plan/, 'verify only reads; it plans nothing');
+});
+
+test('F-12: --verify-only reports each wrong setting as exactly one FAIL', async () => {
+  const other = getAddress('0x' + '66'.repeat(20));
+  const g = (o) => (s) => Object.assign(s.contracts[GUARD].reads, o);
+  const r = (o) => (s) => Object.assign(s.contracts[RELAY].reads, o);
+  const m = (i, v) => (s) => { s.arenaMarkets[12].struct[i] = v; };
+  const cases = [
+    ['guard: top is Chainlink ETH/USD', g({ numerator: other })],
+    ['guard: bottom is Chainlink BTC/USD', g({ denominator: other })],
+    ['guard has 18 decimals', g({ decimals: 8 })],
+    ['guard says', g({ description: 'Matchup ratio guard SOL / BTC' })],
+    ['each leg at most 25 h old', g({ numeratorMaxAge: 3600 })],
+    ['each leg at most 25 h old (the read failed', (s) => { delete s.contracts[GUARD].reads.denominatorMaxAge; }],
+    ['guard is version 2', g({ version: 1n })],
+    ['guard code on chain matches the repo', (s) => { s.contracts[GUARD].code = '0x' + '99'.repeat(80); }],
+    ['guard answers a ratio above 0 (the read failed', g({ latestRoundData: () => { throw new Error('execution reverted: StaleFeed'); } })],
+    ['relay is owned by the arena owner', r({ owner: other })],
+    ['relay pusher is', r({ pusher: other })],
+    ['relay guard is the RatioGuard', r({ guard: other })],
+    ['relay band is 250 bps', r({ bandBps: 150 })],
+    ['relay has 18 decimals', r({ decimals: 8 })],
+    ['relay says', r({ description: 'Matchup relay ETH / USD' })],
+    ['relay code on chain matches the repo', (s) => { s.contracts[RELAY].code = '0x' + '98'.repeat(80); }],
+    ['market 12 reads the ETH/BTC relay', m(0, other)],
+    ['market 12 has no second feed', m(1, other)],
+    ['market 12: 1-hour rounds', m(2, 1800)],
+    ['market 12: 1-hour rounds', m(3, 0)],
+    ['market 12: 1-hour rounds', m(4, 100_000n)],
+    ['market 12: 1-hour rounds', m(5, true)],
+    ['market 12 is named ETH/BTC 1h', (s) => { s.arenaMarkets[12].name = 'ETH/BTC 5m'; }],
+    ['the arena has the 13 markets the file lists', (s) => { s.marketCount = 14; }],
+    ['but the live ETH relay', (s) => { s.ethRelayGuard = other; }],
+  ];
+  for (const [failing, mutate] of cases) {
+    const setup = deployedRun();
+    mutate(setup);
+    const f = fakeIo(setup);
+    const res = await run(verifyOnly, f.io);
+    assert.equal(res.ok, false, failing);
+    const fails = f.lines.flatMap((l) => l.split('\n')).filter((l) => l.startsWith('  FAIL'));
+    assert.equal(fails.length, 1, `${failing}: ${fails.join(' | ')}`);
+    assert.ok(fails[0].includes(failing), `${failing}: ${fails[0]}`);
+    assert.match(f.text(), /Do not use this market until they are understood \(pause it: setMarketPaused\(12, true\)\)/);
+  }
+});
+
+test('F-12: --verify-only before anything is deployed stops with a clear message', async () => {
+  await assert.rejects(run(verifyOnly, fakeIo().io), /has no ETH vs BTC deployment yet/);
 });
