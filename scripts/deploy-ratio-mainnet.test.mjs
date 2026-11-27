@@ -169,7 +169,15 @@ function fakeIo(over = {}) {
         throw new Error(`the dry run read something unexpected: ${k}`);
       },
       gasPrice: async () => 20n * 10n ** 9n,
-      estimateDeploy: async () => 1_000_000n,
+      estimateDeploy: async (c) => (over.estimate ? over.estimate(c) : 1_000_000n),
+      // the RatioGuard constructor simulated with eth_call: its runtime code, or a throw when it would revert
+      simulateDeploy: async (c, args) => { if (over.simulateDeploy) return over.simulateDeploy(c, args); return c.deployedBytecode; },
+      // a read against that simulated code
+      callCode: async (code, _abi, fn) => {
+        if (over.callCode) return over.callCode(code, fn);
+        if (code === ART.ratioGuard.deployedBytecode && fn === 'latestRoundData') return guardReads().latestRoundData;
+        throw new Error(`execution reverted: ${fn}() on unknown code`);
+      },
       balance: async () => over.balance ?? 3_000_000n,
       testnetMarketGas: async () => 300_000n,
     },
@@ -354,4 +362,39 @@ test('F-1: an inconsistent file (market but no guard, relay but no guard) stops 
   const st2 = fakeState();
   st2.ratio = { guards: {}, feeds: { ethbtc: { address: RELAY } } };
   await assert.rejects(run(dry, fakeIo({ state: st2 }).io), /an ETH\/BTC relay but no RatioGuard/);
+});
+
+// ---------------------------------------------------------------- F-4: the dry run reports a RatioGuard constructor that would fail
+
+test('F-4: the dry run simulates the RatioGuard constructor with the exact arguments and checks its answer', async () => {
+  let simulated;
+  const f = fakeIo({ simulateDeploy: (c, args) => { simulated = { c, args }; return c.deployedBytecode; } });
+  await run(dry, f.io);
+  assert.equal(simulated.c, ART.ratioGuard);
+  assert.deepEqual(simulated.args, [ETH, BTC, RATIO_LEG_MAX_AGE_SECONDS, RATIO_LEG_MAX_AGE_SECONDS, 'ETH / USD', 'BTC / USD', ratioGuardDescription(PAIR)]);
+  assert.match(f.text(), /The constructor accepts these feeds, labels and age limits/);
+  assert.match(f.text(), /The simulated guard answers 0\.03; Chainlink ETH \/ BTC worked out here: 0\.03 OK/);
+});
+
+test('F-4: a constructor that would revert, a guard that will not answer or answers wrong, or a failed estimate stops the dry run', async () => {
+  for (const [over, msg] of [
+    [{ simulateDeploy: () => { throw new Error('execution reverted: WrongFeed(0x50FC..., "ETH / USD", "BTC / USD")'); } }, /RatioGuard constructor would revert on mainnet \(execution reverted: WrongFeed/],
+    [{ simulateDeploy: () => '0x' }, /returned no code/],
+    [{ callCode: () => { throw new Error('execution reverted: StaleFeed'); } }, /simulated RatioGuard refuses to answer \(execution reverted: StaleFeed/],
+    [{ callCode: () => [0n, RATIO + 1n, 0n, 0n, 0n] }, /simulated RatioGuard does not give Chainlink ETH \/ BTC/],
+    [{ estimate: (c) => (c === ART.ratioGuard ? null : 1_000_000n) }, /could not estimate the RatioGuard deployment although its simulation passed/],
+  ]) {
+    const f = fakeIo(over);
+    await assert.rejects(run(dry, f.io), (e) => msg.test(e.message) && /Nothing was sent/.test(e.message));
+    assert.doesNotMatch(f.text(), /Dry run done/);
+  }
+});
+
+test('F-4: with a saved guard, the relay constructor is estimated on it, and a failed estimate stops the dry run', async () => {
+  const setup = savedRun({ relay: false });
+  await assert.rejects(run(dry, fakeIo({ ...setup, estimate: (c) => (c === ART.relay ? null : 1_000_000n) }).io), /the relay constructor would revert on mainnet/);
+  const ok = fakeIo(setup);
+  await run(dry, ok.io);
+  assert.match(ok.text(), /RatioGuard 0, relay 1000000, createMarket 300000/);
+  assert.doesNotMatch(ok.text(), /Simulate the RatioGuard constructor/);
 });

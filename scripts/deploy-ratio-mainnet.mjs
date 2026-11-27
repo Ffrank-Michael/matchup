@@ -21,7 +21,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { formatUnits, getAddress, isAddress, zeroAddress, encodeDeployData, createPublicClient, http } from 'viem';
+import { formatUnits, getAddress, isAddress, zeroAddress, encodeDeployData, encodeFunctionData, decodeFunctionResult, createPublicClient, http } from 'viem';
 import { UNDERSTAND_FLAG } from './deployFlags.mjs';
 import {
   COINS, CHAINLINK_MAINNET, FEED_DECIMALS, MIN_STAKE, RATIO_PAIRS, RATIO_MARKETS, RATIO_DECIMALS, RATIO_LEG_MAX_AGE_SECONDS,
@@ -239,13 +239,43 @@ export async function run(mode, io) {
   ].join('\n'));
   log('  4. Verify everything on chain. No first ratio is pushed: the runner pushes only for rounds with calls on both sides.');
 
+  // ---------- 3b. the RatioGuard constructor, simulated on mainnet (eth_call: nothing is sent) ----------
+  // A constructor that would revert (WrongFeed, BadMaxAge, TooManyDecimals, ...) must stop the dry run, not turn into a gas guess
+  // (audit part 3, F-4). The simulated guard's own answer is then compared with Chainlink ETH / BTC worked out here.
+  const from = io.deployer ?? arenaOwner;
+  if (!doneGuard) {
+    step('Simulate the RatioGuard constructor on Arc mainnet (eth_call, nothing is sent)');
+    let runtime;
+    try { runtime = await chain.simulateDeploy(art.ratioGuard, gArgs, from); }
+    catch (e) { stop(`the RatioGuard constructor would revert on mainnet (${short(e)}). Nothing was sent.`); }
+    if (!runtime || runtime === '0x') stop('the simulated RatioGuard constructor returned no code. Nothing was sent.');
+    log('  The constructor accepts these feeds, labels and age limits.');
+    let match = false;
+    for (let i = 0; i < 2 && !match; i++) {
+      let answer;
+      try { answer = (await chain.callCode(runtime, art.ratioGuard.abi, 'latestRoundData'))[1]; }
+      catch (e) { stop(`the simulated RatioGuard refuses to answer (${short(e)}). Nothing was sent.`); }
+      const [e, b] = await Promise.all([read(top, art.ratioGuard.abi, 'latestRoundData'), read(bottom, art.ratioGuard.abi, 'latestRoundData')]);
+      const want = expectedRatio(e[1], b[1]);
+      match = answer === want;
+      log(`  The simulated guard answers ${Number(answer) / 1e18}; Chainlink ETH / BTC worked out here: ${Number(want) / 1e18} ${match ? 'OK' : '(differs, reading again)'}`);
+    }
+    if (!match) stop('the simulated RatioGuard does not give Chainlink ETH / BTC. Nothing was sent.');
+  }
+
   // ---------- 4. cost and the owner's USDC ----------
   step('Cost and the owner wallet\'s USDC');
   const gasPrice = await chain.gasPrice();
-  const from = io.deployer ?? arenaOwner;
   const guessDeploy = (c) => 53_000n + 200n * BigInt((c.deployedBytecode.length - 2) / 2) + 16n * BigInt((c.bytecode.length - 2) / 2);
-  const g = doneGuard ? 0n : (await chain.estimateDeploy(art.ratioGuard, gArgs, from)) ?? guessDeploy(art.ratioGuard);
-  const r = doneRelay ? 0n : (doneGuard ? await chain.estimateDeploy(art.relay, relayArgs(doneGuard.address), from) : null) ?? guessDeploy(art.relay);
+  // no silent guess for the guard: its constructor was simulated above, so a failed estimate means something is wrong (F-4)
+  const g = doneGuard ? 0n : await chain.estimateDeploy(art.ratioGuard, gArgs, from);
+  if (g === null) stop('the node could not estimate the RatioGuard deployment although its simulation passed. Look at the RPC before going on. Nothing was sent.');
+  // the relay's constructor reads its guard, so it can only be estimated (and so checked) once the guard exists
+  let r = 0n;
+  if (!doneRelay && doneGuard) {
+    r = await chain.estimateDeploy(art.relay, relayArgs(getAddress(doneGuard.address)), from);
+    if (r === null) stop('the relay constructor would revert on mainnet (its gas estimate failed). Nothing was sent.');
+  } else if (!doneRelay) r = guessDeploy(art.relay);
   const mk = have ? 0n : (await chain.testnetMarketGas()) ?? 400_000n;
   const { costWei, needRaw } = costAndNeed({ guard: g, relay: r, market: mk }, gasPrice);
   log(`  Gas price       : ${formatUnits(gasPrice, 9)} gwei`);
@@ -454,6 +484,14 @@ async function main() {
       read: (address, abi, functionName, args) => pub.readContract({ address, abi, functionName, args }),
       gasPrice: () => pub.getGasPrice(),
       estimateDeploy: async (ct, args, from) => { try { return await pub.estimateGas({ account: from, data: encodeDeployData({ abi: ct.abi, bytecode: ct.bytecode, args }) }); } catch { return null; } },
+      // eth_call of the deployment: returns the code the constructor would leave behind, or throws with the revert reason
+      simulateDeploy: async (ct, args, from) => (await pub.call({ account: from, data: encodeDeployData({ abi: ct.abi, bytecode: ct.bytecode, args }) })).data,
+      // a read against code that is not deployed: the code is placed at a spare address for this one eth_call only
+      callCode: async (code, abi, functionName) => {
+        const at = '0x00000000000000000000000000000000000c0de1';
+        const res = await pub.call({ to: at, data: encodeFunctionData({ abi, functionName }), stateOverride: [{ address: at, code }] });
+        return decodeFunctionResult({ abi, functionName, data: res.data });
+      },
       balance: async (who) => (await usdcBalance(pub, usdc, who)).raw,
       // the gas of the testnet ETH/BTC createMarket, the same call on the same contract (deployments/arc-testnet.json)
       testnetMarketGas: async () => {
