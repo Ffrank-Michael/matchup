@@ -65,6 +65,7 @@ export function YourCall({
   onClearBacking,
   chain,
   onCalled,
+  sharedNote,
   index,
   className,
 }: {
@@ -90,6 +91,8 @@ export function YourCall({
   chain: { nextRound: number; minStake: bigint; paused: boolean; upTotal: bigint; downTotal: bigint } | null;
   /** Called once when a call has gone through: which market and round it was for */
   onCalled: (marketId: number, roundIndex: number) => void;
+  /** What a share link did (lib/share-link.ts), shown at the top of the panel; null when the page was not opened from one */
+  sharedNote?: string | null;
   index: number;
   className?: string;
 }) {
@@ -165,6 +168,12 @@ export function YourCall({
       index={index}
       className={cn("p-4 sm:p-6", className)}
     >
+      {sharedNote ? (
+        <p data-testid="shared-note" className="mb-3 rounded-2xl px-3 py-2 text-[12px] font-semibold leading-snug" style={{ background: "color-mix(in oklch, black 12%, transparent)" }}>
+          {sharedNote}
+        </p>
+      ) : null}
+
       {/* countdown: the call is always for the NEXT round */}
       <div className="flex items-center gap-3">
         <Ring secondsLeft={secondsLeft} roundSeconds={market.roundSeconds} />

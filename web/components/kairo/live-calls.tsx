@@ -9,6 +9,7 @@ import type { Market } from "@/lib/markets";
 import { whoIs, whoName } from "@/lib/players";
 import { noteOf, useAgentNotes } from "@/lib/use-agent-notes";
 import { refundReasonText } from "@/lib/refund-reason";
+import { shareUrl } from "@/lib/share-link";
 import { usdc, useLiveCalls, useSettlements, settlementKey } from "@/onchain";
 
 import { AgentAvatar } from "./agent-avatar";
@@ -16,6 +17,7 @@ import { AiNoteFootnote, CallNote, SkippedNotes } from "./agent-reason";
 import { StartEnd } from "./price-proof";
 import { RoundBadge, roundStatusOf } from "./round-badge";
 import { RoundHistory } from "./round-history";
+import { ShareButton } from "./share-button";
 import { Tile } from "./tile";
 import { usePlayer } from "@/onchain/usePlayer";
 
@@ -116,6 +118,12 @@ export function LiveCalls({
                       >
                         Watch
                       </button>
+                    ) : status.kind === "next" ? (
+                      <ShareButton
+                        testId="share-round"
+                        label={`Share this ${market.kind === "ratio" ? market.label : market.key} round`}
+                        makeUrl={() => shareUrl(window.location.origin, market.id, roundIndex)}
+                      />
                     ) : null}
                   </div>
                   {refunded ? (

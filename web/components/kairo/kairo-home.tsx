@@ -11,11 +11,13 @@ import {
   DEFAULT_FRAME,
   FRAMES_OF,
   LIVE_MATCHUPS,
+  MARKETS,
   marketFor,
   secondsToNextLock,
   type MarketKey,
 } from "@/lib/markets";
 import { waitingSide } from "@/lib/hot-round";
+import { readShare, sharedNote, type Shared } from "@/lib/share-link";
 import { hourPoints, lastPrice, usePriceFeed } from "@/lib/price-feed";
 import { LIVE_PRICE_SHORT } from "@/lib/price-rule";
 import { withGuideCalls } from "@/lib/guide-merge";
@@ -73,6 +75,24 @@ export function KairoHome() {
     [],
   );
   const closeWatch = React.useCallback(() => setWatch(null), []);
+  // share link: start. A link like /?market=3&round=42 opens on that market and time frame with the call panel in view.
+  // It picks nothing else: no side, no amount, no call. Works the same with or without a wallet. Read in the browser only.
+  const [shared, setShared] = React.useState<Shared | null>(null);
+  React.useEffect(() => {
+    const s = readShare(window.location.search, MARKETS);
+    if (!s) return;
+    const pick = window.setTimeout(() => {
+      setShared(s);
+      setSelected(s.key as MarketKey);
+      setFrame(s.roundSeconds);
+    }, 0);
+    const scroll = window.setTimeout(() => document.getElementById("your-call")?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
+    return () => {
+      window.clearTimeout(pick);
+      window.clearTimeout(scroll);
+    };
+  }, []);
+  // share link: end
   const { address: me } = usePlayer();
   const backingAgent = AGENTS.find((a) => a.key === backing) ?? null;
   // Tapping "Back this agent": remember it, and on a phone (one column) bring the call card into view.
@@ -111,6 +131,8 @@ export function KairoHome() {
   );
   // The three AI agents' one-sentence reasons for that open round (or that the AI could not decide), from the runner's notes.
   const openRound = selectedChain?.nextRound ?? null;
+  // what a share link did, for the call panel (null when the page was not opened from one)
+  const shareNote = sharedNote(shared, market.id, openRound);
   const notes = useAgentNotes(market.id, openRound === null ? [] : [openRound]);
   // The guide calls: every agent's call on every round, made whether or not anyone plays (no money, nothing on chain).
   const guide = useGuideCalls(market.id, openRound);
@@ -311,6 +333,7 @@ export function KairoHome() {
                     }
                   : null
               }
+              sharedNote={shareNote}
               index={5}
               className="order-2 lg:order-none"
             />
