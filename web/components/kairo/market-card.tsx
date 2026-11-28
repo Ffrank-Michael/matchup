@@ -1,3 +1,4 @@
+import type { Waiting } from "@/lib/hot-round";
 import { formatPrice, type Market } from "@/lib/markets";
 import { HOUR, type Point } from "@/lib/price-feed";
 import { cn } from "@/lib/utils";
@@ -40,6 +41,15 @@ function ChartIcon() {
   );
 }
 
+/** The flame on a round card whose calls are waiting on one side only */
+function FlameIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M12 2c.6 3.2-1 5.1-2.6 7C7.8 10.8 6 12.8 6 15.5A6 6 0 0 0 18 15.5c0-2.4-1.2-4.3-2.4-5.6-.2 1.5-.9 2.6-2 3.1.4-3.4-.4-7.6-1.6-11Z" />
+    </svg>
+  );
+}
+
 /**
  * One coin: its name, the live price and the last hour as a line. Tapping it picks that market in the call panel.
  * (Which time frame, the countdown and the rounds are in the call panel and the rounds strip, not here.)
@@ -53,6 +63,7 @@ export function MarketCard({
   selected,
   onSelect,
   onOpenChart,
+  waiting,
   index,
 }: {
   market: Market;
@@ -68,6 +79,8 @@ export function MarketCard({
   onSelect: () => void;
   /** Opens the full chart in a sheet (from the bottom on a phone, centred on a laptop) */
   onOpenChart: () => void;
+  /** The round taking calls now has calls on one side only (lib/hot-round.ts); null otherwise */
+  waiting: Waiting | null;
   index: number;
 }) {
   const spark = points && nowMs !== null ? <Sparkline points={points} nowMs={nowMs} className="h-8 lg:h-12" /> : <span className="block h-8 lg:h-12" aria-hidden />;
@@ -87,6 +100,16 @@ export function MarketCard({
         <span className="flex items-baseline gap-2">
           <span className="text-[13px] font-semibold tracking-tight lg:text-[15px]">{market.label}</span>
           <span className="hidden text-[12px] text-muted-foreground lg:inline">{market.pair}</span>
+          {waiting ? (
+            <span
+              data-testid="hot-flame"
+              title={`Calls are waiting on ${waiting.side} only`}
+              className="self-center text-[oklch(0.75_0.18_55)] motion-safe:animate-pulse"
+            >
+              <FlameIcon />
+              <span className="sr-only">{`Calls are waiting on ${waiting.side} only`}</span>
+            </span>
+          ) : null}
         </span>
 
         <span className="mt-1.5 block min-w-0 truncate font-mono text-[13px] font-semibold leading-none tracking-[-0.04em] tabular-nums sm:text-[17px] lg:mt-3 lg:text-[30px]">

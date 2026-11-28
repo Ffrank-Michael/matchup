@@ -15,6 +15,7 @@ import {
   secondsToNextLock,
   type MarketKey,
 } from "@/lib/markets";
+import { waitingSide } from "@/lib/hot-round";
 import { hourPoints, lastPrice, usePriceFeed } from "@/lib/price-feed";
 import { LIVE_PRICE_SHORT } from "@/lib/price-rule";
 import { withGuideCalls } from "@/lib/guide-merge";
@@ -151,6 +152,11 @@ export function KairoHome() {
   const priceOf = (key: MarketKey) => lastPrice(feed.candles[key]);
   const pointsOf = (key: MarketKey) =>
     nowMs === null ? null : hourPoints(feed.candles[key], nowMs);
+  // The round of a market that takes calls now, as the contract has it (for the flame on its card)
+  const callableRound = (id: number) => {
+    const c = chainOf(id);
+    return c ? roundsByMarket?.[id]?.find((x) => x.roundIndex === c.nextRound) : undefined;
+  };
   const feedFailed =
     feed.status === "reconnecting" &&
     COINS.every((c) => feed.candles[c.key] === null);
@@ -200,6 +206,7 @@ export function KairoHome() {
                   selected={c.key === selected}
                   onSelect={() => setSelected(c.key)}
                   onOpenChart={() => setChartOpen(true)}
+                  waiting={waitingSide(callableRound(m.id), now)}
                   index={i}
                 />
               );
@@ -226,6 +233,7 @@ export function KairoHome() {
                       selected={p.key === selected}
                       onSelect={() => setSelected(p.key)}
                       onOpenChart={() => setChartOpen(true)}
+                      waiting={waitingSide(callableRound(m.id), now)}
                       index={COINS.length + i}
                     />
                   );
