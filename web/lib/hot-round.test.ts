@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-import { isHot, waitingSide } from "./hot-round.ts";
+import { isHot, usdcPlain, waitingLine, waitingSide } from "./hot-round.ts";
 
 type State = "open" | "locked" | "unsettled" | "up" | "down" | "refunded";
 const round = (state: State, up: bigint, down: bigint) => ({ state, upTotal: up, downTotal: down, lockTimeSec: 1_000 });
@@ -39,4 +39,49 @@ test("the round card shows the flame from waitingSide, for the round that takes 
   assert.match(card, /data-testid="hot-flame"/);
   const home = fs.readFileSync(path.resolve(import.meta.dirname, "..", "components", "kairo", "kairo-home.tsx"), "utf8");
   assert.match(home, /waitingSide\(/);
+});
+
+// ── the waiting line under the flame ──
+
+test("the waiting line names the side, the amount and the side that is needed", () => {
+  assert.equal(waitingLine(waitingSide(round("open", 2_000_000n, 0n), 900)), "UP 2 USDC waiting. Needs DOWN.");
+  assert.equal(waitingLine(waitingSide(round("open", 0n, 2_500_000n), 900)), "DOWN 2.50 USDC waiting. Needs UP.");
+});
+
+test("the waiting line is gone once both sides have calls or the calling window closes", () => {
+  assert.equal(waitingLine(waitingSide(round("open", 2_000_000n, 500_000n), 900)), null);
+  assert.equal(waitingLine(waitingSide(round("open", 2_000_000n, 0n), 1_000)), null);
+  assert.equal(waitingLine(waitingSide(round("locked", 2_000_000n, 0n), 900)), null);
+});
+
+test("coin vs coin uses the market's own side names", () => {
+  const words = { UP: "ETH wins", DOWN: "BTC wins" };
+  assert.equal(waitingLine(waitingSide(round("open", 1_000_000n, 0n), 900), words), "1 USDC waiting on ETH wins. Needs BTC wins.");
+});
+
+test("amounts are the exact on-chain amount, never rounded up", () => {
+  assert.equal(usdcPlain(2_000_000n), "2");
+  assert.equal(usdcPlain(500_000n), "0.50");
+  assert.equal(usdcPlain(1_239_999n), "1.23");
+  assert.equal(usdcPlain(10_000_000n), "10");
+  assert.equal(usdcPlain(4_000n), "0.004");
+  assert.equal(usdcPlain(1n), "0.000001");
+});
+
+test("plain words: no em dashes, no bet, wager or odds", () => {
+  const lines = [
+    waitingLine(waitingSide(round("open", 2_000_000n, 0n), 900)),
+    waitingLine(waitingSide(round("open", 0n, 2_000_000n), 900), { UP: "ETH wins", DOWN: "BTC wins" }),
+  ];
+  for (const l of lines) {
+    assert.ok(l);
+    assert.doesNotMatch(l, /—/);
+    assert.doesNotMatch(l, /\b(bet|wager|odds)\b/i);
+  }
+});
+
+test("the round card shows the waiting line under the flame", () => {
+  const card = fs.readFileSync(path.resolve(import.meta.dirname, "..", "components", "kairo", "market-card.tsx"), "utf8");
+  assert.match(card, /data-testid="hot-line"/);
+  assert.match(card, /waitingLine\(waiting, market\.sides\)/);
 });
